@@ -1,7 +1,5 @@
 import { serve } from "@hono/node-server";
-import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { access } from "node:fs/promises";
 import { Hono } from "hono";
 import qrcode from "qrcode-terminal";
 
@@ -24,14 +22,58 @@ export type ControlCenterOptions = {
   workspacePath: string;
 };
 
+type PendingPairingSummary = {
+  approvalCode: string;
+  clientName?: string;
+  expiresAt: number;
+  serverUrl: string;
+};
+
+type SessionSummary = {
+  clientName?: string;
+  clientSessionId?: string;
+  createdAt: number;
+  displayId: string;
+  tokenHash: string;
+  updatedAt: number;
+};
+
+type DeviceSnapshot = {
+  pendingPairings: PendingPairingSummary[];
+  sessions: SessionSummary[];
+  updatedAt: number;
+};
+
 export function startControlCenter(options: ControlCenterOptions) {
   const app = new Hono();
   const controlToken = randomBytes(24).toString("base64url");
   const database = connect(options.authDbPath);
   const pairingQr = renderPairingQr(options.pairingPayload);
-  let diagnosticsCache:
-    | { expiresAt: number; value: Awaited<ReturnType<typeof collectDiagnostics>> }
-    | undefined;
+  let deviceSnapshot: DeviceSnapshot = { pendingPairings: [], sessions: [], updatedAt: 0 };
+  let snapshotRefresh: Promise<void> | undefined;
+
+  const refreshDeviceSnapshot = () => {
+    if (snapshotRefresh) {
+      return snapshotRefresh;
+    }
+    snapshotRefresh = Promise.all([listPendingPairings(database), listSessions(database)])
+      .then(([pendingPairings, sessions]) => {
+        deviceSnapshot = { pendingPairings, sessions, updatedAt: Date.now() };
+      })
+      .catch((error) => {
+        console.error(
+          `Codex Relay control center device snapshot failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      })
+      .finally(() => {
+        snapshotRefresh = undefined;
+      });
+    return snapshotRefresh;
+  };
+
+  void refreshDeviceSnapshot();
 
   app.use("*", async (c, next) => {
     if (!isAllowedControlHost(c.req.header("host"), options.port)) {
@@ -63,17 +105,15 @@ export function startControlCenter(options: ControlCenterOptions) {
     await next();
   });
 
-  app.get("/api/state", async (c) => {
-    const [pendingPairings, sessions, diagnostics] = await Promise.all([
-      listPendingPairings(database),
-      listSessions(database),
-      getDiagnostics(),
-    ]);
+  // Keep the primary state endpoint non-blocking. Pairing and relay details must remain
+  // usable even if SQLite/device enumeration is slow on a particular machine.
+  app.get("/api/state", (c) => {
+    void refreshDeviceSnapshot();
     return c.json({
-      diagnostics,
+      diagnostics: collectCoreDiagnostics(options),
       pairingPayload: options.pairingPayload,
       pairingQr,
-      pendingPairings,
+      pendingPairings: deviceSnapshot.pendingPairings,
       relay: {
         connectUrl: options.connectUrl,
         connectUrlCandidates: options.connectUrlCandidates,
@@ -82,7 +122,8 @@ export function startControlCenter(options: ControlCenterOptions) {
         sharedAppServerRemoteAddress: options.sharedAppServerRemoteAddress,
         workspacePath: options.workspacePath,
       },
-      sessions,
+      sessions: deviceSnapshot.sessions,
+      snapshotUpdatedAt: deviceSnapshot.updatedAt,
     });
   });
 
@@ -93,12 +134,14 @@ export function startControlCenter(options: ControlCenterOptions) {
       return c.json({ error: "Pairing request was not found or has expired." }, 404);
     }
     options.onPairApproved?.({ approvalCode, clientName: pending.clientName });
+    void refreshDeviceSnapshot();
     return c.json({ approved: true, approvalCode });
   });
 
   app.delete("/api/pairings/:approvalCode", async (c) => {
     const approvalCode = normalizeApprovalCode(c.req.param("approvalCode"));
     await options.sessions.deletePendingPairing(approvalCode);
+    void refreshDeviceSnapshot();
     return c.json({ removed: true, approvalCode });
   });
 
@@ -113,24 +156,16 @@ export function startControlCenter(options: ControlCenterOptions) {
     if (typeof row?.clientSessionId === "string") {
       await options.sessions.deletePushNotificationSubscription(row.clientSessionId);
     }
+    void refreshDeviceSnapshot();
     return c.json({ removed: true });
   });
 
   app.post("/api/sessions/clear", async (c) => {
     const result = await options.sessions.clearAll();
     options.onPairingsCleared?.(result);
+    deviceSnapshot = { pendingPairings: [], sessions: [], updatedAt: Date.now() };
     return c.json(result);
   });
-
-  async function getDiagnostics() {
-    const now = Date.now();
-    if (diagnosticsCache && diagnosticsCache.expiresAt > now) {
-      return diagnosticsCache.value;
-    }
-    const value = await collectDiagnostics(options);
-    diagnosticsCache = { expiresAt: now + 30_000, value };
-    return value;
-  }
 
   const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: options.port });
   server.on("error", (error) => {
@@ -184,12 +219,7 @@ async function listSessions(database: ReturnType<typeof connect>) {
   });
 }
 
-async function collectDiagnostics(options: ControlCenterOptions) {
-  const workspaceReadable = await access(options.workspacePath).then(
-    () => true,
-    () => false,
-  );
-  const tailscaleVersion = await readCommandFirstLine("tailscale", ["version"]);
+function collectCoreDiagnostics(options: ControlCenterOptions) {
   const nodeVersion = process.versions.node;
   const nodeParts = nodeVersion.split(".").map(Number);
   const nodeSupported =
@@ -208,11 +238,6 @@ async function collectDiagnostics(options: ControlCenterOptions) {
       value: `v${nodeVersion}${nodeSupported ? "" : " · requires >= 22.14"}`,
     },
     {
-      label: "Workspace",
-      status: workspaceReadable ? "ok" : "bad",
-      value: workspaceReadable ? options.workspacePath : `unavailable · ${options.workspacePath}`,
-    },
-    {
       label: "Network",
       status: options.connectUrlCandidates.length > 0 ? "ok" : "warn",
       value: `${options.connectUrlCandidates.length || 1} address candidate${
@@ -220,23 +245,13 @@ async function collectDiagnostics(options: ControlCenterOptions) {
       }`,
     },
     {
-      label: "Tailscale",
-      status: tailscaleVersion ? "ok" : "warn",
-      value: tailscaleVersion ?? "not detected · optional",
+      label: "Codex",
+      status: options.sharedAppServerRemoteAddress ? "ok" : "warn",
+      value: options.sharedAppServerRemoteAddress
+        ? `shared app-server · ${options.sharedAppServerRemoteAddress}`
+        : "private app-server fallback",
     },
   ];
-}
-
-function readCommandFirstLine(command: string, args: string[]) {
-  return new Promise<string | undefined>((resolve) => {
-    execFile(command, args, { encoding: "utf8", timeout: 1500 }, (error, stdout) => {
-      if (error) {
-        resolve(undefined);
-        return;
-      }
-      resolve(stdout.trim().split(/\r?\n/)[0] || "installed");
-    });
-  });
 }
 
 function renderPairingQr(payload: string) {
