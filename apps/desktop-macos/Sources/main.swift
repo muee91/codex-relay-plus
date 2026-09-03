@@ -3,69 +3,51 @@ import Darwin
 import Foundation
 import WebKit
 
-private enum DesktopConstants {
-  static let appName = "Codex Relay Plus"
-  static let defaultRelayPort = 8787
-  static let controlPortOffset = 2
-  static let workspaceDefaultsKey = "workspacePath"
+private enum C {
+  static let name = "Codex Relay Plus"
+  static let relayPort = 8787
+  static let controlOffset = 2
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
   private var window: NSWindow!
   private var webView: WKWebView!
-  private var relayProcess: Process?
-  private var relayProcessGroup: pid_t?
-  private var relayLogHandle: FileHandle?
-  private var relayPort = DesktopConstants.defaultRelayPort
-  private var controlPort = DesktopConstants.defaultRelayPort + DesktopConstants.controlPortOffset
-  private var currentWorkspace: URL?
-  private var startupGeneration = 0
+  private var relay: Process?
+  private var relayGroup: pid_t?
+  private var logHandle: FileHandle?
+  private var relayPort = C.relayPort
+  private var controlPort = C.relayPort + C.controlOffset
+  private var generation = 0
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    configureMenus()
-    configureWindow()
+    setupMenu()
+    setupWindow()
     NSApp.activate(ignoringOtherApps: true)
-
-    let startupDirectory: URL
-    if let remembered = rememberedWorkspace(), FileManager.default.fileExists(atPath: remembered.path) {
-      startupDirectory = remembered
-    } else {
-      startupDirectory = FileManager.default.homeDirectoryForCurrentUser
-    }
-    startRelay(in: startupDirectory)
+    startRelay()
   }
 
-  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    true
-  }
+  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+  func applicationWillTerminate(_ notification: Notification) { stopRelay() }
 
-  func applicationWillTerminate(_ notification: Notification) {
-    stopRelay()
-  }
-
-  private func configureWindow() {
-    let configuration = WKWebViewConfiguration()
-    configuration.websiteDataStore = .default()
-    configuration.userContentController.addUserScript(
-      WKUserScript(
-        source: "try { if (!localStorage.getItem('codex-relay-language')) localStorage.setItem('codex-relay-language', 'zh-CN'); } catch (_) {}",
-        injectionTime: .atDocumentStart,
-        forMainFrameOnly: true
-      )
-    )
-
-    webView = WKWebView(frame: .zero, configuration: configuration)
+  private func setupWindow() {
+    let config = WKWebViewConfiguration()
+    config.websiteDataStore = .default()
+    config.userContentController.addUserScript(WKUserScript(
+      source: "try { if (!localStorage.getItem('codex-relay-language')) localStorage.setItem('codex-relay-language', 'zh-CN'); } catch (_) {}",
+      injectionTime: .atDocumentStart,
+      forMainFrameOnly: true
+    ))
+    webView = WKWebView(frame: .zero, configuration: config)
     webView.navigationDelegate = self
     webView.uiDelegate = self
     webView.underPageBackgroundColor = .clear
-
     window = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
       backing: .buffered,
       defer: false
     )
-    window.title = DesktopConstants.appName
+    window.title = C.name
     window.titlebarAppearsTransparent = true
     window.titleVisibility = .hidden
     window.minSize = NSSize(width: 860, height: 620)
@@ -74,70 +56,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     window.makeKeyAndOrderFront(nil)
   }
 
-  private func configureMenus() {
-    let mainMenu = NSMenu()
-
-    let appMenuItem = NSMenuItem()
-    mainMenu.addItem(appMenuItem)
+  private func setupMenu() {
+    let main = NSMenu()
+    let appItem = NSMenuItem(); main.addItem(appItem)
     let appMenu = NSMenu()
-    appMenu.addItem(withTitle: "关于 \(DesktopConstants.appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+    appMenu.addItem(withTitle: "关于 \(C.name)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
     appMenu.addItem(.separator())
-    appMenu.addItem(withTitle: "退出 \(DesktopConstants.appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-    appMenuItem.submenu = appMenu
+    appMenu.addItem(withTitle: "退出 \(C.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    appItem.submenu = appMenu
 
-    let fileMenuItem = NSMenuItem()
-    mainMenu.addItem(fileMenuItem)
-    let fileMenu = NSMenu(title: "文件")
-    let workspaceItem = NSMenuItem(title: "更改默认工作目录…", action: #selector(chooseWorkspace(_:)), keyEquivalent: "o")
-    workspaceItem.target = self
-    fileMenu.addItem(workspaceItem)
-    let restartItem = NSMenuItem(title: "重启 Relay", action: #selector(restartRelay(_:)), keyEquivalent: "r")
-    restartItem.keyEquivalentModifierMask = [.command, .shift]
-    restartItem.target = self
-    fileMenu.addItem(restartItem)
-    let reloadItem = NSMenuItem(title: "重新载入控制中心", action: #selector(reloadControlCenter(_:)), keyEquivalent: "r")
-    reloadItem.target = self
-    fileMenu.addItem(reloadItem)
-    let logsItem = NSMenuItem(title: "打开 Relay 日志", action: #selector(openRelayLog(_:)), keyEquivalent: "l")
-    logsItem.keyEquivalentModifierMask = [.command, .shift]
-    logsItem.target = self
-    fileMenu.addItem(logsItem)
-    fileMenuItem.submenu = fileMenu
-
-    let windowMenuItem = NSMenuItem()
-    mainMenu.addItem(windowMenuItem)
-    let windowMenu = NSMenu(title: "窗口")
-    windowMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-    windowMenu.addItem(withTitle: "缩放", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
-    windowMenuItem.submenu = windowMenu
-    NSApp.windowsMenu = windowMenu
-
-    NSApp.mainMenu = mainMenu
+    let fileItem = NSMenuItem(); main.addItem(fileItem)
+    let file = NSMenu(title: "文件")
+    let restart = NSMenuItem(title: "重启 Relay", action: #selector(restartRelay(_:)), keyEquivalent: "r")
+    restart.keyEquivalentModifierMask = [.command, .shift]; restart.target = self; file.addItem(restart)
+    let reload = NSMenuItem(title: "重新载入控制中心", action: #selector(reloadControlCenter(_:)), keyEquivalent: "r")
+    reload.target = self; file.addItem(reload)
+    let logs = NSMenuItem(title: "打开 Relay 日志", action: #selector(openRelayLog(_:)), keyEquivalent: "l")
+    logs.keyEquivalentModifierMask = [.command, .shift]; logs.target = self; file.addItem(logs)
+    fileItem.submenu = file
+    NSApp.mainMenu = main
   }
 
-  @objc private func chooseWorkspace(_ sender: Any?) {
-    let panel = NSOpenPanel()
-    panel.title = "选择默认工作目录"
-    panel.message = "此设置可选。Codex Relay 会从这个文件夹启动；你之后可以随时更改。"
-    panel.prompt = "使用此目录"
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.allowsMultipleSelection = false
-    panel.canCreateDirectories = true
-    panel.directoryURL = currentWorkspace ?? rememberedWorkspace() ?? FileManager.default.homeDirectoryForCurrentUser
-
-    guard panel.runModal() == .OK, let url = panel.url else {
-      return
-    }
-
-    UserDefaults.standard.set(url.path, forKey: DesktopConstants.workspaceDefaultsKey)
-    startRelay(in: url)
-  }
-
-  @objc private func restartRelay(_ sender: Any?) {
-    let directory = currentWorkspace ?? rememberedWorkspace() ?? FileManager.default.homeDirectoryForCurrentUser
-    startRelay(in: directory)
-  }
+  @objc private func restartRelay(_ sender: Any?) { startRelay() }
 
   @objc private func reloadControlCenter(_ sender: Any?) {
     guard let url = URL(string: "http://127.0.0.1:\(controlPort)") else { return }
@@ -145,276 +85,151 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
   }
 
   @objc private func openRelayLog(_ sender: Any?) {
-    guard let logURL = try? logFileURL() else { return }
-    if !FileManager.default.fileExists(atPath: logURL.path) {
-      FileManager.default.createFile(atPath: logURL.path, contents: nil)
-    }
-    NSWorkspace.shared.activateFileViewerSelecting([logURL])
+    guard let url = try? logURL() else { return }
+    if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
+    NSWorkspace.shared.activateFileViewerSelecting([url])
   }
 
-  private func rememberedWorkspace() -> URL? {
-    guard let path = UserDefaults.standard.string(forKey: DesktopConstants.workspaceDefaultsKey), !path.isEmpty else {
-      return nil
-    }
-    return URL(fileURLWithPath: path, isDirectory: true)
-  }
+  private func startRelay() {
+    stopRelay(); generation += 1
+    let currentGeneration = generation
+    showLoading()
 
-  private func startRelay(in workspace: URL) {
-    stopRelay()
-    startupGeneration += 1
-    let generation = startupGeneration
-    currentWorkspace = workspace
-    showLoading(workspace: workspace)
-
-    guard let nodeURL = Bundle.main.url(forResource: "node", withExtension: nil, subdirectory: "runtime"),
-          let cliURL = Bundle.main.url(forResource: "cli", withExtension: "js", subdirectory: "relay/dist") else {
-      showFatalError("内置 Relay 运行时不完整，请重新安装 Codex Relay Plus。")
-      return
-    }
-
-    guard let ports = reserveRelayPorts() else {
-      showFatalError("未能在桌面端口范围内找到可用的本机 Relay 端口。")
-      return
-    }
-    relayPort = ports.relay
-    controlPort = ports.control
+    guard
+      let node = Bundle.main.url(forResource: "node", withExtension: nil, subdirectory: "runtime"),
+      let cli = Bundle.main.url(forResource: "cli", withExtension: "js", subdirectory: "relay/dist")
+    else { showError("内置 Relay 运行时不完整，请重新安装 Codex Relay Plus。"); return }
+    guard let ports = reservePorts() else { showError("未能找到可用的本机 Relay 端口。"); return }
+    relayPort = ports.0; controlPort = ports.1
 
     do {
-      let supportURL = try applicationSupportDirectory()
-      let logURL = try logFileURL()
-      rotateLogIfNeeded(logURL)
-      FileManager.default.createFile(atPath: logURL.path, contents: nil)
-      let logHandle = try FileHandle(forWritingTo: logURL)
-      try logHandle.seekToEnd()
-      relayLogHandle = logHandle
+      let support = try supportURL()
+      let runtime = support.appendingPathComponent("Runtime", isDirectory: true)
+      try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true)
+      let log = try logURL(); rotateLog(log)
+      FileManager.default.createFile(atPath: log.path, contents: nil)
+      let handle = try FileHandle(forWritingTo: log); try handle.seekToEnd(); logHandle = handle
 
       let process = Process()
-      process.executableURL = nodeURL
-      process.arguments = [cliURL.path]
-      process.currentDirectoryURL = workspace
-      process.standardOutput = logHandle
-      process.standardError = logHandle
-
-      var environment = ProcessInfo.processInfo.environment
-      environment["PORT"] = String(relayPort)
-      environment["HOST"] = "0.0.0.0"
-      environment["CODEX_RELAY_CONTROL_PORT"] = String(controlPort)
-      environment["CODEX_RELAY_CONTROL_CENTER"] = "1"
-      environment["CODEX_RELAY_HOME"] = supportURL.path
-      environment["CODEX_RELAY_WORKSPACE_PATH"] = workspace.path
-      environment["NO_COLOR"] = "1"
-      let bundledPath = nodeURL.deletingLastPathComponent().path
-      environment["PATH"] = [
-        bundledPath,
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-      ].joined(separator: ":")
-      process.environment = environment
-
-      process.terminationHandler = { [weak self] terminated in
+      process.executableURL = node
+      process.arguments = [cli.path]
+      process.currentDirectoryURL = runtime
+      process.standardOutput = handle; process.standardError = handle
+      var env = ProcessInfo.processInfo.environment
+      env["PORT"] = String(relayPort); env["HOST"] = "0.0.0.0"
+      env["CODEX_RELAY_CONTROL_PORT"] = String(controlPort)
+      env["CODEX_RELAY_CONTROL_CENTER"] = "1"
+      env["CODEX_RELAY_DESKTOP"] = "1"
+      env["CODEX_RELAY_HOME"] = support.path
+      env["CODEX_RELAY_WORKSPACE_PATH"] = FileManager.default.homeDirectoryForCurrentUser.path
+      env["NO_COLOR"] = "1"
+      env["PATH"] = [node.deletingLastPathComponent().path, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
+      process.environment = env
+      process.terminationHandler = { [weak self] p in
         DispatchQueue.main.async {
-          guard let self, generation == self.startupGeneration else { return }
-          if terminated.terminationStatus != 0 {
-            self.showFatalError("Relay 意外退出（状态码 \(terminated.terminationStatus)）。请查看 ~/Library/Logs/Codex Relay Plus/relay.log。")
-          }
+          guard let self, currentGeneration == self.generation, p.terminationStatus != 0 else { return }
+          self.showError("Relay 意外退出（状态码 \(p.terminationStatus)）。请查看 ~/Library/Logs/Codex Relay Plus/relay.log。")
         }
       }
-
-      try process.run()
-      relayProcess = process
-      if setpgid(process.processIdentifier, process.processIdentifier) == 0 {
-        relayProcessGroup = process.processIdentifier
-      }
-      waitForControlCenter(generation: generation, attempt: 0)
-    } catch {
-      showFatalError("无法启动内置 Relay：\(error.localizedDescription)")
-    }
+      try process.run(); relay = process
+      if setpgid(process.processIdentifier, process.processIdentifier) == 0 { relayGroup = process.processIdentifier }
+      waitForControlCenter(currentGeneration, 0)
+    } catch { showError("无法启动内置 Relay：\(error.localizedDescription)") }
   }
 
-  private func waitForControlCenter(generation: Int, attempt: Int) {
-    guard generation == startupGeneration else { return }
-    guard attempt < 80 else {
-      showFatalError("Relay 未能完成启动。请查看 ~/Library/Logs/Codex Relay Plus/relay.log。")
-      return
-    }
-
+  private func waitForControlCenter(_ expectedGeneration: Int, _ attempt: Int) {
+    guard expectedGeneration == generation else { return }
+    guard attempt < 80 else { showError("Relay 未能完成启动。请查看 ~/Library/Logs/Codex Relay Plus/relay.log。"); return }
     guard let url = URL(string: "http://127.0.0.1:\(controlPort)/") else { return }
-    var request = URLRequest(url: url)
-    request.cachePolicy = .reloadIgnoringLocalCacheData
-    request.timeoutInterval = 0.7
+    var request = URLRequest(url: url); request.cachePolicy = .reloadIgnoringLocalCacheData; request.timeoutInterval = 0.7
     URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
       DispatchQueue.main.async {
-        guard let self, generation == self.startupGeneration else { return }
+        guard let self, expectedGeneration == self.generation else { return }
         if let http = response as? HTTPURLResponse, (200..<500).contains(http.statusCode) {
-          self.window.title = "\(DesktopConstants.appName) — \(self.currentWorkspace?.lastPathComponent ?? "目录")"
-          self.webView.load(URLRequest(url: url))
+          self.window.title = C.name; self.webView.load(URLRequest(url: url))
         } else {
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            self.waitForControlCenter(generation: generation, attempt: attempt + 1)
-          }
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.waitForControlCenter(expectedGeneration, attempt + 1) }
         }
       }
     }.resume()
   }
 
   private func stopRelay() {
-    startupGeneration += 1
-    guard let process = relayProcess else {
-      closeRelayLog()
-      return
-    }
-
+    generation += 1
+    guard let process = relay else { closeLog(); return }
     if process.isRunning {
-      if let group = relayProcessGroup {
-        _ = Darwin.kill(-group, SIGTERM)
-      } else {
-        process.terminate()
-      }
-
-      let deadline = Date().addingTimeInterval(2.0)
-      while process.isRunning && Date() < deadline {
-        _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
-      }
-
+      if let group = relayGroup { _ = Darwin.kill(-group, SIGTERM) } else { process.terminate() }
+      let deadline = Date().addingTimeInterval(2)
+      while process.isRunning && Date() < deadline { _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
       if process.isRunning {
-        if let group = relayProcessGroup {
-          _ = Darwin.kill(-group, SIGKILL)
-        } else {
-          _ = Darwin.kill(process.processIdentifier, SIGKILL)
-        }
+        if let group = relayGroup { _ = Darwin.kill(-group, SIGKILL) } else { _ = Darwin.kill(process.processIdentifier, SIGKILL) }
       }
     }
-
-    relayProcessGroup = nil
-    relayProcess = nil
-    closeRelayLog()
+    relayGroup = nil; relay = nil; closeLog()
   }
 
-  private func closeRelayLog() {
-    try? relayLogHandle?.synchronize()
-    try? relayLogHandle?.close()
-    relayLogHandle = nil
-  }
+  private func closeLog() { try? logHandle?.synchronize(); try? logHandle?.close(); logHandle = nil }
 
-  private func reserveRelayPorts() -> (relay: Int, control: Int)? {
-    for relay in DesktopConstants.defaultRelayPort...DesktopConstants.defaultRelayPort + 40 {
-      let control = relay + DesktopConstants.controlPortOffset
-      if canBindLoopback(port: relay) && canBindLoopback(port: control) {
-        return (relay, control)
-      }
+  private func reservePorts() -> (Int, Int)? {
+    for relay in C.relayPort...(C.relayPort + 40) {
+      let control = relay + C.controlOffset
+      if canBind(relay) && canBind(control) { return (relay, control) }
     }
     return nil
   }
 
-  private func canBindLoopback(port: Int) -> Bool {
-    let fd = socket(AF_INET, SOCK_STREAM, 0)
-    guard fd >= 0 else { return false }
-    defer { close(fd) }
-
-    var address = sockaddr_in()
-    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = in_port_t(port).bigEndian
-    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
-    return withUnsafePointer(to: &address) {
-      $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-        Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
-      }
-    }
+  private func canBind(_ port: Int) -> Bool {
+    let fd = socket(AF_INET, SOCK_STREAM, 0); guard fd >= 0 else { return false }; defer { close(fd) }
+    var address = sockaddr_in(); address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size); address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = in_port_t(port).bigEndian; address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    return withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0 } }
   }
 
-  private func applicationSupportDirectory() throws -> URL {
-    let root = try FileManager.default.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-    let directory = root.appendingPathComponent(DesktopConstants.appName, isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    return directory
+  private func supportURL() throws -> URL {
+    let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    let url = root.appendingPathComponent(C.name, isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true); return url
   }
 
-  private func logFileURL() throws -> URL {
-    let root = try FileManager.default.url(
-      for: .libraryDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-    let directory = root.appendingPathComponent("Logs/\(DesktopConstants.appName)", isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    return directory.appendingPathComponent("relay.log")
+  private func logURL() throws -> URL {
+    let root = try FileManager.default.url(for: .libraryDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    let dir = root.appendingPathComponent("Logs/\(C.name)", isDirectory: true)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true); return dir.appendingPathComponent("relay.log")
   }
 
-  private func rotateLogIfNeeded(_ logURL: URL) {
-    let maxLogBytes: Int64 = 5 * 1024 * 1024
-    guard let attributes = try? FileManager.default.attributesOfItem(atPath: logURL.path),
-          let size = attributes[.size] as? NSNumber,
-          size.int64Value >= maxLogBytes else {
-      return
-    }
-    let previousURL = logURL.deletingLastPathComponent().appendingPathComponent("relay.log.1")
-    try? FileManager.default.removeItem(at: previousURL)
-    try? FileManager.default.moveItem(at: logURL, to: previousURL)
+  private func rotateLog(_ url: URL) {
+    let size = ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.int64Value ?? 0
+    guard size >= 5 * 1024 * 1024 else { return }
+    let old = url.deletingLastPathComponent().appendingPathComponent("relay.log.1")
+    try? FileManager.default.removeItem(at: old); try? FileManager.default.moveItem(at: url, to: old)
   }
 
-  private func showLoading(workspace: URL) {
-    let escaped = htmlEscape(workspace.path)
-    webView.loadHTMLString(
-      """
-      <!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark">
-      <style>html,body{height:100%;margin:0;background:#191919;color:#f2f2f2;font:14px -apple-system,BlinkMacSystemFont,sans-serif}main{height:100%;display:grid;place-items:center}.card{max-width:640px;padding:36px;text-align:center}.dot{width:10px;height:10px;margin:0 auto 18px;border-radius:50%;background:#5eead4;box-shadow:0 0 28px #5eead4}.path{margin-top:12px;color:#8f8f8f;font:12px ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}</style></head>
-      <body><main><div class="card"><div class="dot"></div><h2>正在启动 Codex Relay Plus</h2><div>正在准备本机控制中心…</div><div class="path">\(escaped)</div></div></main></body></html>
-      """,
-      baseURL: nil
-    )
+  private func showLoading() {
+    webView.loadHTMLString("""
+      <!doctype html><html><head><meta charset="utf-8"><style>html,body{height:100%;margin:0;background:#191919;color:#f2f2f2;font:14px -apple-system,sans-serif}main{height:100%;display:grid;place-items:center;text-align:center}.m{color:#999}</style></head><body><main><div><h2>正在启动 Codex Relay Plus</h2><div>正在连接本机 Codex 服务并加载会话…</div><p class="m">无需选择工作区</p></div></main></body></html>
+      """, baseURL: nil)
   }
 
-  private func showFatalError(_ message: String) {
-    let escaped = htmlEscape(message)
-    webView.loadHTMLString(
-      """
-      <!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{height:100%;margin:0;background:#191919;color:#f2f2f2;font:14px -apple-system,BlinkMacSystemFont,sans-serif}main{height:100%;display:grid;place-items:center}.card{max-width:660px;padding:36px}h2{color:#fda4af}p{color:#bbb;line-height:1.55}</style></head><body><main><div class="card"><h2>Codex Relay Plus 启动失败</h2><p>\(escaped)</p><p>可使用“文件 → 重启 Relay”（⇧⌘R）重试，或“文件 → 更改默认工作目录…”（⌘O）选择其他目录。</p></div></main></body></html>
-      """,
-      baseURL: nil
-    )
+  private func showError(_ message: String) {
+    let text = escape(message)
+    webView.loadHTMLString("""
+      <!doctype html><html><head><meta charset="utf-8"><style>html,body{height:100%;margin:0;background:#191919;color:#f2f2f2;font:14px -apple-system,sans-serif}main{height:100%;display:grid;place-items:center}.c{max-width:660px;padding:36px}h2{color:#fda4af}p{color:#bbb}</style></head><body><main><div class="c"><h2>Codex Relay Plus 启动失败</h2><p>\(text)</p><p>可使用“文件 → 重启 Relay”（⇧⌘R）重试，或打开 Relay 日志查看详细原因。</p></div></main></body></html>
+      """, baseURL: nil)
   }
 
-  private func htmlEscape(_ value: String) -> String {
-    value
-      .replacingOccurrences(of: "&", with: "&amp;")
-      .replacingOccurrences(of: "<", with: "&lt;")
-      .replacingOccurrences(of: ">", with: "&gt;")
-      .replacingOccurrences(of: "\"", with: "&quot;")
-      .replacingOccurrences(of: "'", with: "&#39;")
+  private func escape(_ value: String) -> String {
+    value.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "'", with: "&#39;")
   }
 
-  func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-    guard let url = navigationAction.request.url else {
-      decisionHandler(.cancel)
-      return
-    }
-    if url.scheme == "about" || (url.host == "127.0.0.1" && url.port == controlPort) || (url.host == "localhost" && url.port == controlPort) {
-      decisionHandler(.allow)
-      return
-    }
-    if navigationAction.navigationType == .linkActivated {
-      NSWorkspace.shared.open(url)
-    }
+  func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+    guard let url = action.request.url else { decisionHandler(.cancel); return }
+    if url.scheme == "about" || ((url.host == "127.0.0.1" || url.host == "localhost") && url.port == controlPort) { decisionHandler(.allow); return }
+    if action.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
     decisionHandler(.cancel)
   }
 
-  func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-    if let url = navigationAction.request.url {
-      NSWorkspace.shared.open(url)
-    }
-    return nil
+  func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+    if let url = action.request.url { NSWorkspace.shared.open(url) }; return nil
   }
 }
 
