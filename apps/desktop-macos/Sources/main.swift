@@ -26,11 +26,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     configureWindow()
     NSApp.activate(ignoringOtherApps: true)
 
+    let startupDirectory: URL
     if let remembered = rememberedWorkspace(), FileManager.default.fileExists(atPath: remembered.path) {
-      startRelay(in: remembered)
+      startupDirectory = remembered
     } else {
-      chooseWorkspace(nil)
+      startupDirectory = FileManager.default.homeDirectoryForCurrentUser
     }
+    startRelay(in: startupDirectory)
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -86,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     let fileMenuItem = NSMenuItem()
     mainMenu.addItem(fileMenuItem)
     let fileMenu = NSMenu(title: "文件")
-    let workspaceItem = NSMenuItem(title: "切换工作区…", action: #selector(chooseWorkspace(_:)), keyEquivalent: "o")
+    let workspaceItem = NSMenuItem(title: "更改默认工作目录…", action: #selector(chooseWorkspace(_:)), keyEquivalent: "o")
     workspaceItem.target = self
     fileMenu.addItem(workspaceItem)
     let restartItem = NSMenuItem(title: "重启 Relay", action: #selector(restartRelay(_:)), keyEquivalent: "r")
@@ -115,9 +117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
   @objc private func chooseWorkspace(_ sender: Any?) {
     let panel = NSOpenPanel()
-    panel.title = "选择 Codex 工作区"
-    panel.message = "Codex Relay 将在此 Mac 上针对所选文件夹运行。"
-    panel.prompt = "使用此工作区"
+    panel.title = "选择默认工作目录"
+    panel.message = "此设置可选。Codex Relay 会从这个文件夹启动；你之后可以随时更改。"
+    panel.prompt = "使用此目录"
     panel.canChooseDirectories = true
     panel.canChooseFiles = false
     panel.allowsMultipleSelection = false
@@ -125,9 +127,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     panel.directoryURL = currentWorkspace ?? rememberedWorkspace() ?? FileManager.default.homeDirectoryForCurrentUser
 
     guard panel.runModal() == .OK, let url = panel.url else {
-      if currentWorkspace == nil {
-        showWelcome(message: "请选择一个工作区以启动 Codex Relay Plus。")
-      }
       return
     }
 
@@ -136,11 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
   }
 
   @objc private func restartRelay(_ sender: Any?) {
-    guard let workspace = currentWorkspace ?? rememberedWorkspace() else {
-      chooseWorkspace(sender)
-      return
-    }
-    startRelay(in: workspace)
+    let directory = currentWorkspace ?? rememberedWorkspace() ?? FileManager.default.homeDirectoryForCurrentUser
+    startRelay(in: directory)
   }
 
   @objc private func reloadControlCenter(_ sender: Any?) {
@@ -254,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
       DispatchQueue.main.async {
         guard let self, generation == self.startupGeneration else { return }
         if let http = response as? HTTPURLResponse, (200..<500).contains(http.statusCode) {
-          self.window.title = "\(DesktopConstants.appName) — \(self.currentWorkspace?.lastPathComponent ?? "工作区")"
+          self.window.title = "\(DesktopConstants.appName) — \(self.currentWorkspace?.lastPathComponent ?? "目录")"
           self.webView.load(URLRequest(url: url))
         } else {
           DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -380,21 +376,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     )
   }
 
-  private func showWelcome(message: String) {
-    let escaped = htmlEscape(message)
-    webView.loadHTMLString(
-      """
-      <!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{height:100%;margin:0;background:#191919;color:#f2f2f2;font:14px -apple-system,BlinkMacSystemFont,sans-serif}main{height:100%;display:grid;place-items:center}.card{max-width:560px;padding:36px;text-align:center}p{color:#aaa}</style></head><body><main><div class="card"><h2>Codex Relay Plus</h2><p>\(escaped)</p><p>使用“文件 → 切换工作区…”（⌘O）更换工作区。</p></div></main></body></html>
-      """,
-      baseURL: nil
-    )
-  }
-
   private func showFatalError(_ message: String) {
     let escaped = htmlEscape(message)
     webView.loadHTMLString(
       """
-      <!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{height:100%;margin:0;background:#191919;color:#f2f2f2;font:14px -apple-system,BlinkMacSystemFont,sans-serif}main{height:100%;display:grid;place-items:center}.card{max-width:660px;padding:36px}h2{color:#fda4af}p{color:#bbb;line-height:1.55}</style></head><body><main><div class="card"><h2>Codex Relay Plus 启动失败</h2><p>\(escaped)</p><p>可使用“文件 → 重启 Relay”（⇧⌘R）重试，或“文件 → 切换工作区…”（⌘O）选择其他工作区。</p></div></main></body></html>
+      <!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{height:100%;margin:0;background:#191919;color:#f2f2f2;font:14px -apple-system,BlinkMacSystemFont,sans-serif}main{height:100%;display:grid;place-items:center}.card{max-width:660px;padding:36px}h2{color:#fda4af}p{color:#bbb;line-height:1.55}</style></head><body><main><div class="card"><h2>Codex Relay Plus 启动失败</h2><p>\(escaped)</p><p>可使用“文件 → 重启 Relay”（⇧⌘R）重试，或“文件 → 更改默认工作目录…”（⌘O）选择其他目录。</p></div></main></body></html>
       """,
       baseURL: nil
     )

@@ -2,7 +2,7 @@
 
 Codex Relay Plus 是基于 Codex Relay 的增强 fork，重点补齐两类日常入口：
 
-- **macOS 原生桌面端**：直接启动本机 Relay、选择工作区、显示配对二维码、批准/拒绝手机、管理已配对设备和环境诊断，不需要先打开终端执行启动命令。
+- **macOS 原生桌面端**：直接启动本机 Relay、管理默认工作目录、显示配对二维码、批准/拒绝手机、管理已配对设备和环境诊断，不需要先打开终端执行启动命令。
 - **Android 简体中文 APK**：面向桌面端优先的配对流程，保留原有聊天、工作区、模型、图片附件和会话能力，并提供独立 Android 包名，避免与原版客户端安装冲突。
 
 > 当前 npm 包名仍沿用上游 `codex-relay`。本 fork 尚未以独立 npm 包名发布；桌面正式版会把 Node.js、Relay 以及 Relay 依赖的 `@openai/codex` runtime 一并打进应用包，因此普通 Mac 用户不需要单独安装或运行 Relay/Codex CLI。已有 Codex 登录状态仍沿用用户本机的 Codex 配置。
@@ -11,13 +11,14 @@ Codex Relay Plus 是基于 Codex Relay 的增强 fork，重点补齐两类日常
 
 桌面代码位于 `apps/desktop-macos`，使用原生 AppKit + WKWebView。应用启动后会：
 
-1. 首次运行弹出原生文件夹选择器，让你选择 Codex 工作区；之后自动记住最近的工作区。
-2. 从应用包内启动 Node.js + Codex Relay，自动选择可用的 Relay/Control Center 端口。
-3. 在桌面窗口中打开只监听 `127.0.0.1` 的 Control Center。
-4. 直接在 GUI 中查看二维码、批准或拒绝手机、断开设备、复制连接地址、查看环境诊断。
-5. 退出桌面应用时先向 Relay 发送优雅终止信号，最多等待 2 秒，再对异常残留进程兜底强制结束。
+1. 直接进入桌面端，不要求首次启动先选择文件夹；未设置默认工作目录时，从用户主目录启动 Relay。
+2. 如果用户曾主动设置默认工作目录，则后续启动自动恢复该目录；可随时在“文件 → 更改默认工作目录…”中调整。
+3. 从应用包内启动 Node.js + Codex Relay，自动选择可用的 Relay/Control Center 端口。
+4. 在桌面窗口中打开只监听 `127.0.0.1` 的 Control Center。
+5. 直接在 GUI 中查看二维码、批准或拒绝手机、断开设备、复制连接地址、查看环境诊断。
+6. 退出桌面应用时先向 Relay 发送优雅终止信号，最多等待 2 秒，再对异常残留进程兜底强制结束。
 
-“文件”菜单提供：切换工作区、重启 Relay、重新载入控制中心和打开 Relay 日志。日志写入 `~/Library/Logs/Codex Relay Plus/relay.log`，达到 5 MiB 后轮转一份 `relay.log.1`。
+“文件”菜单提供：更改默认工作目录、重启 Relay、重新载入控制中心和打开 Relay 日志。默认工作目录只是 Relay/Codex 的启动位置，不是首次使用前必须完成的项目配置。日志写入 `~/Library/Logs/Codex Relay Plus/relay.log`，达到 5 MiB 后轮转一份 `relay.log.1`。
 
 ### 原版图标处理
 
@@ -92,13 +93,14 @@ GitHub Actions 的 **Android APK (zh-CN)** 工作流会：
 
 ## 配对方式
 
-正式桌面使用路径不要求命令行：
+正式桌面使用路径不要求命令行，也不要求先配置工作目录：
 
 1. 在 Mac 打开 **Codex Relay Plus**；
-2. 选择要使用的工作区；
-3. 在 Android 中文客户端点“扫码”；
-4. 扫描桌面端二维码；
-5. 在 Mac 桌面端“待确认设备”中允许该手机。
+2. 在 Android 中文客户端点“扫码”；
+3. 扫描桌面端二维码；
+4. 在 Mac 桌面端“待确认设备”中允许该手机。
+
+如果希望 Codex 默认从某个项目目录开始，可之后在 Mac 的“文件 → 更改默认工作目录…”中设置；这不会影响配对本身。
 
 同一 Wi‑Fi 最简单；跨网络使用时可让 Mac 和手机加入同一 Tailscale 网络。
 
