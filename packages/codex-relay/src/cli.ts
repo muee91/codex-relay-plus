@@ -5,6 +5,7 @@ import qrcode from "qrcode-terminal";
 import { spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { access, mkdir, readFile, rm, unlink } from "node:fs/promises";
+import { platform } from "node:os";
 import { dirname } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -17,7 +18,6 @@ import {
 } from "./background-process.js";
 import { createTursoPairingSessionStore } from "./pairing-store.js";
 import { getConnectUrlGuidance } from "./pairing-url-candidates.js";
-
 import { codexRelayDataPath, codexRelayHome, legacyCodexRelayDataPath } from "./paths.js";
 
 const npxCommand = "npx codex-relay@latest";
@@ -25,6 +25,7 @@ const npxCommand = "npx codex-relay@latest";
 type ServerState = {
   connectUrl?: string;
   connectUrlCandidates?: Array<{ label: string; url: string }>;
+  controlUrl?: string;
   host?: string;
   listenUrl?: string;
   pairingPayload?: string;
@@ -55,6 +56,7 @@ const program = new Command()
 
 Examples:
   ${npxCommand}              Start the relay and print a pairing QR
+  ${npxCommand} desktop      Start in the background and open the local control center
   ${npxCommand} --shared-app-server Share live sessions with a connected terminal
   ${npxCommand} --bg         Start the relay in the background
   ${npxCommand} stop         Stop the background relay
@@ -79,6 +81,13 @@ Examples:
     }
 
     await import("./index.js").catch(handleServerStartError);
+  });
+
+program
+  .command("desktop")
+  .description("Open the local Codex Relay Plus control center.")
+  .action(async () => {
+    await openDesktopControlCenter();
   });
 
 program
@@ -115,7 +124,7 @@ program
 
 await program.parseAsync();
 
-async function startBackgroundServer() {
+async function startBackgroundServer(childArgs = backgroundArgs()) {
   const logPath = codexRelayDataPath("server.log");
   const debugLogPath = codexRelayDataPath("debug.log");
   const pidPath = codexRelayDataPath("server.pid");
@@ -129,13 +138,13 @@ async function startBackgroundServer() {
       console.log(`Debug logs: ${debugLogPath}`);
     }
     console.log(`Print the current pairing QR with: ${npxCommand} qr`);
-    return;
+    return existingPid;
   }
   await unlink(pidPath).catch(() => undefined);
 
   const output = openSync(logPath, "a", 0o600);
   const cliPath = fileURLToPath(import.meta.url);
-  const child = spawn(process.execPath, [...process.execArgv, cliPath, ...backgroundArgs()], {
+  const child = spawn(process.execPath, [...process.execArgv, cliPath, ...childArgs], {
     cwd: process.cwd(),
     detached: true,
     env: {
@@ -154,7 +163,7 @@ async function startBackgroundServer() {
     console.error("codex-relay failed to start in the background.");
     console.error(`Logs: ${logPath}`);
     process.exitCode = 1;
-    return;
+    return undefined;
   }
 
   console.log(`Started codex-relay in the background (pid ${startedPid}).`);
@@ -164,6 +173,7 @@ async function startBackgroundServer() {
   }
   console.log(`Print the pairing QR later with: ${npxCommand} qr`);
   console.log(`Stop the background relay with: ${npxCommand} stop`);
+  return startedPid;
 }
 
 function backgroundArgs() {
@@ -188,6 +198,110 @@ async function waitForBackgroundPid(child: ReturnType<typeof spawn>, pidPath: st
   }
 
   return undefined;
+}
+
+async function openDesktopControlCenter() {
+  const existingUrl = await resolveControlCenterUrl();
+  if (existingUrl && (await controlCenterReachable(existingUrl))) {
+    await openExternal(existingUrl);
+    console.log(`Opened Codex Relay Plus: ${existingUrl}`);
+    return;
+  }
+
+  if (await hasRunningBackgroundServer()) {
+    console.error("The running background relay does not expose the desktop control center.");
+    console.error(`Restart it once with: ${npxCommand} stop && ${npxCommand} desktop`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const pid = await startBackgroundServer(desktopServerArgs());
+  if (!pid) {
+    return;
+  }
+
+  const controlUrl = await waitForControlCenterUrl();
+  if (!controlUrl) {
+    console.error("Codex Relay started, but the desktop control center did not become reachable.");
+    console.error(`Logs: ${codexRelayDataPath("server.log")}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  await openExternal(controlUrl);
+  console.log(`Opened Codex Relay Plus: ${controlUrl}`);
+}
+
+function desktopServerArgs() {
+  const options = program.opts();
+  const args: string[] = [];
+  if (options.debug) {
+    args.push("--debug");
+  }
+  if (options.sharedAppServer) {
+    args.push("--shared-app-server");
+  }
+  if (options.dangerouslyAutoApprove) {
+    args.push("--dangerously-auto-approve");
+  }
+  return args;
+}
+
+async function waitForControlCenterUrl() {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const url = await resolveControlCenterUrl();
+    if (url && (await controlCenterReachable(url))) {
+      return url;
+    }
+    await setTimeout(100);
+  }
+  return undefined;
+}
+
+async function resolveControlCenterUrl() {
+  const state = await readServerState();
+  if (state?.controlUrl) {
+    return state.controlUrl;
+  }
+  const port = process.env.PORT ? Number(process.env.PORT) : state?.port;
+  return port
+    ? `http://127.0.0.1:${Number(process.env.CODEX_RELAY_CONTROL_PORT ?? port + 2)}`
+    : undefined;
+}
+
+async function controlCenterReachable(url: string) {
+  return fetch(url, { signal: AbortSignal.timeout(750) }).then(
+    (response) => response.ok,
+    () => false,
+  );
+}
+
+async function openExternal(url: string) {
+  const currentPlatform = platform();
+  const command =
+    currentPlatform === "darwin" ? "open" : currentPlatform === "win32" ? "cmd" : "xdg-open";
+  const args =
+    currentPlatform === "darwin"
+      ? [url]
+      : currentPlatform === "win32"
+        ? ["/d", "/s", "/c", "start", "", url]
+        : [url];
+
+  const opened = await new Promise<boolean>((resolve) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("error", () => resolve(false));
+    child.once("spawn", () => {
+      child.unref();
+      resolve(true);
+    });
+  });
+  if (!opened) {
+    console.log(`Open this URL in your browser: ${url}`);
+  }
 }
 
 async function stopBackgroundServer() {
@@ -409,6 +523,9 @@ async function printPairingQr() {
   if (state.listenUrl) {
     console.log(`Server: ${state.listenUrl}`);
   }
+  if (state.controlUrl) {
+    console.log(`Desktop: ${state.controlUrl}`);
+  }
   console.log("");
   console.log(`Pairing: ${state.pairingPayload}`);
   console.log("");
@@ -481,6 +598,7 @@ async function readServerState(): Promise<ServerState | undefined> {
         JSON.parse(value) as {
           connectUrl?: unknown;
           connectUrlCandidates?: unknown;
+          controlUrl?: unknown;
           host?: unknown;
           listenUrl?: unknown;
           pairingPayload?: unknown;
@@ -495,6 +613,7 @@ async function readServerState(): Promise<ServerState | undefined> {
   return {
     connectUrl: typeof state.connectUrl === "string" ? state.connectUrl : undefined,
     connectUrlCandidates: parseConnectUrlCandidates(state.connectUrlCandidates),
+    controlUrl: typeof state.controlUrl === "string" ? state.controlUrl : undefined,
     host: typeof state.host === "string" ? state.host : undefined,
     listenUrl: typeof state.listenUrl === "string" ? state.listenUrl : undefined,
     pairingPayload: typeof state.pairingPayload === "string" ? state.pairingPayload : undefined,
@@ -509,9 +628,10 @@ async function readServerLogState(): Promise<ServerState | undefined> {
   }
 
   const connectUrl = lastLogValue(log, "Mobile");
+  const controlUrl = lastLogValue(log, "Desktop");
   const listenUrl = lastLogValue(log, "Server");
   const pairingPayload = lastLogValue(log, "Pairing");
-  return pairingPayload ? { connectUrl, listenUrl, pairingPayload } : undefined;
+  return pairingPayload ? { connectUrl, controlUrl, listenUrl, pairingPayload } : undefined;
 }
 
 async function readRelayDataFile(fileName: string) {
@@ -559,5 +679,7 @@ function normalizeApprovalCode(value: string) {
     .replace(/[^A-Z0-9]/g, "")
     .replaceAll("O", "0")
     .replaceAll("I", "1");
-  return normalized.length === 8 ? `${normalized.slice(0, 4)}-${normalized.slice(4)}` : normalized;
+  return normalized.length === 8
+    ? `${normalized.slice(0, 4)}-${normalized.slice(4)}`
+    : normalized;
 }

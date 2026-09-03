@@ -12,6 +12,7 @@ import {
   resolveCodexAppServerMode,
   resolveCodexSharedAppServerRemoteAddress,
 } from "./codex-binary.js";
+import { startControlCenter } from "./control-center.js";
 import { isRelayDebugEnabled, relayDebugLog } from "./debug-log.js";
 import {
   createPairingQrPayload,
@@ -30,6 +31,8 @@ import {
 
 const port = Number(process.env.PORT ?? 8787);
 const hostname = process.env.HOST ?? "0.0.0.0";
+const controlPort = Number(process.env.CODEX_RELAY_CONTROL_PORT ?? port + 2);
+const controlCenterEnabled = process.env.CODEX_RELAY_CONTROL_CENTER !== "0";
 const dangerouslyAutoApprove = process.env.CODEX_RELAY_DANGEROUSLY_AUTO_APPROVE === "1";
 const serverIdentity = await getServerIdentity();
 const approvalSecret = await getApprovalSecret();
@@ -51,11 +54,10 @@ const color = {
   url: colors.blue,
 };
 const npxCommand = "npx codex-relay@latest";
-
-const sessionStore = await createTursoPairingSessionStore(
+const authDbPath =
   process.env.CODEX_RELAY_AUTH_DB_PATH ??
-    (await prepareCodexRelayDataPath("auth.db", ["auth.db-shm", "auth.db-wal"])),
-);
+  (await prepareCodexRelayDataPath("auth.db", ["auth.db-shm", "auth.db-wal"]));
+const sessionStore = await createTursoPairingSessionStore(authDbPath);
 const preferencesStore = createFileRuntimePreferencesStore(
   process.env.CODEX_RELAY_PREFERENCES_PATH ?? (await prepareCodexRelayDataPath("preferences.json")),
 );
@@ -107,7 +109,7 @@ serve(
           const name = clientName ? ` from ${clientName}` : "";
           logRuntimeEvent(
             "Approval",
-            `Pairing approval requested${name}. Use the code shown in the mobile app to approve locally.`,
+            `Pairing approval requested${name}. Approve it from the local control center or with the CLI code.`,
           );
         },
         onPairApproved: ({ clientName }) => {
@@ -120,7 +122,11 @@ serve(
         onPairingsCleared: ({ pendingPairingsCleared, sessionsCleared }) => {
           logRuntimeEvent(
             "Cleared",
-            `Signed out ${sessionsCleared} mobile session${sessionsCleared === 1 ? "" : "s"} and removed ${pendingPairingsCleared} pending pairing request${pendingPairingsCleared === 1 ? "" : "s"}.`,
+            `Signed out ${sessionsCleared} mobile session${
+              sessionsCleared === 1 ? "" : "s"
+            } and removed ${pendingPairingsCleared} pending pairing request${
+              pendingPairingsCleared === 1 ? "" : "s"
+            }.`,
           );
         },
         onTokenRefreshed: ({ clientName, tokenCount }) => {
@@ -145,10 +151,47 @@ serve(
       serverPublicKey: serverIdentity.publicKey,
       serverUrls: connectUrls.length > 0 ? connectUrls : [connectUrl],
     });
+    const sharedAppServerRemoteAddress =
+      relayAppServer?.appServerMode === "socket"
+        ? resolveCodexSharedAppServerRemoteAddress()
+        : undefined;
+    const controlUrl = controlCenterEnabled ? `http://127.0.0.1:${controlPort}` : undefined;
+
+    if (controlCenterEnabled) {
+      startControlCenter({
+        authDbPath,
+        connectUrl,
+        connectUrlCandidates,
+        pairingPayload,
+        onPairApproved: ({ clientName }) => {
+          const name = clientName ? ` for ${clientName}` : "";
+          logRuntimeEvent(
+            "Approved",
+            `Pairing request approved${name} from the desktop control center.`,
+          );
+        },
+        onPairingsCleared: ({ pendingPairingsCleared, sessionsCleared }) => {
+          logRuntimeEvent(
+            "Cleared",
+            `Desktop control center signed out ${sessionsCleared} mobile session${
+              sessionsCleared === 1 ? "" : "s"
+            } and removed ${pendingPairingsCleared} pending pairing request${
+              pendingPairingsCleared === 1 ? "" : "s"
+            }.`,
+          );
+        },
+        port: controlPort,
+        relayPort: info.port,
+        sessions: sessionStore,
+        sharedAppServerRemoteAddress,
+        workspacePath: process.env.CODEX_RELAY_WORKSPACE_PATH ?? process.cwd(),
+      });
+    }
 
     void writeServerState({
       connectUrl,
       connectUrlCandidates,
+      controlUrl,
       host: hostname,
       listenUrl,
       pairingPayload,
@@ -160,6 +203,7 @@ serve(
       relayDebugLog("relay.started", {
         connectUrl,
         connectUrlCandidates,
+        controlUrl,
         listenUrl,
         port: info.port,
         workspacePath: process.env.CODEX_RELAY_WORKSPACE_PATH ?? process.cwd(),
@@ -171,14 +215,12 @@ serve(
       formatStartupInstructions({
         connectUrl,
         connectUrlCandidates,
+        controlUrl,
         dangerouslyAutoApprove,
         listenUrl,
         pairingPayload,
         port: info.port,
-        sharedAppServerRemoteAddress:
-          relayAppServer?.appServerMode === "socket"
-            ? resolveCodexSharedAppServerRemoteAddress()
-            : undefined,
+        sharedAppServerRemoteAddress,
       }),
     );
   },
@@ -192,12 +234,17 @@ function stopRelayAppServer(exitCode: number) {
 function formatStartupInstructions(details: {
   connectUrl: string;
   connectUrlCandidates: ConnectUrlCandidate[];
+  controlUrl?: string;
   dangerouslyAutoApprove: boolean;
   listenUrl: string;
   pairingPayload: string;
   port: number;
   sharedAppServerRemoteAddress?: string;
 }) {
+  const localApprovalCommand = color.command(formatApprovalCommand("<code>", details.port));
+  const approvalHint = details.controlUrl
+    ? `${color.prompt("›")} Approve devices in ${color.url(details.controlUrl)} or with ${localApprovalCommand}`
+    : `${color.prompt("›")} Approve a device with ${localApprovalCommand}`;
   const lines = [
     `${color.prompt("›")} Scan the QR code above to pair ${color.brand("Codex Relay mobile")}.`,
     "",
@@ -205,18 +252,26 @@ function formatStartupInstructions(details: {
     ...formatConnectUrlGuidance(details.connectUrl),
     ...formatConnectUrlCandidates(details.connectUrlCandidates),
     `${color.prompt("›")} Server: ${color.muted(details.listenUrl)}`,
+    ...(details.controlUrl
+      ? [`${color.prompt("›")} Desktop: ${color.url(details.controlUrl)}`]
+      : []),
     "",
     `${color.prompt("›")} Pairing: ${color.url(details.pairingPayload)}`,
     ...(details.sharedAppServerRemoteAddress
       ? [
           "",
-          `${color.prompt("›")} Terminal: ${color.command(`codex resume --remote ${details.sharedAppServerRemoteAddress}`)}`,
-          `  ${color.muted("Connect through the shared Codex app-server to follow and steer the same live sessions.")}`,
+          `${color.prompt("›")} Terminal: ${color.command(
+            `codex resume --remote ${details.sharedAppServerRemoteAddress}`,
+          )}`,
+          `  ${color.muted(
+            "Connect through the shared Codex app-server to follow and steer the same live sessions.",
+          )}`,
         ]
       : []),
     "",
     `${color.prompt("›")} Commands`,
     `  ${color.command(npxCommand)}              Start and print a pairing QR`,
+    `  ${color.command(`${npxCommand} desktop`)}      Open the desktop control center`,
     `  ${color.command(`${npxCommand} --bg`)}         Start in the background`,
     `  ${color.command(`${npxCommand} stop`)}         Stop the background relay`,
     `  ${color.command(`${npxCommand} qr`)}           Print this QR again`,
@@ -227,9 +282,7 @@ function formatStartupInstructions(details: {
       : `${color.prompt("›")} Waiting for pairing requests`,
     details.dangerouslyAutoApprove
       ? `${color.prompt("›")} Disable this for normal use.`
-      : `${color.prompt("›")} Approve a device with ${color.command(
-          formatApprovalCommand("<code>", details.port),
-        )}`,
+      : approvalHint,
   ];
   return ["", ...lines, ""].join("\n");
 }
@@ -245,7 +298,9 @@ function formatConnectUrlCandidates(candidates: ConnectUrlCandidate[]) {
   }
 
   return [
-    `${color.prompt("›")} QR includes ${candidates.length} candidate addresses; the app will use the first reachable one.`,
+    `${color.prompt("›")} QR includes ${
+      candidates.length
+    } candidate addresses; the app will use the first reachable one.`,
     ...candidates
       .slice(1)
       .map((candidate) => `  ${color.muted(candidate.label)} ${color.url(candidate.url)}`),
@@ -295,6 +350,7 @@ async function getServerIdentity(): Promise<ServerIdentity> {
 async function writeServerState(details: {
   connectUrl: string;
   connectUrlCandidates: ConnectUrlCandidate[];
+  controlUrl?: string;
   host: string;
   listenUrl: string;
   pairingPayload: string;
