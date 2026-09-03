@@ -36,6 +36,7 @@ yarn-error.*
 # macOS
 .DS_Store
 *.pem
+.desktop-macos-build/
 
 # local env files
 .env*.local

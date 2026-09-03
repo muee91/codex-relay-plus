@@ -1,0 +1,305 @@
+name: Android APK (zh-CN)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: APK release label
+        required: true
+        default: 1.4.0-zh.1
+      publish_release:
+        description: Publish GitHub Release
+        type: boolean
+        required: true
+        default: false
+  push:
+    tags:
+      - "android-v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Chinese release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve APK version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#android-v}"
+          else
+            version="$INPUT_VERSION"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid APK release label: $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release signing credentials
+        if: github.ref_type == 'tag' || inputs.publish_release == true
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=()
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::Formal Android release requires release-keystore secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Verify Chinese localization table
+        run: node apps/mobile/scripts/verify-zh-cn.cjs
+
+      - name: Typecheck mobile app
+        run: pnpm --filter @codex-relay/mobile typecheck
+
+      - name: Generate Android project
+        env:
+          CODEX_RELAY_LOCALE: zh-CN
+          CODEX_RELAY_PLATFORM: android
+          CODEX_RELAY_DESKTOP_FIRST: "1"
+          CODEX_RELAY_ANDROID_VERSION_CODE: ${{ github.run_number }}
+          CODEX_RELAY_ANDROID_VERSION_NAME: ${{ steps.version.outputs.version }}
+        run: |
+          pnpm --filter @codex-relay/mobile exec expo prebuild \
+            --platform android \
+            --clean \
+            --no-install
+
+      - name: Ensure local fallback signing key
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          if [[ ! -f android/app/debug.keystore ]]; then
+            keytool -genkeypair -v \
+              -keystore android/app/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Codex Relay Plus Debug,O=muee91,C=CN"
+          fi
+
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        env:
+          CODEX_RELAY_LOCALE: zh-CN
+          CODEX_RELAY_PLATFORM: android
+          CODEX_RELAY_DESKTOP_FIRST: "1"
+          CODEX_RELAY_ANDROID_VERSION_CODE: ${{ github.run_number }}
+          CODEX_RELAY_ANDROID_VERSION_NAME: ${{ steps.version.outputs.version }}
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Sign, verify, and inspect APK
+        id: apk
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          source_apk="$(find apps/mobile/android/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          if [[ -z "$source_apk" || ! -f "$source_apk" ]]; then
+            echo "::error::Release APK was not produced"
+            exit 1
+          fi
+
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          zipalign="$build_tools/zipalign"
+          apksigner="$build_tools/apksigner"
+          if [[ ! -x "$zipalign" || ! -x "$apksigner" ]]; then
+            echo "::error::Android build-tools signing utilities are missing"
+            exit 1
+          fi
+
+          mkdir -p dist/android
+          aligned="dist/android/app-aligned.apk"
+          output="dist/android/Codex-Relay-Plus_zh-CN_${VERSION}_universal.apk"
+          "$zipalign" -f -p 4 "$source_apk" "$aligned"
+
+          release_secrets=0
+          [[ -n "$ANDROID_KEYSTORE_BASE64" ]] && release_secrets=$((release_secrets + 1))
+          [[ -n "$ANDROID_KEYSTORE_PASSWORD" ]] && release_secrets=$((release_secrets + 1))
+          [[ -n "$ANDROID_KEY_ALIAS" ]] && release_secrets=$((release_secrets + 1))
+          [[ -n "$ANDROID_KEY_PASSWORD" ]] && release_secrets=$((release_secrets + 1))
+
+          if [[ "$release_secrets" -ne 0 && "$release_secrets" -ne 4 ]]; then
+            echo "::error::Android release signing secrets are only partially configured"
+            exit 1
+          fi
+
+          if [[ "$release_secrets" -eq 4 ]]; then
+            keystore="$RUNNER_TEMP/codex-relay-plus-release.keystore"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            export CRP_KS_PASS="$ANDROID_KEYSTORE_PASSWORD"
+            export CRP_KEY_PASS="$ANDROID_KEY_PASSWORD"
+            "$apksigner" sign \
+              --ks "$keystore" \
+              --ks-key-alias "$ANDROID_KEY_ALIAS" \
+              --ks-pass env:CRP_KS_PASS \
+              --key-pass env:CRP_KEY_PASS \
+              --out "$output" \
+              "$aligned"
+            signing_mode="release-keystore"
+            rm -f "$keystore"
+          else
+            export CRP_KS_PASS=android
+            export CRP_KEY_PASS=android
+            "$apksigner" sign \
+              --ks apps/mobile/android/app/debug.keystore \
+              --ks-key-alias androiddebugkey \
+              --ks-pass env:CRP_KS_PASS \
+              --key-pass env:CRP_KEY_PASS \
+              --out "$output" \
+              "$aligned"
+            signing_mode="sideload-fallback"
+          fi
+
+          rm -f "$aligned"
+          "$apksigner" verify --verbose --print-certs "$output"
+
+          bundle="$(mktemp)"
+          if ! unzip -p "$output" assets/index.android.bundle > "$bundle"; then
+            echo "::error::Android JS bundle is missing from APK"
+            exit 1
+          fi
+          grep -Fq "配对此手机" "$bundle" || {
+            echo "::error::Chinese pairing UI marker is missing from APK bundle"
+            exit 1
+          }
+          grep -Fq "在 Mac 上打开 Codex Relay Plus 桌面端" "$bundle" || {
+            echo "::error::Desktop-first Chinese onboarding marker is missing from APK bundle"
+            exit 1
+          }
+          rm -f "$bundle"
+
+          package_name=""
+          if command -v apkanalyzer >/dev/null 2>&1; then
+            package_name="$(apkanalyzer manifest application-id "$output")"
+          elif [[ -x "$build_tools/aapt" ]]; then
+            package_name="$("$build_tools/aapt" dump badging "$output" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+          fi
+          if [[ -z "$package_name" ]]; then
+            echo "::error::Unable to inspect Android applicationId"
+            exit 1
+          fi
+          if [[ "$package_name" != "com.muee91.codexrelayplus" ]]; then
+            echo "::error::Unexpected Android package: $package_name"
+            exit 1
+          fi
+
+          sha256sum "$output" > "$output.sha256"
+          printf 'Signing mode: %s\n' "$signing_mode" > dist/android/BUILD-INFO.txt
+          printf 'Package: %s\n' "${package_name:-com.muee91.codexrelayplus}" >> dist/android/BUILD-INFO.txt
+          printf 'Version code: %s\n' "$GITHUB_RUN_NUMBER" >> dist/android/BUILD-INFO.txt
+          printf 'Commit: %s\n' "$GITHUB_SHA" >> dist/android/BUILD-INFO.txt
+          echo "path=$output" >> "$GITHUB_OUTPUT"
+          echo "signing-mode=$signing_mode" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: Codex-Relay-Plus_zh-CN_${{ steps.version.outputs.version }}
+          path: |
+            dist/android/*.apk
+            dist/android/*.sha256
+            dist/android/BUILD-INFO.txt
+          if-no-files-found: error
+
+      - name: Build summary
+        shell: bash
+        run: |
+          {
+            echo "## Android 中文 APK"
+            echo ""
+            echo "- 版本：\`${{ steps.version.outputs.version }}\`"
+            echo "- 包名：\`com.muee91.codexrelayplus\`"
+            echo "- 签名模式：\`${{ steps.apk.outputs.signing-mode }}\`"
+            echo "- 中文 bundle、APK 签名与包名检查：通过"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Publish APK release
+    needs: build
+    if: github.ref_type == 'tag' || inputs.publish_release == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v8
+        with:
+          pattern: Codex-Relay-Plus_zh-CN_*
+          merge-multiple: true
+          path: dist
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#android-v}"
+          else
+            version="$INPUT_VERSION"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="android-v$VERSION"
+          notes="Codex Relay Plus 中文 Android APK。Mac 端优先配对流程；APK 已执行签名、包名和中文 bundle 校验。"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Codex Relay Plus Android 中文版 $VERSION" --notes "$notes"
+          fi
+          gh release upload "$tag" dist/* --clobber

@@ -5,6 +5,7 @@
     "node_modules/**",
     "packages/codex-relay/src/collaboration-mode-templates/**",
     "apps/mobile/src/uniwind-types.d.ts",
+    "apps/mobile/babel-plugin-zh-cn.cjs",
     "apps/mobile/ios/**",
     "apps/mobile/android/**",
     ".omx"

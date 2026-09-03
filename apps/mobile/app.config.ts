@@ -1,10 +1,34 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
 
+function androidVersionCode() {
+  const raw = process.env.CODEX_RELAY_ANDROID_VERSION_CODE?.trim();
+  if (!raw) {
+    return 1;
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1 || value > 2_100_000_000) {
+    throw new Error(`Invalid CODEX_RELAY_ANDROID_VERSION_CODE: ${raw}`);
+  }
+  return value;
+}
+
+function androidVersionName() {
+  const raw = process.env.CODEX_RELAY_ANDROID_VERSION_NAME?.trim();
+  if (!raw) {
+    return "1.4.0";
+  }
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$/.test(raw)) {
+    throw new Error(`Invalid CODEX_RELAY_ANDROID_VERSION_NAME: ${raw}`);
+  }
+  return raw;
+}
+
 export default function appConfig(_context: ConfigContext): ExpoConfig {
+  const isZhCn = process.env.CODEX_RELAY_LOCALE === "zh-CN";
   return {
-    name: "Codex Relay",
+    name: "Codex Relay Plus",
     slug: "codex-relay",
-    version: "1.4.0",
+    version: androidVersionName(),
     orientation: "portrait",
     icon: "./assets/images/icon.png",
     scheme: "codex-relay",
@@ -19,8 +43,9 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
           NSAllowsLocalNetworking: true,
         },
         ITSAppUsesNonExemptEncryption: false,
-        NSLocalNetworkUsageDescription:
-          "Codex Relay uses the local network to connect this device to the Codex Relay server running on your computer.",
+        NSLocalNetworkUsageDescription: isZhCn
+          ? "Codex Relay 使用本地网络连接到你电脑上运行的 Relay。"
+          : "Codex Relay uses the local network to connect this device to the Codex Relay server running on your computer.",
         "UISupportedInterfaceOrientations~ipad": [
           "UIInterfaceOrientationPortrait",
           "UIInterfaceOrientationPortraitUpsideDown",
@@ -36,7 +61,8 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
         monochromeImage: "./assets/images/android-icon-monochrome.png",
       },
       predictiveBackGestureEnabled: false,
-      package: "com.gronstudio.codexrelay",
+      package: "com.muee91.codexrelayplus",
+      versionCode: androidVersionCode(),
       permissions: ["android.permission.CAMERA", "android.permission.POST_NOTIFICATIONS"],
     },
     web: {
@@ -66,8 +92,9 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
       [
         "expo-camera",
         {
-          cameraPermission:
-            "Codex Relay uses the camera to scan QR codes that contain your local relay server address, for example to connect this device to the Codex Relay server running on your computer.",
+          cameraPermission: isZhCn
+            ? "Codex Relay 需要使用相机扫描 Mac 桌面端显示的连接二维码。"
+            : "Codex Relay uses the camera to scan QR codes that contain your local relay server address, for example to connect this device to the Codex Relay server running on your computer.",
           microphonePermission: false,
           recordAudioAndroid: false,
           barcodeScannerEnabled: true,
@@ -76,8 +103,9 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
       [
         "expo-image-picker",
         {
-          photosPermission:
-            "Codex Relay uses photo library access so you can attach images to a Codex chat, for example to ask Codex to inspect a screenshot.",
+          photosPermission: isZhCn
+            ? "Codex Relay 需要访问照片，以便你在聊天中添加图片或截图。"
+            : "Codex Relay uses photo library access so you can attach images to a Codex chat, for example to ask Codex to inspect a screenshot.",
           microphonePermission: false,
         },
       ],
