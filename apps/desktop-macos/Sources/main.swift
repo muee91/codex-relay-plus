@@ -12,6 +12,8 @@ private enum C {
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
   private var window: NSWindow!
   private var webView: WKWebView!
+  private var statusItem: NSStatusItem!
+  private var relayStatusMenuItem: NSMenuItem!
   private var relay: Process?
   private var relayGroup: pid_t?
   private var logHandle: FileHandle?
@@ -22,11 +24,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
   func applicationDidFinishLaunching(_ notification: Notification) {
     setupMenu()
     setupWindow()
+    setupStatusItem()
     NSApp.activate(ignoringOtherApps: true)
     startRelay()
   }
 
-  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+  func applicationShouldHandleReopen(
+    _ sender: NSApplication,
+    hasVisibleWindows flag: Bool
+  ) -> Bool {
+    showMainWindow(nil)
+    return true
+  }
+
   func applicationWillTerminate(_ notification: Notification) { stopRelay() }
 
   private func setupWindow() {
@@ -77,6 +89,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     NSApp.mainMenu = main
   }
 
+  private func setupStatusItem() {
+    statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    if let button = statusItem.button {
+      let icon = NSApp.applicationIconImage.copy() as? NSImage ?? NSApp.applicationIconImage
+      icon.size = NSSize(width: 18, height: 18)
+      icon.isTemplate = false
+      button.image = icon
+      button.imageScaling = .scaleProportionallyDown
+      button.toolTip = "\(C.name) · Relay 正在启动"
+    }
+
+    let menu = NSMenu()
+    relayStatusMenuItem = NSMenuItem(title: "Relay：正在启动", action: nil, keyEquivalent: "")
+    relayStatusMenuItem.isEnabled = false
+    menu.addItem(relayStatusMenuItem)
+    menu.addItem(.separator())
+
+    let open = NSMenuItem(title: "打开主窗口", action: #selector(showMainWindow(_:)), keyEquivalent: "")
+    open.target = self
+    menu.addItem(open)
+
+    let pairing = NSMenuItem(title: "显示配对二维码", action: #selector(showPairing(_:)), keyEquivalent: "")
+    pairing.target = self
+    menu.addItem(pairing)
+    menu.addItem(.separator())
+
+    let restart = NSMenuItem(title: "重启 Relay", action: #selector(restartRelay(_:)), keyEquivalent: "")
+    restart.target = self
+    menu.addItem(restart)
+
+    let logs = NSMenuItem(title: "打开 Relay 日志", action: #selector(openRelayLog(_:)), keyEquivalent: "")
+    logs.target = self
+    menu.addItem(logs)
+    menu.addItem(.separator())
+
+    let quit = NSMenuItem(title: "退出 \(C.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+    menu.addItem(quit)
+    statusItem.menu = menu
+  }
+
+  private func setRelayStatus(_ status: String) {
+    relayStatusMenuItem?.title = "Relay：\(status)"
+    statusItem?.button?.toolTip = "\(C.name) · Relay \(status)"
+  }
+
+  @objc private func showMainWindow(_ sender: Any?) {
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
+  @objc private func showPairing(_ sender: Any?) {
+    showMainWindow(sender)
+    reloadControlCenter(sender)
+  }
+
   @objc private func restartRelay(_ sender: Any?) { startRelay() }
 
   @objc private func reloadControlCenter(_ sender: Any?) {
@@ -93,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
   private func startRelay() {
     stopRelay(); generation += 1
     let currentGeneration = generation
+    setRelayStatus("正在启动")
     showLoading()
 
     guard
@@ -146,7 +214,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
       DispatchQueue.main.async {
         guard let self, expectedGeneration == self.generation else { return }
         if let http = response as? HTTPURLResponse, (200..<500).contains(http.statusCode) {
-          self.window.title = C.name; self.webView.load(URLRequest(url: url))
+          self.setRelayStatus("运行中")
+          self.window.title = C.name
+          self.webView.load(URLRequest(url: url))
         } else {
           DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.waitForControlCenter(expectedGeneration, attempt + 1) }
         }
@@ -211,6 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
   }
 
   private func showError(_ message: String) {
+    setRelayStatus("启动失败")
     let text = escape(message)
     webView.loadHTMLString("""
       <!doctype html><html><head><meta charset="utf-8"><style>html,body{height:100%;margin:0;background:#191919;color:#f2f2f2;font:14px -apple-system,sans-serif}main{height:100%;display:grid;place-items:center}.c{max-width:660px;padding:36px}h2{color:#fda4af}p{color:#bbb}</style></head><body><main><div class="c"><h2>Codex Relay Plus 启动失败</h2><p>\(text)</p><p>可使用“文件 → 重启 Relay”（⇧⌘R）重试，或打开 Relay 日志查看详细原因。</p></div></main></body></html>
