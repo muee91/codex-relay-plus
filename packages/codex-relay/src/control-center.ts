@@ -175,8 +175,7 @@ async function listSessions(database: ReturnType<typeof connect>) {
     const tokenHash = String(row.tokenHash);
     return {
       clientName: typeof row.clientName === "string" ? row.clientName : undefined,
-      clientSessionId:
-        typeof row.clientSessionId === "string" ? row.clientSessionId : undefined,
+      clientSessionId: typeof row.clientSessionId === "string" ? row.clientSessionId : undefined,
       createdAt: Number(row.createdAt),
       displayId: tokenHash.slice(0, 12),
       tokenHash,
@@ -195,8 +194,7 @@ async function collectDiagnostics(options: ControlCenterOptions) {
   const nodeParts = nodeVersion.split(".").map(Number);
   const nodeSupported =
     nodeParts[0] > 22 ||
-    (nodeParts[0] === 22 &&
-      (nodeParts[1] > 14 || (nodeParts[1] === 14 && nodeParts[2] >= 0)));
+    (nodeParts[0] === 22 && (nodeParts[1] > 14 || (nodeParts[1] === 14 && nodeParts[2] >= 0)));
 
   return [
     {
@@ -255,9 +253,7 @@ function normalizeApprovalCode(value: string) {
     .replace(/[^A-Z0-9]/g, "")
     .replaceAll("O", "0")
     .replaceAll("I", "1");
-  return normalized.length === 8
-    ? `${normalized.slice(0, 4)}-${normalized.slice(4)}`
-    : normalized;
+  return normalized.length === 8 ? `${normalized.slice(0, 4)}-${normalized.slice(4)}` : normalized;
 }
 
 function isAllowedControlHost(host: string | undefined, port: number) {

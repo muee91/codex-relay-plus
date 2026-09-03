@@ -14,9 +14,9 @@ describe("renderControlCenterPage", () => {
   });
 
   it("escapes the embedded local control token", () => {
-    const html = renderControlCenterPage("a\"b<c");
+    const html = renderControlCenterPage('a"b<c');
 
-    expect(html).toContain("content=\"a&quot;b&lt;c\"");
-    expect(html).not.toContain("content=\"a\\\"b<c\"");
+    expect(html).toContain('content="a&quot;b&lt;c"');
+    expect(html).not.toContain('content="a\\"b<c"');
   });
 });

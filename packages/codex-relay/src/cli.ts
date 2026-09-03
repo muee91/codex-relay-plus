@@ -679,7 +679,5 @@ function normalizeApprovalCode(value: string) {
     .replace(/[^A-Z0-9]/g, "")
     .replaceAll("O", "0")
     .replaceAll("I", "1");
-  return normalized.length === 8
-    ? `${normalized.slice(0, 4)}-${normalized.slice(4)}`
-    : normalized;
+  return normalized.length === 8 ? `${normalized.slice(0, 4)}-${normalized.slice(4)}` : normalized;
 }
