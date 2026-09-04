@@ -20,7 +20,10 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { useInitialPushNotificationRegistration } from "@/hooks/use-initial-push-notification-registration";
-import { reconcileCodexRelayConnection } from "@/lib/codex-relay-connection-manager";
+import {
+  reconcileCodexRelayConnection,
+  teardownCodexRelayNativeTransport,
+} from "@/lib/codex-relay-connection-manager";
 import { addHotUpdaterLog, formatHotUpdaterProgress } from "@/lib/hot-updater-logs";
 import {
   configurePushNotificationPresentation,
@@ -152,11 +155,33 @@ function TabLayout() {
   }, []);
 
   useEffect(() => {
-    if (!hasPairedSession || connection !== "offline") {
+    if (!hasPairedSession) {
+      void teardownCodexRelayNativeTransport();
       return;
     }
 
     let cancelled = false;
+
+    // Prime the fixed loopback transport as soon as a secure pairing exists.
+    // Failure here must not disrupt an already-working LAN connection; the
+    // normal offline retry loop below will try again when connectivity changes.
+    if (connection !== "offline") {
+      void reconcileCodexRelayConnection()
+        .then((reconciled) => {
+          if (cancelled || !chatStore$.hasPairedSession.peek()) {
+            return;
+          }
+          setServerUrl(reconciled.serverUrl);
+          setStatusState(queryClient, reconciled.status);
+          setConnection("connected");
+          void queryClient.invalidateQueries();
+        })
+        .catch(() => undefined);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     void (async () => {
       let attempt = 0;
       while (!cancelled && chatStore$.hasPairedSession.peek()) {
