@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/tailscale/tailcat"
+	"tailscale.com/tailcfg"
 )
 
 var (
@@ -55,10 +56,7 @@ func main() {
 		return
 	}
 
-	server := &tailcat.Server{
-		Key:    pk.Private,
-		Region: region,
-	}
+	server := &tailcat.Server{Key: pk.Private, Region: region}
 	server.OnTCP = func(port uint16) func(net.Conn) {
 		if int(port) != *relayPort {
 			return nil
@@ -109,7 +107,7 @@ func loadOrCreatePrivateKey(path string) (*tailcat.PrivateKey, error) {
 	return pk, nil
 }
 
-func resolveRegion(pk *tailcat.PrivateKey) (*tailcatRegion, error) {
+func resolveRegion(pk *tailcat.PrivateKey) (*tailcfg.DERPRegion, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -123,13 +121,8 @@ func resolveRegion(pk *tailcat.PrivateKey) (*tailcatRegion, error) {
 	region := ci.Region[0]
 	pk.Public.RegionID = region.RegionID
 	pk.Public.Region = nil
-	return (*tailcatRegion)(region), nil
+	return region, nil
 }
-
-// tailcatRegion aliases the concrete region type without leaking it into the
-// persistence format. The conversion is assignment-compatible with Tailcat's
-// Server.Region field.
-type tailcatRegion = tailcfg.DERPRegion
 
 func savePrivateKey(path string, pk *tailcat.PrivateKey) error {
 	data, err := json.Marshal(pk)
