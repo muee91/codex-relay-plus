@@ -62,6 +62,19 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
   if (compacted.fullUrls.length > 0) {
     url.searchParams.set("serverUrls", JSON.stringify(compacted.fullUrls));
   }
+
+  const tailcatAddress = process.env.CODEX_RELAY_TAILCAT_ADDR?.trim();
+  const tailcatPort = Number(process.env.CODEX_RELAY_TAILCAT_PORT);
+  if (
+    tailcatAddress?.startsWith("tc") &&
+    Number.isSafeInteger(tailcatPort) &&
+    tailcatPort >= 1 &&
+    tailcatPort <= 65535
+  ) {
+    url.searchParams.set("tailcatAddr", tailcatAddress);
+    url.searchParams.set("tailcatPort", String(tailcatPort));
+    url.searchParams.set("transportVersion", "1");
+  }
   return url.toString();
 }
 
