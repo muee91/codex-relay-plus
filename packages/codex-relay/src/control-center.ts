@@ -1,15 +1,20 @@
 import { serve } from "@hono/node-server";
 import { randomBytes } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { Hono } from "hono";
 import qrcode from "qrcode-terminal";
 
+import type { AppServerThread, CodexAppServerClient } from "./app-server.js";
 import { renderControlCenterPage } from "./control-center-page.js";
 import { connect } from "./libsql-database.js";
 import type { NetworkStateSnapshot } from "./network-state-manager.js";
 import type { PairingSessionStore } from "./pairing-store.js";
 
 export type ControlCenterOptions = {
+  appServer?: CodexAppServerClient;
   authDbPath: string;
+  controlTokenPath?: string;
   getNetworkState: () => NetworkStateSnapshot;
   onPairApproved?: (client: { approvalCode: string; clientName?: string }) => void;
   onPairingsCleared?: (result: { pendingPairingsCleared: number; sessionsCleared: number }) => void;
@@ -49,6 +54,14 @@ export function startControlCenter(options: ControlCenterOptions) {
   let cachedPairingQr = { payload: "", qr: "" };
   let deviceSnapshot: DeviceSnapshot = { pendingPairings: [], sessions: [], updatedAt: 0 };
   let snapshotRefresh: Promise<void> | undefined;
+
+  if (options.controlTokenPath) {
+    void persistControlToken(options.controlTokenPath, controlToken).catch((error) => {
+      console.error(
+        `Codex Relay control token persistence failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  }
 
   const refreshDeviceSnapshot = () => {
     if (snapshotRefresh) {
@@ -130,6 +143,29 @@ export function startControlCenter(options: ControlCenterOptions) {
     });
   });
 
+  app.get("/api/threads", async (c) => {
+    if (!options.appServer) return c.json({ threads: [] });
+    const requested = Number(c.req.query("limit") ?? 20);
+    const limit = Number.isFinite(requested) ? Math.min(80, Math.max(1, Math.floor(requested))) : 20;
+    const threads = await options.appServer.listThreads(limit);
+    return c.json({ threads: threads.slice(0, limit).map(summarizeThread) });
+  });
+
+  app.get("/api/threads/:threadId", async (c) => {
+    if (!options.appServer) return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
+    const thread = await options.appServer.readThread(c.req.param("threadId"), { includeTurns: true });
+    return c.json({ thread });
+  });
+
+  app.post("/api/threads/:threadId/resume", async (c) => {
+    if (!options.appServer) return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
+    const thread = await options.appServer.resumeThread({
+      threadId: c.req.param("threadId"),
+      excludeTurns: false,
+    });
+    return c.json({ thread: summarizeThread(thread) });
+  });
+
   app.post("/api/pairings/:approvalCode/approve", async (c) => {
     const approvalCode = normalizeApprovalCode(c.req.param("approvalCode"));
     const pending = await options.sessions.approvePendingPairing(approvalCode, Date.now());
@@ -175,6 +211,22 @@ export function startControlCenter(options: ControlCenterOptions) {
     console.error(`Codex Relay control center failed: ${error.message}`);
   });
   return server;
+}
+
+async function persistControlToken(path: string, token: string) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${token}\n`, { mode: 0o600 });
+}
+
+function summarizeThread(thread: AppServerThread) {
+  return {
+    cwd: thread.cwd,
+    id: thread.id,
+    name: thread.name ?? undefined,
+    preview: thread.preview,
+    status: typeof thread.status === "string" ? thread.status : undefined,
+    updatedAt: thread.updatedAt,
+  };
 }
 
 async function listPendingPairings(database: ReturnType<typeof connect>) {
