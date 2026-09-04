@@ -1,9 +1,19 @@
 import { createMMKV } from "react-native-mmkv";
 
+import {
+  configureNativeRelayProxy,
+  discoverNativeLocalRelay,
+  isNativeTailcatAvailable,
+  stopNativeTailcatProxy,
+} from "./transport/native-tailcat";
+
 const defaultServerUrl = "http://localhost:8787";
+const nativeTransportServerUrl = "http://127.0.0.1:39127";
 const connectionModeStorageKey = "codex-relay.connection-mode";
 const serverUrlCandidatesStorageKey = "codex-relay.server-url-candidates";
 const serverUrlStorageKey = "codex-relay.server-url";
+const clientTokenStorageKey = "codex-relay.client-token";
+const nativeDiscoveryIntervalMs = 10_000;
 
 export const codexRelayStorage = createMMKV({ id: "codex-relay" });
 
@@ -15,6 +25,15 @@ export type CodexRelayServerUrlCandidate = {
   url: string;
 };
 
+type TailcatBootstrapCandidate = {
+  address: string;
+  remotePort: number;
+};
+
+let pendingNativeTransportSync: Promise<void> | undefined;
+let nextNativeDiscoveryAt = 0;
+let lastDiscoveredLocalUrl: string | undefined;
+
 export const fallbackCodexRelayServerUrl =
   process.env.EXPO_PUBLIC_CODEX_RELAY_SERVER_URL?.replace(/\/$/, "") ?? defaultServerUrl;
 
@@ -25,11 +44,25 @@ export function getCodexRelayConnectionMode(): CodexRelayConnectionMode {
 
 export function setCodexRelayConnectionMode(mode: CodexRelayConnectionMode) {
   codexRelayStorage.set(connectionModeStorageKey, mode);
+  scheduleNativeTransportSync();
   return mode;
 }
 
 export function getCodexRelayServerUrl() {
-  return codexRelayStorage.getString(serverUrlStorageKey) ?? fallbackCodexRelayServerUrl;
+  const stored = codexRelayStorage.getString(serverUrlStorageKey) ?? fallbackCodexRelayServerUrl;
+  const mode = getCodexRelayConnectionMode();
+  if (mode === "local") {
+    return firstStoredLocalServerUrl() ?? stored;
+  }
+  if (
+    isNativeTailcatAvailable() &&
+    codexRelayStorage.getString(clientTokenStorageKey) &&
+    readTailcatBootstrapCandidate()
+  ) {
+    scheduleNativeTransportSync();
+    return nativeTransportServerUrl;
+  }
+  return stored;
 }
 
 export function getCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {
@@ -49,6 +82,7 @@ export function getAllCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandid
 export function setCodexRelayServerUrl(url: string) {
   const normalizedUrl = normalizeServerUrl(url);
   codexRelayStorage.set(serverUrlStorageKey, normalizedUrl);
+  scheduleNativeTransportSync();
   return normalizedUrl;
 }
 
@@ -56,10 +90,13 @@ export function clearCodexRelayServerUrlState() {
   codexRelayStorage.remove(serverUrlStorageKey);
   codexRelayStorage.remove(serverUrlCandidatesStorageKey);
   codexRelayStorage.remove(connectionModeStorageKey);
+  lastDiscoveredLocalUrl = undefined;
+  void stopNativeTailcatProxy().catch(() => undefined);
 }
 
 export function saveCodexRelayServerUrlCandidates(urls: string[]) {
   codexRelayStorage.set(serverUrlCandidatesStorageKey, JSON.stringify(dedupeServerUrls(urls)));
+  scheduleNativeTransportSync(true);
 }
 
 export function normalizeServerUrl(url: string) {
@@ -139,6 +176,75 @@ export function isLocalIPv6Host(host: string) {
   );
 }
 
+function scheduleNativeTransportSync(forceDiscovery = false) {
+  if (!isNativeTailcatAvailable() || pendingNativeTransportSync) {
+    return;
+  }
+  const bootstrap = readTailcatBootstrapCandidate();
+  if (!bootstrap) {
+    return;
+  }
+  const sync = syncNativeTransport(bootstrap, forceDiscovery);
+  pendingNativeTransportSync = sync;
+  void sync.finally(() => {
+    if (pendingNativeTransportSync === sync) {
+      pendingNativeTransportSync = undefined;
+    }
+  });
+}
+
+async function syncNativeTransport(
+  bootstrap: TailcatBootstrapCandidate,
+  forceDiscovery: boolean,
+) {
+  const mode = getCodexRelayConnectionMode();
+  const urls = readStoredServerUrlCandidates();
+  const now = Date.now();
+  if (forceDiscovery || now >= nextNativeDiscoveryAt) {
+    nextNativeDiscoveryAt = now + nativeDiscoveryIntervalMs;
+    lastDiscoveredLocalUrl =
+      (await discoverNativeLocalRelay(900).catch(() => null)) ?? lastDiscoveredLocalUrl;
+  }
+  if (lastDiscoveredLocalUrl) {
+    urls.unshift(lastDiscoveredLocalUrl);
+  }
+  const lanTargets = dedupeLanTargets(
+    urls.filter((url) => serverUrlCandidateKind(url) === "local").map(urlToTcpTarget),
+  );
+  await configureNativeRelayProxy({
+    lanTargets,
+    mode,
+    remotePort: bootstrap.remotePort,
+    serverAddr: bootstrap.address,
+  });
+}
+
+function readTailcatBootstrapCandidate(): TailcatBootstrapCandidate | undefined {
+  for (const value of readStoredServerUrlCandidates()) {
+    try {
+      const url = new URL(value);
+      if (url.hostname !== "tailcat.invalid" || url.searchParams.get("v") !== "1") {
+        continue;
+      }
+      const address = url.searchParams.get("addr")?.trim();
+      const remotePort = Number(url.searchParams.get("port"));
+      if (
+        address?.startsWith("tc") &&
+        Number.isSafeInteger(remotePort) &&
+        remotePort >= 1 &&
+        remotePort <= 65535
+      ) {
+        return { address, remotePort };
+      }
+    } catch {}
+  }
+  return undefined;
+}
+
+function firstStoredLocalServerUrl() {
+  return readStoredServerUrlCandidates().find((url) => serverUrlCandidateKind(url) === "local");
+}
+
 function readStoredServerUrlCandidates() {
   const stored = codexRelayStorage.getString(serverUrlCandidatesStorageKey);
   if (!stored) {
@@ -169,6 +275,7 @@ function serverUrlCandidateKind(url: string): CodexRelayServerUrlCandidateKind {
       return "loopback";
     }
     if (
+      host === "tailcat.invalid" ||
       host.endsWith(".ts.net") ||
       host.endsWith(".beta.tailscale.net") ||
       isCarrierGradePrivateIPv4Host(host)
@@ -191,6 +298,9 @@ function serverUrlCandidateLabel(url: string) {
     if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
       return "Localhost";
     }
+    if (host === "tailcat.invalid") {
+      return "Tailcat remote";
+    }
     if (host.endsWith(".local")) {
       return "Local network";
     }
@@ -207,4 +317,22 @@ function serverUrlCandidateLabel(url: string) {
   } catch {
     return "Remote server";
   }
+}
+
+function urlToTcpTarget(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:") {
+      return "";
+    }
+    const port = parsed.port || "80";
+    const host = parsed.hostname.replace(/^\[/, "").replace(/\]$/, "");
+    return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
+  } catch {
+    return "";
+  }
+}
+
+function dedupeLanTargets(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
 }
