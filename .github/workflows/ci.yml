@@ -33,12 +33,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Show exact formatter diff
-        run: |
-          pnpm exec oxfmt apps/mobile/src/lib/codex-relay-connection-manager.ts packages/codex-relay/src/control-center.ts --write
-          git diff --no-ext-diff -- apps/mobile/src/lib/codex-relay-connection-manager.ts packages/codex-relay/src/control-center.ts
-          exit 1
-
       - name: Lint and check formatting
         run: pnpm lint
 
