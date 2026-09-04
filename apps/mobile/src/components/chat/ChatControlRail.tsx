@@ -25,7 +25,7 @@ export function ChatControlRail({
   return (
     <View style={styles.container}>
       <View style={styles.controlRail}>
-        <ControlPillButton
+        <ControlStatusButton
           accessibilityLabel={`Runtime mode ${runtimeOption.compactLabel}`}
           icon={runtimeOption.icon}
           label={runtimeOption.compactLabel}
@@ -33,30 +33,29 @@ export function ChatControlRail({
           style={styles.runtimeButton}
           tintColor={runtimeOption.iconTintColor}
         />
-        <ControlPillButton
+        <View style={styles.divider} />
+        <ControlStatusButton
           accessibilityLabel={`Model ${modelLabel}`}
           disabled={modelDisabled}
           icon={isFastModeEnabled ? "fast" : undefined}
           label={modelLabel}
           onPress={onModelPress}
           style={styles.modelButton}
-          textAlign="center"
-          tintColor={isFastModeEnabled ? "rgba(255, 214, 102, 0.9)" : undefined}
+          tintColor={isFastModeEnabled ? "rgba(255, 218, 117, 0.9)" : undefined}
         />
       </View>
     </View>
   );
 }
 
-function ControlPillButton({
+function ControlStatusButton({
   accessibilityLabel,
   disabled,
   icon,
   label,
   onPress,
   style,
-  textAlign,
-  tintColor = "rgba(243, 244, 246, 0.72)",
+  tintColor = "rgba(243, 244, 246, 0.68)",
 }: {
   accessibilityLabel: string;
   disabled?: boolean;
@@ -64,7 +63,6 @@ function ControlPillButton({
   label: string;
   onPress: () => void;
   style?: StyleProp<ViewStyle>;
-  textAlign?: "center";
   tintColor?: string;
 }) {
   return (
@@ -78,23 +76,14 @@ function ControlPillButton({
     >
       {({ pressed }) => (
         <View style={[styles.controlButton, pressed ? styles.pressed : null]}>
-          <View style={styles.controlButtonContent}>
-            {icon ? (
-              <View style={styles.controlButtonIconSlot}>
-                <Icon name={icon} size={12} strokeWidth={1.9} tintColor={tintColor} />
-              </View>
-            ) : null}
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.controlButtonLabel,
-                { color: tintColor },
-                textAlign === "center" ? styles.controlButtonLabelCentered : null,
-              ]}
-            >
-              {label}
-            </Text>
-          </View>
+          {icon ? (
+            <View style={styles.controlButtonIconSlot}>
+              <Icon name={icon} size={11} strokeWidth={1.8} tintColor={tintColor} />
+            </View>
+          ) : null}
+          <Text numberOfLines={1} style={[styles.controlButtonLabel, { color: tintColor }]}>
+            {label}
+          </Text>
         </View>
       )}
     </Pressable>
@@ -111,7 +100,6 @@ const styles = StyleSheet.create({
   controlRail: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 5,
     height: 44,
     justifyContent: "flex-start",
     minWidth: 0,
@@ -124,34 +112,24 @@ const styles = StyleSheet.create({
   },
   controlButton: {
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
-    borderColor: "rgba(255, 255, 255, 0.09)",
-    borderCurve: "continuous",
-    borderRadius: 12,
-    borderWidth: 1,
-    height: 23,
+    borderRadius: 7,
+    flexDirection: "row",
+    gap: 4,
+    height: 28,
     justifyContent: "center",
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
   },
   runtimeButton: {
     flexShrink: 0,
   },
   modelButton: {
     flexShrink: 1,
-    maxWidth: "60%",
+    maxWidth: "68%",
     minWidth: 0,
     overflow: "hidden",
   },
   buttonDisabled: {
-    opacity: 0.72,
-  },
-  controlButtonContent: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 4,
-    height: 23,
-    justifyContent: "center",
-    minWidth: 0,
+    opacity: 0.48,
   },
   controlButtonIconSlot: {
     alignItems: "center",
@@ -161,15 +139,19 @@ const styles = StyleSheet.create({
   },
   controlButtonLabel: {
     flexShrink: 1,
-    fontFamily: Fonts.sansSemiBold,
-    fontSize: 10.5,
+    fontFamily: Fonts.sansMedium,
+    fontSize: 10,
     lineHeight: 13,
     minWidth: 0,
   },
-  controlButtonLabelCentered: {
-    textAlign: "center",
+  divider: {
+    backgroundColor: "rgba(255, 255, 255, 0.13)",
+    height: 12,
+    marginHorizontal: 2,
+    width: StyleSheet.hairlineWidth,
   },
   pressed: {
-    opacity: 0.72,
+    backgroundColor: "rgba(255, 255, 255, 0.055)",
+    opacity: 0.76,
   },
 });
