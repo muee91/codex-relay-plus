@@ -41,6 +41,7 @@ export type CodexRelayConnectionReconciliation = {
 let pendingReconciliation: Promise<CodexRelayConnectionReconciliation> | undefined;
 let pendingNativeSync: Promise<string | undefined> | undefined;
 let nativeRefreshTimer: ReturnType<typeof setInterval> | undefined;
+let nativeSyncGeneration = 0;
 let lastDiscoveredLocalUrl: string | undefined;
 
 export function reconcileCodexRelayConnection() {
@@ -63,7 +64,7 @@ async function reconcileCodexRelayConnectionOnce(): Promise<CodexRelayConnection
   }
 
   const mode = getCodexRelayConnectionMode();
-  if (mode === "local" && isNativeRelayTransportConfigured()) {
+  if (mode === "local") {
     await stopNativeTransport();
   }
 
@@ -120,18 +121,20 @@ async function ensureNativeRelayTransportReady(forceDiscovery = false) {
     return undefined;
   }
   if (!pendingNativeSync) {
-    const sync = syncNativeTransport(forceDiscovery);
+    const generation = nativeSyncGeneration;
+    const sync = syncNativeTransport(forceDiscovery, generation);
     pendingNativeSync = sync;
-    void sync.finally(() => {
+    const clearPending = () => {
       if (pendingNativeSync === sync) {
         pendingNativeSync = undefined;
       }
-    });
+    };
+    void sync.then(clearPending, clearPending);
   }
   return pendingNativeSync;
 }
 
-async function syncNativeTransport(forceDiscovery: boolean) {
+async function syncNativeTransport(forceDiscovery: boolean, generation: number) {
   const bootstrap = getTailcatBootstrapCandidate();
   if (!bootstrap) {
     return undefined;
@@ -163,6 +166,9 @@ async function syncNativeTransport(forceDiscovery: boolean) {
   const normalized = new URL(localUrl).toString().replace(/\/$/, "");
   if (normalized !== nativeTransportServerUrl) {
     throw new Error(`Native Relay transport returned unexpected URL: ${normalized}`);
+  }
+  if (generation !== nativeSyncGeneration || getCodexRelayConnectionMode() === "local") {
+    return undefined;
   }
 
   setNativeRelayTransportConfigured(true);
@@ -200,6 +206,7 @@ function ensureBackgroundNativeDiscovery() {
 }
 
 async function stopNativeTransport() {
+  nativeSyncGeneration += 1;
   if (nativeRefreshTimer) {
     clearInterval(nativeRefreshTimer);
     nativeRefreshTimer = undefined;
