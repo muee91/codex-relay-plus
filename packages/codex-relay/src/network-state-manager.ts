@@ -55,13 +55,11 @@ export class NetworkStateManager {
   start() {
     if (!this.lanTimer) {
       this.lanTimer = setInterval(() => this.pollLan(), lanPollIntervalMs);
-      this.lanTimer.unref?.();
     }
     if (!this.tailscaleTimer) {
       this.tailscaleTimer = setInterval(() => {
         void this.refreshTailscale();
       }, tailscalePollIntervalMs);
-      this.tailscaleTimer.unref?.();
     }
     void this.refreshTailscale();
     return this;
@@ -95,9 +93,10 @@ export class NetworkStateManager {
 
   private async refreshTailscaleOnce() {
     const status = await readTailscaleStatus();
-    const serveHttpsUrl = isTailscaleStatusRunning(status)
-      ? await readTailscaleServeHttpsUrl(status, this.options.port)
-      : undefined;
+    const serveHttpsUrl =
+      status && isTailscaleStatusRunning(status)
+        ? await readTailscaleServeHttpsUrl(status, this.options.port)
+        : undefined;
     const next: TailscaleSnapshot = { checkedAt: Date.now(), serveHttpsUrl, status };
     if (sameTailscaleSnapshot(this.tailscale, next)) {
       this.tailscale = next;
