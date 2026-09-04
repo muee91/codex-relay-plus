@@ -1,58 +1,81 @@
 import { serve } from "@hono/node-server";
+import { fromByteArray, toByteArray } from "base64-js";
 import { createHash, randomBytes } from "node:crypto";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import pc from "picocolors";
 import qrcode from "qrcode-terminal";
 
 import { createApp } from "./app.js";
-import { createServerIdentity, createServerIdentityFromPrivateKey } from "./auth.js";
-import { startRelayAppServer } from "./app-server.js";
-import { color } from "./cli-colors.js";
+import { CodexAppServerClient } from "./app-server.js";
 import {
-  formatApprovalCommand,
-  getControlCenterPort,
-  getRelayPort,
-  isControlCenterEnabled,
-  npxCommand,
-} from "./cli.js";
+  resolveCodexAppServerMode,
+  resolveCodexSharedAppServerRemoteAddress,
+} from "./codex-binary.js";
 import { startControlCenter } from "./control-center.js";
+import { isRelayDebugEnabled, relayDebugLog } from "./debug-log.js";
+import { NetworkStateManager, type NetworkStateSnapshot } from "./network-state-manager.js";
+import { getConnectUrlGuidance, type ConnectUrlCandidate } from "./pairing-url-candidates.js";
+import { createTursoPairingSessionStore } from "./pairing-store.js";
+import { codexRelayDataPath, legacyCodexRelayDataPath } from "./paths.js";
+import { createFileRuntimePreferencesStore } from "./preferences-store.js";
 import {
-  codexRelayDataPath,
-  legacyCodexRelayDataPath,
-  prepareCodexRelayDataDirectory,
-} from "./data-paths.js";
-import { relayDebugLog, resolveRelayDebugLogPath } from "./debug-log.js";
-import { getConnectUrlGuidance } from "./lan-address.js";
-import {
-  NetworkStateManager,
-  type ConnectUrlCandidate,
-  type NetworkStateSnapshot,
-} from "./network-state-manager.js";
-import { PairingSessionStore } from "./pairing-store.js";
-import { PreferencesStore } from "./preferences-store.js";
-import { resolveCodexSharedAppServerRemoteAddress } from "./runtime-paths.js";
-import { fromByteArray, toByteArray } from "./utils/base64.js";
+  createServerIdentity,
+  createServerIdentityFromPrivateKey,
+  type ServerIdentity,
+} from "./secure-transport.js";
 
-await prepareCodexRelayDataDirectory();
-
-const port = getRelayPort();
-const hostname = process.env.CODEX_RELAY_HOST ?? "0.0.0.0";
-const dangerouslyAutoApprove = process.env.CODEX_RELAY_AUTO_APPROVE === "1";
-const authDbPath = await prepareCodexRelayDataPath("relay-auth.db", [
-  "relay-auth.db-shm",
-  "relay-auth.db-wal",
-]);
-const sessionStore = new PairingSessionStore(authDbPath);
-const preferencesStore = new PreferencesStore(authDbPath);
-const approvalSecret = await getApprovalSecret();
+const port = Number(process.env.PORT ?? 8787);
+const hostname = process.env.HOST ?? "0.0.0.0";
+const controlPort = Number(process.env.CODEX_RELAY_CONTROL_PORT ?? port + 2);
+const controlCenterEnabled = process.env.CODEX_RELAY_CONTROL_CENTER !== "0";
+const dangerouslyAutoApprove = process.env.CODEX_RELAY_DANGEROUSLY_AUTO_APPROVE === "1";
 const serverIdentity = await getServerIdentity();
-const relayAppServer = await startRelayAppServer();
-const debugLogPath = resolveRelayDebugLogPath();
-const controlCenterEnabled = isControlCenterEnabled();
-const controlPort = getControlCenterPort(port);
-const controlTokenPath = process.env.CODEX_RELAY_CONTROL_TOKEN_FILE;
-
+const approvalSecret = await getApprovalSecret();
+const debugLogPath = isRelayDebugEnabled()
+  ? (process.env.CODEX_RELAY_DEBUG_LOG_PATH ?? (await prepareCodexRelayDataPath("debug.log")))
+  : undefined;
+if (debugLogPath) {
+  process.env.CODEX_RELAY_DEBUG_LOG_PATH = debugLogPath;
+  relayDebugLog("relay.debug.enabled", { debugLogPath, pid: process.pid });
+}
+const colors = pc.createColors(!process.env.NO_COLOR && process.env.TERM !== "dumb");
+const color = {
+  brand: colors.cyan,
+  code: colors.yellow,
+  command: colors.green,
+  event: colors.magenta,
+  muted: colors.gray,
+  prompt: colors.cyan,
+  url: colors.blue,
+};
+const npxCommand = "npx codex-relay@latest";
+const authDbPath =
+  process.env.CODEX_RELAY_AUTH_DB_PATH ??
+  (await prepareCodexRelayDataPath("auth.db", ["auth.db-shm", "auth.db-wal"]));
+const controlTokenPath = controlCenterEnabled
+  ? (process.env.CODEX_RELAY_CONTROL_TOKEN_PATH ??
+    (await prepareCodexRelayDataPath("control-token")))
+  : undefined;
+const sessionStore = await createTursoPairingSessionStore(authDbPath);
+const preferencesStore = createFileRuntimePreferencesStore(
+  process.env.CODEX_RELAY_PREFERENCES_PATH ?? (await prepareCodexRelayDataPath("preferences.json")),
+);
+const appServerMode = resolveCodexAppServerMode();
+const relayAppServer =
+  appServerMode.mode === "socket"
+    ? new CodexAppServerClient({
+        mode: appServerMode,
+        onStartupFallback: (error) => {
+          logRuntimeEvent(
+            "Fallback",
+            `Shared app-server unavailable; continuing with a private app-server (${error.message}).`,
+          );
+        },
+      })
+    : undefined;
 if (relayAppServer) {
+  await relayAppServer.initialize();
   process.once("SIGINT", () => stopRelayAppServer(130));
   process.once("SIGTERM", () => stopRelayAppServer(143));
   process.once("exit", () => relayAppServer.close());
@@ -360,22 +383,25 @@ async function prepareCodexRelayDataPath(fileName: string, companionFileNames: s
   return targetPath;
 }
 
-async function copyLegacyFileIfTargetMissing(sourcePath: string, targetPath: string) {
-  try {
-    await readFile(targetPath);
-    return;
-  } catch {}
-
-  try {
+async function copyLegacyFileIfTargetMissing(legacyPath: string, targetPath: string) {
+  await access(targetPath).catch(async () => {
     await mkdir(dirname(targetPath), { recursive: true });
-    await copyFile(sourcePath, targetPath);
-  } catch {}
+    await copyFile(legacyPath, targetPath).catch(() => undefined);
+  });
 }
 
 async function writeBackgroundPid() {
-  if (process.env.CODEX_RELAY_BACKGROUND_CHILD !== "1") {
+  const path = process.env.CODEX_RELAY_PID_PATH;
+  if (!path) {
     return;
   }
-  const pidFile = codexRelayDataPath("relay.pid");
-  await writeFile(pidFile, `${process.pid}\n`, { mode: 0o600 });
+
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${process.pid}\n`, { mode: 0o600 });
+}
+
+function formatApprovalCommand(approvalCode: string, activePort: number) {
+  return activePort === 8787
+    ? `${npxCommand} approve ${approvalCode}`
+    : `PORT=${activePort} ${npxCommand} approve ${approvalCode}`;
 }
