@@ -43,6 +43,18 @@ let nativeRefreshTimer: ReturnType<typeof setInterval> | undefined;
 let nativeSyncGeneration = 0;
 let lastDiscoveredLocalUrl: string | undefined;
 
+// Session token removal is the authoritative sign-out boundary. Observe it at
+// the storage layer so native Tailcat teardown is not dependent on a Settings
+// screen or a later React render. The root layout still performs the same
+// teardown defensively when hydrated pairing state becomes false.
+if (Platform.OS === "android") {
+  void storage.addOnValueChangedListener((changedKey) => {
+    if (changedKey === clientTokenStorageKey && !storage.getString(clientTokenStorageKey)) {
+      void stopNativeTransport();
+    }
+  });
+}
+
 export function reconcileCodexRelayConnection() {
   if (!pendingReconciliation) {
     const reconciliation = reconcileCodexRelayConnectionOnce();
