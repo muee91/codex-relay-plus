@@ -3,19 +3,20 @@ import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import qrcode from "qrcode-terminal";
 
-import { connect } from "./libsql-database.js";
-import type { PairingSessionStore } from "./pairing-store.js";
-import type { ConnectUrlCandidate } from "./pairing-url-candidates.js";
+import type { AppServerThread } from "./app-server.js";
 import { renderControlCenterPage } from "./control-center-page.js";
+import { connect } from "./libsql-database.js";
+import type { RelayNetworkState } from "./network-state.js";
+import type { PairingSessionStore } from "./pairing-store.js";
 
 export type ControlCenterOptions = {
   authDbPath: string;
-  connectUrl: string;
-  connectUrlCandidates: ConnectUrlCandidate[];
-  pairingPayload: string;
+  getNetworkState: () => RelayNetworkState;
+  listThreads?: () => Promise<AppServerThread[]>;
   onPairApproved?: (client: { approvalCode: string; clientName?: string }) => void;
   onPairingsCleared?: (result: { pendingPairingsCleared: number; sessionsCleared: number }) => void;
   port: number;
+  refreshNetworkState?: () => Promise<RelayNetworkState>;
   relayPort: number;
   sessions: PairingSessionStore;
   sharedAppServerRemoteAddress?: string;
@@ -38,9 +39,24 @@ type SessionSummary = {
   updatedAt: number;
 };
 
+type ThreadSummary = {
+  cwd: string;
+  id: string;
+  name?: string;
+  preview: string;
+  source: string;
+  status: string;
+  updatedAt: number;
+};
+
 type DeviceSnapshot = {
   pendingPairings: PendingPairingSummary[];
   sessions: SessionSummary[];
+  updatedAt: number;
+};
+
+type ThreadSnapshot = {
+  threads: ThreadSummary[];
   updatedAt: number;
 };
 
@@ -48,9 +64,12 @@ export function startControlCenter(options: ControlCenterOptions) {
   const app = new Hono();
   const controlToken = randomBytes(24).toString("base64url");
   const database = connect(options.authDbPath);
-  const pairingQr = renderPairingQr(options.pairingPayload);
   let deviceSnapshot: DeviceSnapshot = { pendingPairings: [], sessions: [], updatedAt: 0 };
+  let threadSnapshot: ThreadSnapshot = { threads: [], updatedAt: 0 };
   let snapshotRefresh: Promise<void> | undefined;
+  let threadRefresh: Promise<void> | undefined;
+  let qrGeneration = -1;
+  let pairingQr = "";
 
   const refreshDeviceSnapshot = () => {
     if (snapshotRefresh) {
@@ -73,7 +92,36 @@ export function startControlCenter(options: ControlCenterOptions) {
     return snapshotRefresh;
   };
 
+  const refreshThreadSnapshot = () => {
+    if (!options.listThreads) {
+      return Promise.resolve();
+    }
+    if (threadRefresh) {
+      return threadRefresh;
+    }
+    threadRefresh = options
+      .listThreads()
+      .then((threads) => {
+        threadSnapshot = {
+          threads: threads.slice(0, 30).map(summarizeThread),
+          updatedAt: Date.now(),
+        };
+      })
+      .catch((error) => {
+        console.error(
+          `Codex Relay control center thread snapshot failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      })
+      .finally(() => {
+        threadRefresh = undefined;
+      });
+    return threadRefresh;
+  };
+
   void refreshDeviceSnapshot();
+  void refreshThreadSnapshot();
 
   app.use("*", async (c, next) => {
     if (!isAllowedControlHost(c.req.header("host"), options.port)) {
@@ -105,26 +153,41 @@ export function startControlCenter(options: ControlCenterOptions) {
     await next();
   });
 
-  // Keep the primary state endpoint non-blocking. Pairing and relay details must remain
-  // usable even if SQLite/device enumeration is slow on a particular machine.
   app.get("/api/state", (c) => {
     void refreshDeviceSnapshot();
+    if (!threadSnapshot.updatedAt || Date.now() - threadSnapshot.updatedAt > 3000) {
+      void refreshThreadSnapshot();
+    }
+    const network = options.getNetworkState();
+    if (network.generation !== qrGeneration) {
+      qrGeneration = network.generation;
+      pairingQr = renderPairingQr(network.pairingPayload);
+    }
     return c.json({
-      diagnostics: collectCoreDiagnostics(options),
-      pairingPayload: options.pairingPayload,
+      diagnostics: collectCoreDiagnostics(options, network),
+      network,
+      pairingPayload: network.pairingPayload,
       pairingQr,
       pendingPairings: deviceSnapshot.pendingPairings,
       relay: {
-        connectUrl: options.connectUrl,
-        connectUrlCandidates: options.connectUrlCandidates,
+        connectUrl: network.connectUrl,
+        connectUrlCandidates: network.connectUrlCandidates,
         pid: process.pid,
         port: options.relayPort,
         sharedAppServerRemoteAddress: options.sharedAppServerRemoteAddress,
         workspacePath: options.workspacePath,
       },
       sessions: deviceSnapshot.sessions,
-      snapshotUpdatedAt: deviceSnapshot.updatedAt,
+      snapshotUpdatedAt: Math.max(deviceSnapshot.updatedAt, threadSnapshot.updatedAt),
+      threads: threadSnapshot.threads,
     });
+  });
+
+  app.post("/api/network/refresh", async (c) => {
+    const network = options.refreshNetworkState
+      ? await options.refreshNetworkState()
+      : options.getNetworkState();
+    return c.json({ network });
   });
 
   app.post("/api/pairings/:approvalCode/approve", async (c) => {
@@ -219,13 +282,40 @@ async function listSessions(database: ReturnType<typeof connect>) {
   });
 }
 
-function collectCoreDiagnostics(options: ControlCenterOptions) {
+function summarizeThread(thread: AppServerThread): ThreadSummary {
+  const status = normalizeThreadStatus(thread.status);
+  return {
+    cwd: thread.cwd,
+    id: thread.id,
+    name: thread.name?.trim() || undefined,
+    preview: thread.preview?.trim() || "",
+    source: thread.source,
+    status,
+    updatedAt: thread.recencyAt ?? thread.updatedAt ?? thread.createdAt,
+  };
+}
+
+function normalizeThreadStatus(status: unknown) {
+  if (typeof status === "string") {
+    return status;
+  }
+  if (status && typeof status === "object") {
+    if ("type" in status && typeof (status as { type?: unknown }).type === "string") {
+      return (status as { type: string }).type;
+    }
+    if ("status" in status && typeof (status as { status?: unknown }).status === "string") {
+      return (status as { status: string }).status;
+    }
+  }
+  return "idle";
+}
+
+function collectCoreDiagnostics(options: ControlCenterOptions, network: RelayNetworkState) {
   const nodeVersion = process.versions.node;
   const nodeParts = nodeVersion.split(".").map(Number);
   const nodeSupported =
     nodeParts[0] > 22 ||
     (nodeParts[0] === 22 && (nodeParts[1] > 14 || (nodeParts[1] === 14 && nodeParts[2] >= 0)));
-
   return [
     {
       label: "Relay",
@@ -238,11 +328,20 @@ function collectCoreDiagnostics(options: ControlCenterOptions) {
       value: `v${nodeVersion}${nodeSupported ? "" : " · requires >= 22.14"}`,
     },
     {
-      label: "Network",
-      status: options.connectUrlCandidates.length > 0 ? "ok" : "warn",
-      value: `${options.connectUrlCandidates.length || 1} address candidate${
-        options.connectUrlCandidates.length === 1 ? "" : "s"
-      }`,
+      label: "LAN",
+      status: network.connectUrlCandidates.some((candidate) => candidate.kind === "lan")
+        ? "ok"
+        : "warn",
+      value: network.connectUrlCandidates.some((candidate) => candidate.kind === "lan")
+        ? "local address available"
+        : "not currently available",
+    },
+    {
+      label: "Tailcat",
+      status: network.tailcat.available ? "ok" : "warn",
+      value: network.tailcat.available
+        ? `remote transport ready · ${network.tailcat.version}`
+        : network.tailcat.error || "remote transport unavailable",
     },
     {
       label: "Codex",
