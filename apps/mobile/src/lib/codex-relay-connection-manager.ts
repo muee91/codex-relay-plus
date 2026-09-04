@@ -13,7 +13,6 @@ import {
   isCarrierGradePrivateIPv4Host,
   isLocalIPv6Host,
   isLocalServerUrl,
-  isNativeRelayTransportConfigured,
   isPrivateIPv4Host,
   isTailcatBootstrapUrl,
   nativeTransportServerUrl,
