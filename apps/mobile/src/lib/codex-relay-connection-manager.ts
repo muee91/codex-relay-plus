@@ -6,20 +6,32 @@ import { fetch as nitroFetch } from "react-native-nitro-fetch";
 import { getClientSessionId, hasCodexRelaySession } from "./codex-relay-api";
 import {
   codexRelayStorage as storage,
-  ensureNativeRelayTransportReady,
+  getAllCodexRelayServerUrlCandidates,
   getCodexRelayConnectionMode,
   getCodexRelayServerUrlCandidates,
+  getTailcatBootstrapCandidate,
   isCarrierGradePrivateIPv4Host,
   isLocalIPv6Host,
+  isLocalServerUrl,
+  isNativeRelayTransportConfigured,
   isPrivateIPv4Host,
-  shouldUseNativeRelayTransport,
+  isTailcatBootstrapUrl,
+  nativeTransportServerUrl,
   setCodexRelayServerUrl,
+  setNativeRelayTransportConfigured,
 } from "./codex-relay-server-url-storage";
 import { requestWithNetworkTimeout } from "./network-timeout";
 import { decryptResponsePayload } from "./secure-transport";
+import {
+  configureNativeRelayProxy,
+  discoverNativeLocalRelay,
+  isNativeTailcatAvailable,
+  stopNativeTailcatProxy,
+} from "./transport/native-tailcat";
 
 const clientTokenStorageKey = "codex-relay.client-token";
 const connectionProbeTimeoutMs = 2500;
+const nativeDiscoveryIntervalMs = 15_000;
 
 export type CodexRelayConnectionReconciliation = {
   serverUrl: string;
@@ -27,6 +39,9 @@ export type CodexRelayConnectionReconciliation = {
 };
 
 let pendingReconciliation: Promise<CodexRelayConnectionReconciliation> | undefined;
+let pendingNativeSync: Promise<string | undefined> | undefined;
+let nativeRefreshTimer: ReturnType<typeof setInterval> | undefined;
+let lastDiscoveredLocalUrl: string | undefined;
 
 export function reconcileCodexRelayConnection() {
   if (!pendingReconciliation) {
@@ -48,16 +63,14 @@ async function reconcileCodexRelayConnectionOnce(): Promise<CodexRelayConnection
   }
 
   const mode = getCodexRelayConnectionMode();
-  const candidates = getCodexRelayServerUrlCandidates();
-  let nativeError: unknown;
+  if (mode === "local" && isNativeRelayTransportConfigured()) {
+    await stopNativeTransport();
+  }
 
-  // On Android, once a Tailcat bootstrap exists the stable localhost proxy is
-  // the only route visible to the API layer. LAN/Tailcat hysteresis belongs to
-  // the Go transport so HTTP, SSE, images, and terminal streams cannot disagree
-  // about the currently selected path.
+  let nativeError: unknown;
   if (shouldUseNativeRelayTransport()) {
     try {
-      const nativeUrl = await ensureNativeRelayTransportReady();
+      const nativeUrl = await ensureNativeRelayTransportReady(true);
       if (nativeUrl) {
         return {
           serverUrl: nativeUrl,
@@ -69,16 +82,16 @@ async function reconcileCodexRelayConnectionOnce(): Promise<CodexRelayConnection
     }
   }
 
-  const fallbackUrls = candidates
+  const fallbackUrls = getCodexRelayServerUrlCandidates()
     .map((candidate) => candidate.url)
-    .filter((url) => !isTailcatBootstrapCandidate(url) && !isNativeLoopbackUrl(url));
+    .filter((url) => !isTailcatBootstrapUrl(url) && !isNativeLoopbackUrl(url));
   if (fallbackUrls.length === 0) {
     if (nativeError instanceof Error) {
       throw nativeError;
     }
     throw new Error(
       mode === "local"
-        ? "No local network address is available for this computer."
+        ? "No verified local network address is available for this computer."
         : mode === "remote"
           ? "No remote address is available for this computer."
           : "No relay server address is available.",
@@ -90,6 +103,111 @@ async function reconcileCodexRelayConnectionOnce(): Promise<CodexRelayConnection
   } catch (fallbackError) {
     throw nativeError instanceof Error ? nativeError : fallbackError;
   }
+}
+
+function shouldUseNativeRelayTransport() {
+  return Boolean(
+    Platform.OS === "android" &&
+      getCodexRelayConnectionMode() !== "local" &&
+      hasCodexRelaySession() &&
+      isNativeTailcatAvailable() &&
+      getTailcatBootstrapCandidate(),
+  );
+}
+
+async function ensureNativeRelayTransportReady(forceDiscovery = false) {
+  if (!shouldUseNativeRelayTransport()) {
+    return undefined;
+  }
+  if (!pendingNativeSync) {
+    const sync = syncNativeTransport(forceDiscovery);
+    pendingNativeSync = sync;
+    void sync.finally(() => {
+      if (pendingNativeSync === sync) {
+        pendingNativeSync = undefined;
+      }
+    });
+  }
+  return pendingNativeSync;
+}
+
+async function syncNativeTransport(forceDiscovery: boolean) {
+  const bootstrap = getTailcatBootstrapCandidate();
+  if (!bootstrap) {
+    return undefined;
+  }
+
+  const mode = getCodexRelayConnectionMode();
+  const candidateUrls = getAllCodexRelayServerUrlCandidates()
+    .map((candidate) => candidate.url)
+    .filter((url) => isLocalServerUrl(url));
+
+  if (mode === "auto" && forceDiscovery) {
+    const discovered = await discoverNativeLocalRelay(900).catch(() => null);
+    if (discovered) {
+      lastDiscoveredLocalUrl = discovered;
+    }
+  }
+  if (mode === "auto" && lastDiscoveredLocalUrl) {
+    candidateUrls.unshift(lastDiscoveredLocalUrl);
+  }
+
+  const verifiedLanTargets =
+    mode === "remote" ? [] : await verifiedLanTcpTargets(dedupeStrings(candidateUrls));
+  const localUrl = await configureNativeRelayProxy({
+    lanTargets: verifiedLanTargets,
+    mode,
+    remotePort: bootstrap.remotePort,
+    serverAddr: bootstrap.address,
+  });
+  const normalized = new URL(localUrl).toString().replace(/\/$/, "");
+  if (normalized !== nativeTransportServerUrl) {
+    throw new Error(`Native Relay transport returned unexpected URL: ${normalized}`);
+  }
+
+  setNativeRelayTransportConfigured(true);
+  ensureBackgroundNativeDiscovery();
+  return nativeTransportServerUrl;
+}
+
+async function verifiedLanTcpTargets(urls: string[]) {
+  const targets: string[] = [];
+  for (const url of urls) {
+    try {
+      await probeCodexRelayServer(url);
+      const target = httpUrlToTcpTarget(url);
+      if (target) {
+        targets.push(target);
+      }
+    } catch {
+      // A LAN discovery result is advisory until the existing secure session
+      // successfully authenticates the Relay behind that address.
+    }
+  }
+  return dedupeStrings(targets);
+}
+
+function ensureBackgroundNativeDiscovery() {
+  if (nativeRefreshTimer || Platform.OS !== "android") {
+    return;
+  }
+  nativeRefreshTimer = setInterval(() => {
+    if (!shouldUseNativeRelayTransport() || getCodexRelayConnectionMode() !== "auto") {
+      return;
+    }
+    void ensureNativeRelayTransportReady(true).catch(() => undefined);
+  }, nativeDiscoveryIntervalMs);
+}
+
+async function stopNativeTransport() {
+  if (nativeRefreshTimer) {
+    clearInterval(nativeRefreshTimer);
+    nativeRefreshTimer = undefined;
+  }
+  lastDiscoveredLocalUrl = undefined;
+  pendingNativeSync = undefined;
+  setNativeRelayTransportConfigured(false);
+  await stopNativeTailcatProxy().catch(() => undefined);
 }
 
 async function probeCandidates(urls: string[]) {
@@ -132,13 +250,22 @@ async function probeCodexRelayServer(serverUrl: string) {
   return StatusResponseSchema.parse(payload);
 }
 
-function isTailcatBootstrapCandidate(url: string) {
+function httpUrlToTcpTarget(url: string) {
   try {
     const parsed = new URL(url);
-    return parsed.hostname === "tailcat.invalid" && parsed.searchParams.get("v") === "1";
+    if (parsed.protocol !== "http:") {
+      return undefined;
+    }
+    const host = parsed.hostname.replace(/^\[/, "").replace(/\]$/, "");
+    const port = parsed.port || "80";
+    return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+function dedupeStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function isNativeLoopbackUrl(url: string) {
