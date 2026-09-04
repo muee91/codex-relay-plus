@@ -350,12 +350,14 @@ async function getServerIdentity(): Promise<ServerIdentity> {
   }
 }
 
-async function writeServerState(details: NetworkStateSnapshot & {
-  controlUrl?: string;
-  host: string;
-  listenUrl: string;
-  port: number;
-}) {
+async function writeServerState(
+  details: NetworkStateSnapshot & {
+    controlUrl?: string;
+    host: string;
+    listenUrl: string;
+    port: number;
+  },
+) {
   const path = codexRelayDataPath("server-state.json");
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(details)}\n`, { mode: 0o600 });
