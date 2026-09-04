@@ -14,12 +14,8 @@ import {
 } from "./codex-binary.js";
 import { startControlCenter } from "./control-center.js";
 import { isRelayDebugEnabled, relayDebugLog } from "./debug-log.js";
-import {
-  createPairingQrPayload,
-  getConnectUrlCandidates,
-  getConnectUrlGuidance,
-  type ConnectUrlCandidate,
-} from "./pairing-url-candidates.js";
+import { NetworkStateManager, type NetworkStateSnapshot } from "./network-state-manager.js";
+import { getConnectUrlGuidance, type ConnectUrlCandidate } from "./pairing-url-candidates.js";
 import { createTursoPairingSessionStore } from "./pairing-store.js";
 import { codexRelayDataPath, legacyCodexRelayDataPath } from "./paths.js";
 import { createFileRuntimePreferencesStore } from "./preferences-store.js";
@@ -144,25 +140,40 @@ serve(
   },
   (info) => {
     const listenUrl = `http://${info.address}:${info.port}`;
-    const connectUrlCandidates = getConnectUrlCandidates({ listenUrl, port: info.port });
-    const connectUrl = connectUrlCandidates[0]?.url ?? listenUrl;
-    const connectUrls = connectUrlCandidates.map((candidate) => candidate.url);
-    const pairingPayload = createPairingQrPayload({
+    const networkState = new NetworkStateManager({
+      listenUrl,
+      port: info.port,
       serverPublicKey: serverIdentity.publicKey,
-      serverUrls: connectUrls.length > 0 ? connectUrls : [connectUrl],
-    });
+    }).start();
     const sharedAppServerRemoteAddress =
       relayAppServer?.appServerMode === "socket"
         ? resolveCodexSharedAppServerRemoteAddress()
         : undefined;
     const controlUrl = controlCenterEnabled ? `http://127.0.0.1:${controlPort}` : undefined;
+    const current = networkState.snapshot();
+
+    const persistNetworkState = (snapshot: NetworkStateSnapshot) =>
+      writeServerState({
+        ...snapshot,
+        controlUrl,
+        host: hostname,
+        listenUrl,
+        port: info.port,
+      });
+    networkState.subscribe((snapshot) => {
+      void persistNetworkState(snapshot);
+      relayDebugLog("relay.network.changed", {
+        connectUrl: snapshot.connectUrl,
+        connectUrlCandidates: snapshot.connectUrlCandidates,
+        tailscaleCheckedAt: snapshot.tailscale.checkedAt,
+      });
+    });
+    process.once("exit", () => networkState.stop());
 
     if (controlCenterEnabled) {
       startControlCenter({
         authDbPath,
-        connectUrl,
-        connectUrlCandidates,
-        pairingPayload,
+        getNetworkState: () => networkState.snapshot(),
         onPairApproved: ({ clientName }) => {
           const name = clientName ? ` for ${clientName}` : "";
           logRuntimeEvent(
@@ -188,21 +199,13 @@ serve(
       });
     }
 
-    void writeServerState({
-      connectUrl,
-      connectUrlCandidates,
-      controlUrl,
-      host: hostname,
-      listenUrl,
-      pairingPayload,
-      port: info.port,
-    });
+    void persistNetworkState(current);
     void writeBackgroundPid();
     if (debugLogPath) {
       logRuntimeEvent("Debug", `Writing diagnostics to ${debugLogPath}`);
       relayDebugLog("relay.started", {
-        connectUrl,
-        connectUrlCandidates,
+        connectUrl: current.connectUrl,
+        connectUrlCandidates: current.connectUrlCandidates,
         controlUrl,
         listenUrl,
         port: info.port,
@@ -210,15 +213,15 @@ serve(
       });
     }
     console.log("");
-    qrcode.generate(pairingPayload, { small: true });
+    qrcode.generate(current.pairingPayload, { small: true });
     console.log(
       formatStartupInstructions({
-        connectUrl,
-        connectUrlCandidates,
+        connectUrl: current.connectUrl,
+        connectUrlCandidates: current.connectUrlCandidates,
         controlUrl,
         dangerouslyAutoApprove,
         listenUrl,
-        pairingPayload,
+        pairingPayload: current.pairingPayload,
         port: info.port,
         sharedAppServerRemoteAddress,
       }),
@@ -347,13 +350,10 @@ async function getServerIdentity(): Promise<ServerIdentity> {
   }
 }
 
-async function writeServerState(details: {
-  connectUrl: string;
-  connectUrlCandidates: ConnectUrlCandidate[];
+async function writeServerState(details: NetworkStateSnapshot & {
   controlUrl?: string;
   host: string;
   listenUrl: string;
-  pairingPayload: string;
   port: number;
 }) {
   const path = codexRelayDataPath("server-state.json");
