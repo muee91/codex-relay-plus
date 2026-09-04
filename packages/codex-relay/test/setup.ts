@@ -1,6 +1,8 @@
 import { vi } from "vitest";
 
-const stores = new Map<string, Map<string, string>>();
+type StoredValue = boolean | number | string;
+
+const stores = new Map<string, Map<string, StoredValue>>();
 
 vi.mock("react-native-mmkv", () => ({
   createMMKV(options?: { id?: string }) {
@@ -12,13 +14,22 @@ vi.mock("react-native-mmkv", () => ({
     }
 
     return {
+      getBoolean(key: string) {
+        const value = store.get(key);
+        return typeof value === "boolean" ? value : undefined;
+      },
+      getNumber(key: string) {
+        const value = store.get(key);
+        return typeof value === "number" ? value : undefined;
+      },
       getString(key: string) {
-        return store.get(key);
+        const value = store.get(key);
+        return typeof value === "string" ? value : undefined;
       },
       remove(key: string) {
         store.delete(key);
       },
-      set(key: string, value: string) {
+      set(key: string, value: StoredValue) {
         store.set(key, value);
       },
     };
