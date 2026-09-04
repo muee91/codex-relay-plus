@@ -1,18 +1,21 @@
 import { serve } from "@hono/node-server";
 import { randomBytes } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { Hono } from "hono";
 import qrcode from "qrcode-terminal";
 
+import type { AppServerThread, CodexAppServerClient } from "./app-server.js";
+import { renderControlCenterPageWithThreads } from "./control-center-thread-panel.js";
 import { connect } from "./libsql-database.js";
+import type { NetworkStateSnapshot } from "./network-state-manager.js";
 import type { PairingSessionStore } from "./pairing-store.js";
-import type { ConnectUrlCandidate } from "./pairing-url-candidates.js";
-import { renderControlCenterPage } from "./control-center-page.js";
 
 export type ControlCenterOptions = {
+  appServer?: CodexAppServerClient;
   authDbPath: string;
-  connectUrl: string;
-  connectUrlCandidates: ConnectUrlCandidate[];
-  pairingPayload: string;
+  controlTokenPath?: string;
+  getNetworkState: () => NetworkStateSnapshot;
   onPairApproved?: (client: { approvalCode: string; clientName?: string }) => void;
   onPairingsCleared?: (result: { pendingPairingsCleared: number; sessionsCleared: number }) => void;
   port: number;
@@ -48,9 +51,17 @@ export function startControlCenter(options: ControlCenterOptions) {
   const app = new Hono();
   const controlToken = randomBytes(24).toString("base64url");
   const database = connect(options.authDbPath);
-  const pairingQr = renderPairingQr(options.pairingPayload);
+  let cachedPairingQr = { payload: "", qr: "" };
   let deviceSnapshot: DeviceSnapshot = { pendingPairings: [], sessions: [], updatedAt: 0 };
   let snapshotRefresh: Promise<void> | undefined;
+
+  if (options.controlTokenPath) {
+    void persistControlToken(options.controlTokenPath, controlToken).catch((error) => {
+      console.error(
+        `Codex Relay control token persistence failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  }
 
   const refreshDeviceSnapshot = () => {
     if (snapshotRefresh) {
@@ -96,7 +107,7 @@ export function startControlCenter(options: ControlCenterOptions) {
     await next();
   });
 
-  app.get("/", (c) => c.html(renderControlCenterPage(controlToken)));
+  app.get("/", (c) => c.html(renderControlCenterPageWithThreads(controlToken)));
 
   app.use("/api/*", async (c, next) => {
     if (c.req.header("x-codex-relay-control-token") !== controlToken) {
@@ -105,26 +116,64 @@ export function startControlCenter(options: ControlCenterOptions) {
     await next();
   });
 
-  // Keep the primary state endpoint non-blocking. Pairing and relay details must remain
-  // usable even if SQLite/device enumeration is slow on a particular machine.
   app.get("/api/state", (c) => {
     void refreshDeviceSnapshot();
+    const network = options.getNetworkState();
+    if (cachedPairingQr.payload !== network.pairingPayload) {
+      cachedPairingQr = {
+        payload: network.pairingPayload,
+        qr: renderPairingQr(network.pairingPayload),
+      };
+    }
     return c.json({
-      diagnostics: collectCoreDiagnostics(options),
-      pairingPayload: options.pairingPayload,
-      pairingQr,
+      diagnostics: collectCoreDiagnostics(options, network),
+      pairingPayload: network.pairingPayload,
+      pairingQr: cachedPairingQr.qr,
       pendingPairings: deviceSnapshot.pendingPairings,
       relay: {
-        connectUrl: options.connectUrl,
-        connectUrlCandidates: options.connectUrlCandidates,
+        connectUrl: network.connectUrl,
+        connectUrlCandidates: network.connectUrlCandidates,
         pid: process.pid,
         port: options.relayPort,
         sharedAppServerRemoteAddress: options.sharedAppServerRemoteAddress,
         workspacePath: options.workspacePath,
       },
       sessions: deviceSnapshot.sessions,
-      snapshotUpdatedAt: deviceSnapshot.updatedAt,
+      snapshotUpdatedAt: Math.max(deviceSnapshot.updatedAt, network.updatedAt),
     });
+  });
+
+  app.get("/api/threads", async (c) => {
+    if (!options.appServer) {
+      return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
+    }
+    const requested = Number(c.req.query("limit") ?? 20);
+    const limit = Number.isFinite(requested)
+      ? Math.min(80, Math.max(1, Math.floor(requested)))
+      : 20;
+    const threads = await options.appServer.listThreads(limit);
+    return c.json({ threads: threads.slice(0, limit).map(summarizeThread) });
+  });
+
+  app.get("/api/threads/:threadId", async (c) => {
+    if (!options.appServer) {
+      return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
+    }
+    const thread = await options.appServer.readThread(c.req.param("threadId"), {
+      includeTurns: true,
+    });
+    return c.json({ thread });
+  });
+
+  app.post("/api/threads/:threadId/resume", async (c) => {
+    if (!options.appServer) {
+      return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
+    }
+    const thread = await options.appServer.resumeThread({
+      threadId: c.req.param("threadId"),
+      excludeTurns: false,
+    });
+    return c.json({ thread: summarizeThread(thread) });
   });
 
   app.post("/api/pairings/:approvalCode/approve", async (c) => {
@@ -174,6 +223,22 @@ export function startControlCenter(options: ControlCenterOptions) {
   return server;
 }
 
+async function persistControlToken(path: string, token: string) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${token}\n`, { mode: 0o600 });
+}
+
+function summarizeThread(thread: AppServerThread) {
+  return {
+    cwd: thread.cwd,
+    id: thread.id,
+    name: thread.name ?? undefined,
+    preview: thread.preview,
+    status: typeof thread.status === "string" ? thread.status : undefined,
+    updatedAt: thread.updatedAt,
+  };
+}
+
 async function listPendingPairings(database: ReturnType<typeof connect>) {
   const rows = await database
     .prepare(
@@ -219,7 +284,7 @@ async function listSessions(database: ReturnType<typeof connect>) {
   });
 }
 
-function collectCoreDiagnostics(options: ControlCenterOptions) {
+function collectCoreDiagnostics(options: ControlCenterOptions, network: NetworkStateSnapshot) {
   const nodeVersion = process.versions.node;
   const nodeParts = nodeVersion.split(".").map(Number);
   const nodeSupported =
@@ -239,9 +304,9 @@ function collectCoreDiagnostics(options: ControlCenterOptions) {
     },
     {
       label: "Network",
-      status: options.connectUrlCandidates.length > 0 ? "ok" : "warn",
-      value: `${options.connectUrlCandidates.length || 1} address candidate${
-        options.connectUrlCandidates.length === 1 ? "" : "s"
+      status: network.connectUrlCandidates.length > 0 ? "ok" : "warn",
+      value: `${network.connectUrlCandidates.length || 1} address candidate${
+        network.connectUrlCandidates.length === 1 ? "" : "s"
       }`,
     },
     {

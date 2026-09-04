@@ -12,6 +12,14 @@ on:
         type: boolean
         required: true
         default: false
+  pull_request:
+    paths:
+      - ".github/workflows/macos-desktop.yml"
+      - "apps/desktop-macos/**"
+      - "native/tailcat-bridge/**"
+      - "packages/codex-relay/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
   push:
     tags:
       - "desktop-v*"
@@ -48,6 +56,12 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: native/tailcat-bridge/go.mod
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -59,8 +73,10 @@ jobs:
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#desktop-v}"
-          else
+          elif [[ -n "$INPUT_VERSION" ]]; then
             version="$INPUT_VERSION"
+          else
+            version="1.0.0-ci.${GITHUB_RUN_NUMBER}"
           fi
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Invalid desktop version: $version"
@@ -100,6 +116,16 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: ./apps/desktop-macos/build.sh
+
+      - name: Verify Tailcat runtime payload
+        shell: bash
+        run: |
+          runtime=".desktop-macos-build/${{ matrix.arch }}/Codex Relay Plus.app/Contents/Resources/runtime"
+          test -x "$runtime/tailcat-relay-server"
+          test -x "$runtime/node-bin"
+          test -x "$runtime/node"
+          "$runtime/tailcat-relay-server" --help >/dev/null
+          bash -n "$runtime/node"
 
       - name: Upload DMG
         uses: actions/upload-artifact@v6
@@ -143,6 +169,6 @@ jobs:
         run: |
           tag="desktop-v$VERSION"
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --target "$GITHUB_SHA" --title "Codex Relay Plus for macOS v$VERSION" --notes "Native macOS desktop release for Apple Silicon and Intel."
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Codex Relay Plus for macOS v$VERSION" --notes "Native macOS desktop release for Apple Silicon and Intel, including the pinned Tailcat transport helper."
           fi
           gh release upload "$tag" dist/* --clobber

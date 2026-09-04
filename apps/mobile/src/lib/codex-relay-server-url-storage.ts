@@ -1,9 +1,11 @@
 import { createMMKV } from "react-native-mmkv";
 
 const defaultServerUrl = "http://localhost:8787";
+export const nativeTransportServerUrl = "http://127.0.0.1:39127";
 const connectionModeStorageKey = "codex-relay.connection-mode";
 const serverUrlCandidatesStorageKey = "codex-relay.server-url-candidates";
 const serverUrlStorageKey = "codex-relay.server-url";
+const nativeTransportConfiguredStorageKey = "codex-relay.native-transport-configured-v1";
 
 export const codexRelayStorage = createMMKV({ id: "codex-relay" });
 
@@ -13,6 +15,11 @@ type CodexRelayServerUrlCandidateKind = "local" | "remote" | "loopback";
 export type CodexRelayServerUrlCandidate = {
   label: string;
   url: string;
+};
+
+export type TailcatBootstrapCandidate = {
+  address: string;
+  remotePort: number;
 };
 
 export const fallbackCodexRelayServerUrl =
@@ -29,14 +36,18 @@ export function setCodexRelayConnectionMode(mode: CodexRelayConnectionMode) {
 }
 
 export function getCodexRelayServerUrl() {
-  return codexRelayStorage.getString(serverUrlStorageKey) ?? fallbackCodexRelayServerUrl;
+  const stored = codexRelayStorage.getString(serverUrlStorageKey) ?? fallbackCodexRelayServerUrl;
+  if (getCodexRelayConnectionMode() === "local") {
+    return firstStoredLocalServerUrl() ?? stored;
+  }
+  return isNativeRelayTransportConfigured() ? nativeTransportServerUrl : stored;
 }
 
 export function getCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {
   return routeServerUrlCandidates(
     getAllCodexRelayServerUrlCandidates(),
     getCodexRelayConnectionMode(),
-  );
+  ).filter((candidate) => !isTailcatBootstrapUrl(candidate.url));
 }
 
 export function getAllCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {
@@ -56,10 +67,45 @@ export function clearCodexRelayServerUrlState() {
   codexRelayStorage.remove(serverUrlStorageKey);
   codexRelayStorage.remove(serverUrlCandidatesStorageKey);
   codexRelayStorage.remove(connectionModeStorageKey);
+  codexRelayStorage.remove(nativeTransportConfiguredStorageKey);
 }
 
 export function saveCodexRelayServerUrlCandidates(urls: string[]) {
   codexRelayStorage.set(serverUrlCandidatesStorageKey, JSON.stringify(dedupeServerUrls(urls)));
+}
+
+export function isNativeRelayTransportConfigured() {
+  return codexRelayStorage.getBoolean(nativeTransportConfiguredStorageKey) === true;
+}
+
+export function setNativeRelayTransportConfigured(configured: boolean) {
+  if (configured) {
+    codexRelayStorage.set(nativeTransportConfiguredStorageKey, true);
+  } else {
+    codexRelayStorage.remove(nativeTransportConfiguredStorageKey);
+  }
+}
+
+export function getTailcatBootstrapCandidate(): TailcatBootstrapCandidate | undefined {
+  for (const value of readStoredServerUrlCandidates()) {
+    try {
+      const url = new URL(value);
+      if (url.hostname !== "tailcat.invalid" || url.searchParams.get("v") !== "1") {
+        continue;
+      }
+      const address = url.searchParams.get("addr")?.trim();
+      const remotePort = Number(url.searchParams.get("port"));
+      if (
+        address?.startsWith("tc") &&
+        Number.isSafeInteger(remotePort) &&
+        remotePort >= 1 &&
+        remotePort <= 65535
+      ) {
+        return { address, remotePort };
+      }
+    } catch {}
+  }
+  return undefined;
 }
 
 export function normalizeServerUrl(url: string) {
@@ -139,6 +185,23 @@ export function isLocalIPv6Host(host: string) {
   );
 }
 
+export function isLocalServerUrl(url: string) {
+  return serverUrlCandidateKind(url) === "local";
+}
+
+export function isTailcatBootstrapUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "tailcat.invalid" && parsed.searchParams.get("v") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function firstStoredLocalServerUrl() {
+  return readStoredServerUrlCandidates().find((url) => serverUrlCandidateKind(url) === "local");
+}
+
 function readStoredServerUrlCandidates() {
   const stored = codexRelayStorage.getString(serverUrlCandidatesStorageKey);
   if (!stored) {
@@ -169,6 +232,7 @@ function serverUrlCandidateKind(url: string): CodexRelayServerUrlCandidateKind {
       return "loopback";
     }
     if (
+      host === "tailcat.invalid" ||
       host.endsWith(".ts.net") ||
       host.endsWith(".beta.tailscale.net") ||
       isCarrierGradePrivateIPv4Host(host)
@@ -190,6 +254,9 @@ function serverUrlCandidateLabel(url: string) {
     const host = parsed.hostname.toLowerCase();
     if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
       return "Localhost";
+    }
+    if (host === "tailcat.invalid") {
+      return "Tailcat remote";
     }
     if (host.endsWith(".local")) {
       return "Local network";

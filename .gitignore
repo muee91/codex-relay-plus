@@ -24,6 +24,7 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+apps/mobile/native-libs/*.aar
 
 # Metro
 .metro-health-check*

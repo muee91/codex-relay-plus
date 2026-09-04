@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 DESKTOP_DIR="$ROOT_DIR/apps/desktop-macos"
+TAILCAT_BRIDGE_DIR="$ROOT_DIR/native/tailcat-bridge"
 SOURCE_ICON="$ROOT_DIR/apps/mobile/assets/images/icon.png"
 APP_VERSION="${APP_VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
@@ -40,8 +41,6 @@ if [[ ! -f "$SOURCE_ICON" ]]; then
   exit 1
 fi
 
-# Process the canonical Expo/iOS PNG only enough to remove an edge-connected near-black matte.
-# Existing transparency and all non-background artwork are retained.
 swift "$DESKTOP_DIR/Tools/IconPrep.swift" "$SOURCE_ICON" "$MASTER_ICON"
 
 make_icon() {
@@ -76,11 +75,30 @@ if [[ -z "$NODE_BIN" ]]; then
   echo "Node.js is required to build the desktop bundle" >&2
   exit 1
 fi
-cp "$NODE_BIN" "$RESOURCES/runtime/node"
-chmod 755 "$RESOURCES/runtime/node"
-NODE_ARCHS="$(lipo -archs "$RESOURCES/runtime/node" 2>/dev/null || true)"
+if ! command -v go >/dev/null 2>&1; then
+  echo "Go 1.27+ is required to build the Tailcat transport" >&2
+  exit 1
+fi
+
+cp "$NODE_BIN" "$RESOURCES/runtime/node-bin"
+cp "$DESKTOP_DIR/relay-launcher.sh" "$RESOURCES/runtime/node"
+chmod 755 "$RESOURCES/runtime/node" "$RESOURCES/runtime/node-bin"
+bash -n "$RESOURCES/runtime/node"
+(
+  cd "$TAILCAT_BRIDGE_DIR"
+  go mod tidy
+  go build -mod=mod -trimpath -o "$RESOURCES/runtime/tailcat-relay-server" ./cmd/tailcat-relay-server
+)
+chmod 755 "$RESOURCES/runtime/tailcat-relay-server"
+
+NODE_ARCHS="$(lipo -archs "$RESOURCES/runtime/node-bin" 2>/dev/null || true)"
 if [[ " $NODE_ARCHS " != *" $ARCH "* ]]; then
   echo "Embedded Node architecture mismatch: expected $ARCH, got ${NODE_ARCHS:-unknown}" >&2
+  exit 1
+fi
+TAILCAT_ARCHS="$(lipo -archs "$RESOURCES/runtime/tailcat-relay-server" 2>/dev/null || true)"
+if [[ " $TAILCAT_ARCHS " != *" $ARCH "* ]]; then
+  echo "Embedded Tailcat architecture mismatch: expected $ARCH, got ${TAILCAT_ARCHS:-unknown}" >&2
   exit 1
 fi
 
@@ -101,8 +119,7 @@ swiftc \
   -o "$MACOS/CodexRelayPlus"
 chmod 755 "$MACOS/CodexRelayPlus"
 
-# Exercise the exact embedded Node + deployed Relay that will ship in the app.
-"$RESOURCES/runtime/node" "$RESOURCES/relay/dist/cli.js" --help >/dev/null
+"$RESOURCES/runtime/node-bin" "$RESOURCES/relay/dist/cli.js" --help >/dev/null
 
 cleanup_signing() {
   if [[ -n "${KEYCHAIN:-}" ]]; then
@@ -137,8 +154,6 @@ else
   sign_timestamp_args+=(--timestamp=none)
 fi
 
-# Sign every Mach-O payload explicitly before the outer bundle. This catches native
-# Node modules and Codex helper binaries that a file-extension-only pass would miss.
 while IFS= read -r -d '' candidate; do
   if file "$candidate" | grep -q "Mach-O"; then
     codesign --force --options runtime --sign "$SIGN_IDENTITY" "${sign_timestamp_args[@]}" "$candidate"
@@ -146,7 +161,9 @@ while IFS= read -r -d '' candidate; do
 done < <(find "$RESOURCES/relay" -type f -print0)
 
 codesign --force --options runtime --entitlements "$DESKTOP_DIR/Node.entitlements" \
-  --sign "$SIGN_IDENTITY" "${sign_timestamp_args[@]}" "$RESOURCES/runtime/node"
+  --sign "$SIGN_IDENTITY" "${sign_timestamp_args[@]}" "$RESOURCES/runtime/node-bin"
+codesign --force --options runtime --sign "$SIGN_IDENTITY" "${sign_timestamp_args[@]}" \
+  "$RESOURCES/runtime/tailcat-relay-server"
 codesign --force --options runtime --sign "$SIGN_IDENTITY" "${sign_timestamp_args[@]}" "$MACOS/CodexRelayPlus"
 codesign --force --options runtime --sign "$SIGN_IDENTITY" "${sign_timestamp_args[@]}" "$APP_DIR"
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"

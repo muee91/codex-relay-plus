@@ -114,8 +114,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
       "expo-notifications",
       "expo-system-ui",
       "expo-web-browser",
-      "@hot-updater/react-native",
-      "./plugins/withBrotliDependencyResolution",
+      "./plugins/withTailcatTransport",
       "react-native-enriched-markdown",
       [
         "expo-secure-store",
