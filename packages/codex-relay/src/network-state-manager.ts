@@ -86,8 +86,13 @@ export class NetworkStateManager {
 
   private pollLan() {
     const nextFingerprint = networkInterfaceFingerprint();
-    if (nextFingerprint === this.lanFingerprint) return;
-    this.lanFingerprint = nextFingerprint;
+    if (nextFingerprint !== this.lanFingerprint) {
+      this.lanFingerprint = nextFingerprint;
+    }
+    // Rebuild even when LAN interfaces are unchanged. The macOS Tailcat helper
+    // reports readiness through a status file after Relay startup, so a later
+    // readiness record must be able to update the pairing QR without a network
+    // interface change. recompute() suppresses no-op listener notifications.
     this.recompute();
   }
 
