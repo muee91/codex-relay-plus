@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 
 export type ConnectUrlCandidateKind = "lan" | "tailscale" | "server";
@@ -128,8 +129,13 @@ export function networkInterfaceFingerprint() {
 }
 
 function tailcatBootstrapCandidate() {
-  const address = process.env.CODEX_RELAY_TAILCAT_ADDR?.trim();
-  const port = Number(process.env.CODEX_RELAY_TAILCAT_PORT);
+  const directAddress = process.env.CODEX_RELAY_TAILCAT_ADDR?.trim();
+  const directPort = Number(process.env.CODEX_RELAY_TAILCAT_PORT);
+  const status = directAddress?.startsWith("tc")
+    ? { address: directAddress, port: directPort }
+    : readTailcatStatusFile();
+  const address = status?.address?.trim();
+  const port = Number(status?.port ?? process.env.CODEX_RELAY_TAILCAT_PORT);
   if (!address?.startsWith("tc") || !Number.isSafeInteger(port) || port < 1 || port > 65535) {
     return undefined;
   }
@@ -138,6 +144,28 @@ function tailcatBootstrapCandidate() {
   candidate.searchParams.set("port", String(port));
   candidate.searchParams.set("v", "1");
   return { address, candidateUrl: candidate.toString(), port };
+}
+
+function readTailcatStatusFile() {
+  const path = process.env.CODEX_RELAY_TAILCAT_STATUS_FILE?.trim();
+  if (!path) return undefined;
+  try {
+    const lines = readFileSync(path, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      try {
+        const parsed = JSON.parse(lines[index] ?? "") as { address?: string; port?: number };
+        if (parsed.address?.startsWith("tc")) return parsed;
+      } catch {
+        // Ignore helper log fragments until a complete readiness record exists.
+      }
+    }
+  } catch {
+    // The helper creates the readiness file asynchronously after launch.
+  }
+  return undefined;
 }
 
 function filterCandidatesForMode(candidates: ConnectUrlCandidate[], mode: ConnectUrlMode) {
