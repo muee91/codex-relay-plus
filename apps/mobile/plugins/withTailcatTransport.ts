@@ -112,7 +112,9 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
   private val preferences = context.getSharedPreferences("codex-relay-tailcat", Context.MODE_PRIVATE)
 
   init {
-    executor.execute { restoreProxyIfConfigured() }
+    // NativeModules access is synchronous. Restore the fixed listener before JS
+    // can resolve the persisted 127.0.0.1 route after an app-process restart.
+    restoreProxyIfConfigured()
   }
 
   override fun getName() = "CodexRelayTransport"
@@ -122,12 +124,15 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
     executor.execute {
       try {
         val localUrl = configureProxy(serverAddr, remotePort.toLong(), lanTargetsJson, mode)
-        preferences.edit()
+        val persisted = preferences.edit()
           .putString("serverAddr", serverAddr)
           .putLong("remotePort", remotePort.toLong())
           .putString("lanTargetsJson", lanTargetsJson)
           .putString("mode", mode)
-          .apply()
+          .commit()
+        if (!persisted) {
+          throw IllegalStateException("Could not persist Tailcat transport configuration")
+        }
         promise.resolve(localUrl)
       } catch (error: Throwable) {
         promise.reject("TAILCAT_CONFIGURE_FAILED", error.message, error)
@@ -144,7 +149,7 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
   fun stopTailcatProxy(promise: Promise) {
     executor.execute {
       try {
-        preferences.edit().clear().apply()
+        preferences.edit().clear().commit()
         Bridge.stopProxy()
         promise.resolve(null)
       } catch (error: Throwable) {
@@ -243,7 +248,7 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
     try {
       configureProxy(serverAddr, remotePort, lanTargetsJson, mode)
     } catch (_: Throwable) {
-      // A later JS synchronization retries configuration with current discovery data.
+      // JS reconciliation retries configuration with current discovery data.
     }
   }
 }
