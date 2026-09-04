@@ -31,6 +31,21 @@ import { RunningFooter } from "./RunningFooter";
 
 export { implementablePlanId } from "./plan-progress";
 
+const isZhCn = process.env.CODEX_RELAY_LOCALE === "zh-CN";
+const emptyCopy = isZhCn
+  ? {
+      title: "从这里开始",
+      body: "输入一个任务开始新会话；已有工作可以从左上角的会话列表继续。",
+      loading: "正在载入会话…",
+      latest: "跳到最新消息",
+    }
+  : {
+      title: "Start here",
+      body: "Enter a task to begin. Use the thread list in the top-left to continue existing work.",
+      loading: "Loading conversation…",
+      latest: "Scroll to latest message",
+    };
+
 const MESSAGE_ESTIMATED_ITEM_SIZE = 48;
 const MAINTAIN_SCROLL_AT_END: MaintainScrollAtEndOptions = {
   animated: false,
@@ -177,8 +192,14 @@ export function MessageTimeline({
         rows.length === 0 && !isRunning ? (
           <Animated.View style={[styles.transitionScene, timelineContentStyle]}>
             <View style={styles.empty}>
+              <View style={styles.emptyMark}>
+                <Icon name="newChat" size={17} tintColor={Colors.dark.textSecondary} />
+              </View>
+              <ThemedText type="smallBold" style={styles.emptyTitle}>
+                {emptyCopy.title}
+              </ThemedText>
               <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
-                Send a message to start the conversation.
+                {emptyCopy.body}
               </ThemedText>
             </View>
           </Animated.View>
@@ -226,7 +247,7 @@ export function MessageTimeline({
           style={styles.scrollToEndContainer}
         >
           <Pressable
-            accessibilityLabel="Scroll to latest message"
+            accessibilityLabel={emptyCopy.latest}
             accessibilityRole="button"
             hitSlop={8}
             onPress={handleScrollToEnd}
@@ -255,7 +276,7 @@ function LoadingConversation() {
     <View style={styles.empty} accessibilityRole="progressbar">
       <ActivityIndicator color={Colors.dark.textSecondary} />
       <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
-        Loading conversation…
+        {emptyCopy.loading}
       </ThemedText>
     </View>
   );
@@ -270,12 +291,28 @@ const styles = StyleSheet.create({
   empty: {
     alignItems: "center",
     flex: 1,
-    gap: Spacing.two,
     justifyContent: "center",
     padding: Spacing.four,
   },
+  emptyMark: {
+    alignItems: "center",
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 38,
+    justifyContent: "center",
+    marginBottom: 12,
+    width: 38,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    marginBottom: 5,
+  },
   emptyText: {
-    maxWidth: 260,
+    fontSize: 12,
+    lineHeight: 17,
+    maxWidth: 270,
     textAlign: "center",
   },
   list: {
