@@ -10,260 +10,486 @@ export function renderControlCenterPage(controlToken: string) {
   <style>
     :root {
       color-scheme: dark;
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif;
-      --bg: #0f1012;
-      --panel: rgba(29, 30, 34, .92);
-      --panel-soft: rgba(255, 255, 255, .035);
-      --border: rgba(255, 255, 255, .085);
-      --border-strong: rgba(255, 255, 255, .13);
-      --text: #f4f4f5;
-      --muted: #96979d;
-      --faint: #696b72;
-      --accent: #8b7cff;
-      --accent-2: #5ea1ff;
-      --ok: #42c78a;
-      --warn: #e3ad52;
-      --bad: #ff6b78;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+      --bg: #101113;
+      --surface: #17181b;
+      --surface-raised: #1c1d20;
+      --surface-soft: #141517;
+      --line: rgba(255,255,255,.075);
+      --line-strong: rgba(255,255,255,.13);
+      --text: #f0f0ed;
+      --muted: #969793;
+      --quiet: #666864;
+      --good: #7bc99b;
+      --warn: #d7b16c;
+      --bad: #e77d82;
+      --button: #e8e8e3;
+      --button-text: #18191b;
     }
     * { box-sizing: border-box; }
     html, body { min-height: 100%; }
     body {
       margin: 0;
       min-height: 100vh;
+      background: var(--bg);
       color: var(--text);
-      background:
-        radial-gradient(900px 520px at 78% -18%, rgba(99, 86, 255, .12), transparent 64%),
-        radial-gradient(760px 420px at 8% -12%, rgba(65, 143, 255, .08), transparent 66%),
-        var(--bg);
       -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
     }
     button, select { font: inherit; }
-    button { border: 0; cursor: pointer; }
-    button:disabled { cursor: default; opacity: .42; }
-    .shell { width: min(1180px, calc(100% - 44px)); margin: 0 auto; padding: 28px 0 42px; }
-    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
-    .brand { min-width: 0; }
-    .eyebrow { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
-    h1 { margin: 0; font-size: 25px; line-height: 1.1; letter-spacing: -.025em; }
-    .subtitle { color: var(--muted); font-size: 13px; margin-top: 7px; }
-    .top-actions { display: flex; align-items: center; gap: 10px; }
-    .lang {
-      min-height: 34px;
-      padding: 0 30px 0 11px;
-      border-radius: 9px;
-      border: 1px solid var(--border);
-      color: var(--text);
-      background: rgba(255,255,255,.055);
+    button { cursor: pointer; }
+    button:disabled { cursor: default; opacity: .4; }
+    :where(button, select, summary):focus-visible {
+      outline: 2px solid rgba(188, 225, 201, .9);
+      outline-offset: 3px;
     }
-    .connection-pill {
+    .shell {
+      width: min(1060px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 34px 0 48px;
+    }
+    .masthead {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 0 2px 18px;
+    }
+    .identity { min-width: 0; }
+    .product {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.15;
+      font-weight: 710;
+      letter-spacing: -.025em;
+    }
+    .product-note {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .mast-actions { display: flex; align-items: center; gap: 11px; }
+    .live-state {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      min-height: 34px;
-      padding: 0 11px;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      background: rgba(255,255,255,.045);
-      color: #d7d7da;
-      font-size: 12px;
-      font-weight: 650;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 620;
       white-space: nowrap;
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 4px rgba(227,173,82,.10); flex: 0 0 auto; }
-    .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px rgba(66,199,138,.11); }
-    .dot.bad { background: var(--bad); box-shadow: 0 0 0 4px rgba(255,107,120,.11); }
-    .notice {
+    .state-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--warn);
+      box-shadow: 0 0 0 3px rgba(215,177,108,.09);
+      flex: 0 0 auto;
+    }
+    .state-dot.good { background: var(--good); box-shadow: 0 0 0 3px rgba(123,201,155,.09); }
+    .state-dot.bad { background: var(--bad); box-shadow: 0 0 0 3px rgba(231,125,130,.09); }
+    .language {
+      height: 30px;
+      padding: 0 25px 0 9px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .error {
       display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+      padding: 11px 13px;
+      border: 1px solid rgba(231,125,130,.25);
+      border-radius: 10px;
+      background: rgba(231,125,130,.065);
+      color: #efb5b8;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .error.show { display: flex; }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 350px;
+      min-height: 610px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--surface);
+      box-shadow: 0 24px 70px rgba(0,0,0,.19);
+    }
+    .main-pane { min-width: 0; padding: 30px 32px 28px; }
+    .pair-pane {
+      min-width: 0;
+      padding: 28px;
+      border-left: 1px solid var(--line);
+      background: var(--surface-soft);
+    }
+    .hero { padding-bottom: 27px; }
+    .hero-kicker {
+      color: var(--quiet);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .105em;
+      text-transform: uppercase;
+    }
+    .hero-title-row {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      margin-top: 12px;
+    }
+    .hero-dot { width: 10px; height: 10px; }
+    .hero-title {
+      margin: 0;
+      font-size: clamp(26px, 3vw, 38px);
+      line-height: 1.06;
+      font-weight: 690;
+      letter-spacing: -.045em;
+    }
+    .hero-copy {
+      max-width: 590px;
+      margin: 12px 0 0 21px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.58;
+    }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .fact {
+      min-width: 0;
+      min-height: 99px;
+      padding: 18px 18px 17px 0;
+    }
+    .fact:nth-child(even) { padding-left: 20px; border-left: 1px solid var(--line); }
+    .fact:nth-child(n+3) { border-top: 1px solid var(--line); }
+    .fact-label {
+      color: var(--quiet);
+      font-size: 10px;
+      font-weight: 680;
+      letter-spacing: .04em;
+    }
+    .fact-value {
+      margin-top: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 650;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .fact-detail {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 10.5px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+    .section { padding: 25px 0 0; }
+    .section + .section { margin-top: 24px; border-top: 1px solid var(--line); }
+    .section-head {
+      display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 16px;
-      margin-bottom: 14px;
-      padding: 13px 14px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,107,120,.22);
-      background: rgba(255,107,120,.08);
-      color: #ffd1d6;
-      font-size: 12px;
+      margin-bottom: 13px;
+    }
+    .section-title { margin: 0; font-size: 12px; font-weight: 690; letter-spacing: -.01em; }
+    .section-desc { margin-top: 4px; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+    .count { color: var(--quiet); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .pending-section { display: none; }
+    .pending-section.visible { display: block; }
+    .request {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 13px 0;
+      border-top: 1px solid var(--line);
+    }
+    .request:first-child { border-top: 0; }
+    .request-main { min-width: 0; }
+    .approval-code {
+      font: 720 15px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .08em;
+    }
+    .row-title { font-size: 12px; font-weight: 640; overflow-wrap: anywhere; }
+    .row-meta { margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+    .device-list { display: grid; }
+    .device {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      min-height: 53px;
+      border-top: 1px solid var(--line);
+    }
+    .device:first-child { border-top: 0; }
+    .device-main { min-width: 0; padding: 11px 0; }
+    .empty {
+      padding: 17px 0 2px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .btn {
+      min-height: 31px;
+      padding: 0 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: transparent;
+      color: #d8d8d5;
+      font-size: 10.5px;
+      font-weight: 650;
+      transition: background .12s ease, border-color .12s ease, transform .12s ease;
+    }
+    .btn:hover:not(:disabled) { background: rgba(255,255,255,.055); border-color: rgba(255,255,255,.18); }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn.primary { background: var(--button); border-color: var(--button); color: var(--button-text); }
+    .btn.primary:hover:not(:disabled) { background: #f4f4ef; border-color: #f4f4ef; }
+    .btn.danger { color: #dca5a8; border-color: rgba(231,125,130,.18); }
+    .btn.quiet { border-color: transparent; color: var(--muted); padding-left: 6px; padding-right: 6px; }
+    .pair-head { margin-bottom: 20px; }
+    .pair-index {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .pair-label {
+      color: var(--quiet);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+    .pair-title { margin: 8px 0 0; font-size: 19px; line-height: 1.2; font-weight: 680; letter-spacing: -.025em; }
+    .pair-desc { margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .qr-wrap {
+      display: grid;
+      place-items: center;
+      width: 100%;
+      aspect-ratio: 1;
+      padding: 18px;
+      border-radius: 15px;
+      background: #f5f5f0;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+    }
+    #pairing-qr { display: none; width: 100%; height: auto; image-rendering: pixelated; }
+    #pairing-qr.ready { display: block; }
+    .qr-fallback { display: none; margin: 0; max-width: 100%; overflow: hidden; color: #111; font: 6px/.86 ui-monospace, monospace; white-space: pre; }
+    .qr-fallback.show { display: block; }
+    .qr-loading { max-width: 180px; color: #63645f; text-align: center; font-size: 10.5px; line-height: 1.45; }
+    .pair-primary { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 13px; }
+    .pair-primary .btn { min-height: 35px; }
+    .pair-note { margin-top: 12px; color: var(--quiet); font-size: 9.5px; line-height: 1.5; }
+    details.advanced { margin-top: 25px; border-top: 1px solid var(--line); }
+    details.advanced summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 46px;
+      list-style: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 10.5px;
+      font-weight: 640;
+      user-select: none;
+    }
+    details.advanced summary::-webkit-details-marker { display: none; }
+    .chevron { color: var(--quiet); transition: transform .14s ease; }
+    details[open] .chevron { transform: rotate(90deg); }
+    .advanced-body { padding: 2px 0 4px; }
+    .technical {
+      display: grid;
+      grid-template-columns: 100px minmax(0, 1fr);
+      gap: 7px 12px;
+      padding: 9px 0;
+      border-top: 1px solid var(--line);
+      font-size: 9.5px;
       line-height: 1.45;
     }
-    .notice.show { display: flex; }
-    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 356px; gap: 14px; align-items: start; }
-    .stack { display: grid; gap: 14px; }
-    .card {
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background: linear-gradient(180deg, rgba(33,34,38,.96), rgba(25,26,29,.96));
-      box-shadow: 0 14px 42px rgba(0,0,0,.14);
-      overflow: hidden;
+    .technical-label { color: var(--quiet); }
+    .technical-value { color: var(--muted); overflow-wrap: anywhere; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .diag-list { margin-top: 9px; border-top: 1px solid var(--line); }
+    .diag {
+      display: grid;
+      grid-template-columns: 7px 74px minmax(0,1fr);
+      align-items: center;
+      gap: 9px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 9.5px;
     }
-    .card-body { padding: 18px; }
-    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 15px; }
-    .card-title { margin: 0; font-size: 14px; font-weight: 760; letter-spacing: -.01em; }
-    .card-desc { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 5px; }
-    .relay-hero { padding: 20px; }
-    .relay-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-    .relay-copy { min-width: 0; }
-    .relay-title-row { display: flex; align-items: center; gap: 10px; }
-    .relay-title { font-size: 17px; font-weight: 780; letter-spacing: -.015em; }
-    .relay-meta { margin-top: 7px; color: var(--muted); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .btn {
-      min-height: 34px;
-      padding: 0 12px;
-      border-radius: 9px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,.065);
-      color: var(--text);
-      font-size: 12px;
-      font-weight: 680;
-      transition: background .15s ease, border-color .15s ease, transform .15s ease;
-    }
-    .btn:hover:not(:disabled) { background: rgba(255,255,255,.105); border-color: var(--border-strong); }
-    .btn:active:not(:disabled) { transform: translateY(1px); }
-    .btn.primary { color: white; background: linear-gradient(135deg, #7669ee, #5b8df4); border-color: rgba(148,133,255,.45); }
-    .btn.primary:hover:not(:disabled) { background: linear-gradient(135deg, #8376f5, #6697fb); }
-    .btn.danger { color: #ffb7bf; background: rgba(255,107,120,.08); border-color: rgba(255,107,120,.20); }
-    .btn.small { min-height: 29px; padding: 0 9px; font-size: 11px; }
-    .session-strip { display: grid; grid-template-columns: 1.1fr .9fr; gap: 10px; margin-top: 18px; }
-    .info-box { min-width: 0; padding: 13px 14px; border: 1px solid rgba(255,255,255,.055); border-radius: 11px; background: var(--panel-soft); }
-    .info-label { color: var(--faint); font-size: 10px; font-weight: 730; letter-spacing: .06em; text-transform: uppercase; }
-    .info-value { margin-top: 6px; font-size: 12px; font-weight: 680; line-height: 1.4; overflow-wrap: anywhere; }
-    .info-sub { margin-top: 4px; color: var(--muted); font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
-    .list { display: grid; gap: 8px; }
-    .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; padding: 11px 12px; border: 1px solid rgba(255,255,255,.055); border-radius: 11px; background: rgba(255,255,255,.028); }
-    .row-main { min-width: 0; }
-    .row-title { font-size: 12px; font-weight: 720; overflow-wrap: anywhere; }
-    .meta { color: var(--muted); font-size: 11px; line-height: 1.45; margin-top: 4px; overflow-wrap: anywhere; }
-    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .pair-code { font: 800 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .10em; }
-    .empty { padding: 22px 14px; border: 1px dashed rgba(255,255,255,.10); border-radius: 11px; color: var(--muted); text-align: center; font-size: 12px; }
-    .pair-card { position: sticky; top: 16px; }
-    .qr-shell { padding: 16px; border-radius: 15px; background: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
-    .qr-stage { min-height: 286px; display: grid; place-items: center; position: relative; }
-    #pairing-qr { display: none; width: min(100%, 270px); height: auto; image-rendering: pixelated; }
-    #pairing-qr.ready { display: block; }
-    .qr-loading { color: #666; font-size: 12px; text-align: center; line-height: 1.5; }
-    .qr-fallback { display: none; margin: 0; color: #000; font: 7px/.9 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
-    .qr-fallback.show { display: block; }
-    .pair-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-    .pair-actions .primary { grid-column: 1 / -1; }
-    .payload { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.06); color: var(--muted); font: 9.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
-    .diag { display: grid; grid-template-columns: 9px minmax(100px,.62fr) 1.38fr; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,.05); font-size: 11px; }
-    .diag:last-child { border-bottom: 0; }
-    .diag-icon { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
-    .diag-icon.warn { background: var(--warn); }
-    .diag-icon.bad { background: var(--bad); }
+    .diag-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+    .diag-dot.warn { background: var(--warn); }
+    .diag-dot.bad { background: var(--bad); }
     .diag-value { color: var(--muted); overflow-wrap: anywhere; }
-    .foot { margin-top: 14px; display: flex; justify-content: space-between; gap: 12px; color: var(--faint); font-size: 10px; }
-    .toast { position: fixed; right: 18px; bottom: 18px; max-width: 340px; padding: 10px 12px; border-radius: 10px; background: #f1f1f2; color: #17181a; font-size: 11px; font-weight: 700; opacity: 0; transform: translateY(7px); pointer-events: none; transition: .16s ease; box-shadow: 0 14px 42px rgba(0,0,0,.28); }
+    .danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0 4px; }
+    .danger-copy { color: var(--quiet); font-size: 9.5px; line-height: 1.4; }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 13px 3px 0;
+      color: #555753;
+      font-size: 9px;
+    }
+    .toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      max-width: 320px;
+      padding: 10px 12px;
+      border-radius: 9px;
+      background: #e7e7e2;
+      color: #17181a;
+      font-size: 10.5px;
+      font-weight: 680;
+      opacity: 0;
+      transform: translateY(6px);
+      pointer-events: none;
+      transition: opacity .15s ease, transform .15s ease;
+      box-shadow: 0 14px 38px rgba(0,0,0,.3);
+    }
     .toast.show { opacity: 1; transform: translateY(0); }
     @media (max-width: 820px) {
-      .shell { width: min(100% - 28px, 680px); padding-top: 18px; }
-      .topbar { align-items: flex-start; }
-      .top-actions { align-items: flex-end; flex-direction: column-reverse; }
-      .layout { grid-template-columns: 1fr; }
-      .pair-card { position: static; }
-      .session-strip { grid-template-columns: 1fr; }
+      .shell { width: min(700px, calc(100% - 28px)); padding-top: 22px; }
+      .workspace { grid-template-columns: 1fr; }
+      .pair-pane { border-left: 0; border-top: 1px solid var(--line); }
+      .qr-wrap { max-width: 330px; margin: 0 auto; }
     }
-    @media (max-width: 560px) {
-      .relay-main { flex-direction: column; }
-      .actions { justify-content: flex-start; }
-      .pair-actions { grid-template-columns: 1fr; }
-      .pair-actions .primary { grid-column: auto; }
+    @media (max-width: 540px) {
+      .shell { width: calc(100% - 20px); }
+      .masthead { align-items: flex-start; }
+      .mast-actions { flex-direction: column-reverse; align-items: flex-end; }
+      .main-pane, .pair-pane { padding: 22px 20px; }
+      .facts { grid-template-columns: 1fr; }
+      .fact:nth-child(even) { padding-left: 0; border-left: 0; }
+      .fact:nth-child(n+2) { border-top: 1px solid var(--line); }
+      .request, .device { align-items: flex-start; }
+      .pair-primary { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
     }
   </style>
 </head>
 <body>
   <main class="shell">
-    <header class="topbar">
-      <div class="brand">
-        <div class="eyebrow" data-i18n="eyebrow">LOCAL CODEX BRIDGE</div>
-        <h1>Codex Relay Plus</h1>
-        <div class="subtitle" data-i18n="tagline">连接本机 Codex 与手机，不绑定单一工作区</div>
+    <header class="masthead">
+      <div class="identity">
+        <h1 class="product">Codex Relay Plus</h1>
+        <div class="product-note" data-i18n="productNote">Mac Host · 平时保持运行即可</div>
       </div>
-      <div class="top-actions">
-        <div class="connection-pill"><span class="dot" id="top-dot"></span><span id="top-status" data-i18n="connecting">正在连接…</span></div>
-        <select class="lang" id="language"><option value="zh-CN">简体中文</option><option value="en-US">English</option></select>
+      <div class="mast-actions">
+        <div class="live-state"><span class="state-dot" id="top-dot"></span><span id="top-state" data-i18n="connecting">正在连接</span></div>
+        <select class="language" id="language" aria-label="Language"><option value="zh-CN">简体中文</option><option value="en-US">English</option></select>
       </div>
     </header>
 
-    <div class="notice" id="error-banner"><span id="error-text"></span><button class="btn small" id="retry" data-i18n="retry">重试</button></div>
+    <div class="error" id="error-banner"><span id="error-text"></span><button class="btn quiet" id="retry" data-i18n="retry">重试</button></div>
 
-    <div class="layout">
-      <div class="stack">
-        <section class="card relay-hero">
-          <div class="relay-main">
-            <div class="relay-copy">
-              <div class="relay-title-row"><span class="dot" id="relay-dot"></span><div class="relay-title" id="relay-title" data-i18n="connectingRelay">正在连接本机 Relay</div></div>
-              <div class="relay-meta" id="relay-meta">—</div>
-            </div>
-            <div class="actions">
-              <button class="btn" id="copy-mobile" disabled data-i18n="copyMobile">复制手机地址</button>
-              <button class="btn" id="refresh" data-i18n="refresh">刷新</button>
-            </div>
+    <div class="workspace">
+      <section class="main-pane">
+        <div class="hero">
+          <div class="hero-kicker" data-i18n="hostStatus">Host status</div>
+          <div class="hero-title-row">
+            <span class="state-dot hero-dot" id="hero-dot"></span>
+            <h2 class="hero-title" id="hero-title" data-i18n="connectingHost">正在启动本机服务</h2>
           </div>
-          <div class="session-strip">
-            <div class="info-box">
-              <div class="info-label" data-i18n="sessionMode">Codex 会话模式</div>
-              <div class="info-value" id="session-mode" data-i18n="loading">加载中…</div>
-              <div class="info-sub" id="session-command"></div>
-            </div>
-            <div class="info-box">
-              <div class="info-label" data-i18n="fallbackDir">新会话兜底目录</div>
-              <div class="info-value code" id="fallback-dir">—</div>
-              <div class="meta" data-i18n="fallbackHint">已有会话继续使用各自原有 cwd</div>
-            </div>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-body">
-            <div class="card-head">
-              <div><h2 class="card-title" data-i18n="pending">待确认设备</h2><div class="card-desc" data-i18n="pendingDesc">手机扫码后，请在这里确认连接。</div></div>
-              <span class="connection-pill"><span id="pending-count">0</span></span>
-            </div>
-            <div class="list" id="pending-list"><div class="empty" data-i18n="loading">加载中…</div></div>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-body">
-            <div class="card-head">
-              <div><h2 class="card-title" data-i18n="devices">已配对设备</h2><div class="card-desc" data-i18n="devicesDesc">已授权手机会保留安全会话，可随时单独断开。</div></div>
-              <button class="btn danger small" id="clear-all" disabled data-i18n="disconnectAll">断开全部</button>
-            </div>
-            <div class="list" id="session-list"><div class="empty" data-i18n="loading">加载中…</div></div>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-body">
-            <div class="card-head"><div><h2 class="card-title" data-i18n="diagnostics">环境诊断</h2><div class="card-desc" data-i18n="diagnosticsDesc">用于判断 Relay、Node、网络和共享 Codex 服务是否可用。</div></div></div>
-            <div id="diagnostics"><div class="empty" data-i18n="loading">加载中…</div></div>
-          </div>
-        </section>
-      </div>
-
-      <aside class="card pair-card">
-        <div class="card-body">
-          <div class="card-head"><div><h2 class="card-title" data-i18n="pairPhone">添加手机</h2><div class="card-desc" data-i18n="scanHint">用 Codex Relay Plus 手机端扫描二维码，然后在左侧允许设备。</div></div></div>
-          <div class="qr-shell">
-            <div class="qr-stage">
-              <canvas id="pairing-qr" aria-label="Pairing QR code"></canvas>
-              <pre class="qr-fallback" id="pairing-qr-fallback"></pre>
-              <div class="qr-loading" id="qr-loading" data-i18n="loadingQr">正在生成安全配对二维码…</div>
-            </div>
-          </div>
-          <div class="pair-actions">
-            <button class="btn primary" id="copy-pair" disabled data-i18n="copyPair">复制配对链接</button>
-            <button class="btn" id="copy-address" disabled data-i18n="copyAddress">复制连接地址</button>
-            <button class="btn" id="pair-refresh" data-i18n="refresh">刷新</button>
-          </div>
-          <div class="payload" id="pairing-payload">—</div>
-          <div class="foot"><span data-i18n="localOnly">控制中心仅监听 127.0.0.1</span><span id="last-sync">—</span></div>
+          <p class="hero-copy" id="hero-copy" data-i18n="hostCopy">保持此 Mac 在线，手机端会自动选择可用连接路径。</p>
         </div>
+
+        <div class="facts" aria-label="Host summary">
+          <div class="fact">
+            <div class="fact-label" data-i18n="relay">Relay</div>
+            <div class="fact-value" id="relay-value" data-i18n="loading">加载中…</div>
+            <div class="fact-detail" id="relay-detail">—</div>
+          </div>
+          <div class="fact">
+            <div class="fact-label" data-i18n="remoteAccess">远程访问</div>
+            <div class="fact-value" id="remote-value" data-i18n="loading">加载中…</div>
+            <div class="fact-detail" id="remote-detail" data-i18n="automaticNetwork">手机端自动选择连接路径</div>
+          </div>
+          <div class="fact">
+            <div class="fact-label" data-i18n="workspace">默认工作目录</div>
+            <div class="fact-value mono" id="workspace-value">—</div>
+            <div class="fact-detail" data-i18n="workspaceHint">仅用于新会话的默认起点</div>
+          </div>
+          <div class="fact">
+            <div class="fact-label" data-i18n="phones">手机</div>
+            <div class="fact-value" id="phone-count">—</div>
+            <div class="fact-detail" id="phone-detail" data-i18n="phoneHint">已授权设备</div>
+          </div>
+        </div>
+
+        <section class="section pending-section" id="pending-section">
+          <div class="section-head">
+            <div><h3 class="section-title" data-i18n="pending">等待你的确认</h3><div class="section-desc" data-i18n="pendingDesc">只允许你刚刚发起配对的手机。</div></div>
+            <span class="count" id="pending-count">0</span>
+          </div>
+          <div id="pending-list"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div><h3 class="section-title" data-i18n="pairedPhones">已配对手机</h3><div class="section-desc" data-i18n="pairedDesc">这些设备可以在 Mac 在线时使用 Relay。</div></div>
+          </div>
+          <div class="device-list" id="session-list"><div class="empty" data-i18n="loading">加载中…</div></div>
+        </section>
+
+        <details class="advanced" id="advanced">
+          <summary><span data-i18n="advanced">高级与诊断</span><span class="chevron">›</span></summary>
+          <div class="advanced-body">
+            <div class="technical"><span class="technical-label" data-i18n="connectionAddress">连接地址</span><span class="technical-value mono" id="connect-url">—</span></div>
+            <div class="technical"><span class="technical-label" data-i18n="relayPort">Relay 端口</span><span class="technical-value mono" id="relay-port">—</span></div>
+            <div class="technical"><span class="technical-label" data-i18n="codexService">Codex 服务</span><span class="technical-value" id="codex-service">—</span></div>
+            <div class="actions" style="padding: 7px 0 4px">
+              <button class="btn" id="copy-address" disabled data-i18n="copyAddress">复制连接地址</button>
+              <button class="btn" id="refresh" data-i18n="refresh">刷新状态</button>
+            </div>
+            <div class="diag-list" id="diagnostics"></div>
+            <div class="danger-zone">
+              <span class="danger-copy" data-i18n="disconnectAllHint">移除全部手机授权，不影响 Mac 上的 Codex 数据。</span>
+              <button class="btn danger" id="clear-all" disabled data-i18n="disconnectAll">断开全部</button>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <aside class="pair-pane">
+        <div class="pair-head">
+          <div class="pair-index"><span class="pair-label" data-i18n="pairing">Pairing</span><button class="btn quiet" id="pair-refresh" data-i18n="refreshShort">刷新</button></div>
+          <h3 class="pair-title" data-i18n="pairPhone">添加一台手机</h3>
+          <div class="pair-desc" data-i18n="scanHint">用移动端扫描二维码。首次连接会在左侧出现确认请求。</div>
+        </div>
+        <div class="qr-wrap">
+          <canvas id="pairing-qr" aria-label="Pairing QR code"></canvas>
+          <pre class="qr-fallback" id="pairing-qr-fallback"></pre>
+          <div class="qr-loading" id="qr-loading" data-i18n="loadingQr">正在准备安全配对码…</div>
+        </div>
+        <div class="pair-primary">
+          <button class="btn primary" id="copy-pair" disabled data-i18n="copyPair">复制配对信息</button>
+          <button class="btn" id="copy-mobile" disabled data-i18n="copyMobile">复制地址</button>
+        </div>
+        <div class="pair-note" data-i18n="pairNote">控制中心只在本机开放。二维码包含手机建立安全连接所需的信息。</div>
       </aside>
     </div>
+
+    <footer class="footer"><span data-i18n="footerNote">正常使用时无需保持此窗口打开。</span><span id="last-sync">—</span></footer>
   </main>
   <div class="toast" id="toast"></div>
 
@@ -273,29 +499,128 @@ export function renderControlCenterPage(controlToken: string) {
       var token = tokenNode ? tokenNode.content : "";
       var state = null;
       var refreshing = false;
-      var lastPendingCodes = {};
       var translations = {
         "zh-CN": {
-          eyebrow: "LOCAL CODEX BRIDGE", tagline: "连接本机 Codex 与手机，不绑定单一工作区", connecting: "正在连接…", connected: "Relay 在线", failed: "连接失败",
-          connectingRelay: "正在连接本机 Relay", relayRunning: "本机 Relay 正在运行", retry: "重试", refresh: "刷新", loading: "加载中…", loadingQr: "正在生成安全配对二维码…",
-          copyMobile: "复制手机地址", copyAddress: "复制连接地址", copyPair: "复制配对链接", copied: "已复制", copyFailed: "复制失败，请手动复制",
-          sessionMode: "Codex 会话模式", sharedOn: "全局共享 app-server", sharedOff: "私有 app-server 回退", sharedDesc: "历史与共享会话可统一恢复和继续", privateDesc: "可恢复历史会话；独立终端实时会话需通过 remote 接入",
-          fallbackDir: "新会话兜底目录", fallbackHint: "已有会话继续使用各自原有 cwd",
-          pending: "待确认设备", pendingDesc: "手机扫码后，请在这里确认连接。", pairPhone: "添加手机", scanHint: "用 Codex Relay Plus 手机端扫描二维码，然后在左侧允许设备。",
-          devices: "已配对设备", devicesDesc: "已授权手机会保留安全会话，可随时单独断开。", disconnectAll: "断开全部", diagnostics: "环境诊断", diagnosticsDesc: "用于判断 Relay、Node、网络和共享 Codex 服务是否可用。",
-          approve: "允许", reject: "拒绝", disconnect: "断开", noPending: "暂无待确认设备", noDevices: "暂无已配对设备", expires: "有效至", unknownDevice: "未命名设备", justNow: "刚刚",
-          actionDone: "操作完成", confirmClear: "确定断开所有已配对设备？", localOnly: "控制中心仅监听 127.0.0.1", qrUnavailable: "二维码暂不可用，请刷新后重试"
+          productNote: "Mac Host · 平时保持运行即可",
+          connecting: "正在连接",
+          online: "Host 在线",
+          failed: "连接失败",
+          retry: "重试",
+          hostStatus: "HOST STATUS",
+          connectingHost: "正在启动本机服务",
+          hostReady: "服务已就绪",
+          hostCopy: "保持此 Mac 在线，手机端会自动选择可用连接路径。",
+          hostReadyCopy: "Mac 端已准备好。接下来通常只需要使用手机。",
+          relay: "Relay",
+          relayReady: "正在运行",
+          remoteAccess: "远程访问",
+          remoteReady: "可用",
+          localReady: "局域网可用",
+          automaticNetwork: "手机端自动选择连接路径",
+          remoteReadyDetail: "离开局域网后可自动切换",
+          localReadyDetail: "远程路径尚未就绪",
+          workspace: "默认工作目录",
+          workspaceHint: "仅用于新会话的默认起点",
+          phones: "手机",
+          phoneHint: "已授权设备",
+          phoneUnit: " 台已授权",
+          pending: "等待你的确认",
+          pendingDesc: "只允许你刚刚发起配对的手机。",
+          pairedPhones: "已配对手机",
+          pairedDesc: "这些设备可以在 Mac 在线时使用 Relay。",
+          advanced: "高级与诊断",
+          connectionAddress: "连接地址",
+          relayPort: "Relay 端口",
+          codexService: "Codex 服务",
+          sharedCodex: "共享服务已就绪",
+          privateCodex: "私有服务回退",
+          copyAddress: "复制连接地址",
+          refresh: "刷新状态",
+          refreshShort: "刷新",
+          disconnectAllHint: "移除全部手机授权，不影响 Mac 上的 Codex 数据。",
+          disconnectAll: "断开全部",
+          pairing: "PAIRING",
+          pairPhone: "添加一台手机",
+          scanHint: "用移动端扫描二维码。首次连接会在左侧出现确认请求。",
+          loadingQr: "正在准备安全配对码…",
+          qrUnavailable: "配对码暂不可用，请刷新后重试。",
+          copyPair: "复制配对信息",
+          copyMobile: "复制地址",
+          pairNote: "控制中心只在本机开放。二维码包含手机建立安全连接所需的信息。",
+          footerNote: "正常使用时无需保持此窗口打开。",
+          loading: "加载中…",
+          noDevices: "还没有已配对手机。扫描右侧二维码即可添加。",
+          unknownDevice: "未命名设备",
+          approve: "允许",
+          reject: "拒绝",
+          disconnect: "断开",
+          expires: "有效至",
+          justNow: "刚刚",
+          copied: "已复制",
+          copyFailed: "复制失败，请手动复制",
+          actionDone: "已完成",
+          confirmClear: "确定断开全部已配对手机？"
         },
         "en-US": {
-          eyebrow: "LOCAL CODEX BRIDGE", tagline: "Connect local Codex to your phone without binding one workspace", connecting: "Connecting…", connected: "Relay online", failed: "Connection failed",
-          connectingRelay: "Connecting to local Relay", relayRunning: "Local Relay is running", retry: "Retry", refresh: "Refresh", loading: "Loading…", loadingQr: "Generating secure pairing QR…",
-          copyMobile: "Copy mobile URL", copyAddress: "Copy address", copyPair: "Copy pairing link", copied: "Copied", copyFailed: "Copy failed; copy it manually",
-          sessionMode: "Codex session mode", sharedOn: "Global shared app-server", sharedOff: "Private app-server fallback", sharedDesc: "Historical and shared sessions can be resumed together", privateDesc: "History is resumable; an independent live terminal needs remote mode",
-          fallbackDir: "New-thread fallback directory", fallbackHint: "Existing sessions keep their own original cwd",
-          pending: "Pending devices", pendingDesc: "After scanning on the phone, approve the connection here.", pairPhone: "Add phone", scanHint: "Scan with Codex Relay Plus mobile, then approve the device on the left.",
-          devices: "Paired devices", devicesDesc: "Authorized phones keep secure sessions and can be disconnected individually.", disconnectAll: "Disconnect all", diagnostics: "Diagnostics", diagnosticsDesc: "Checks Relay, Node, networking, and the shared Codex service.",
-          approve: "Allow", reject: "Reject", disconnect: "Disconnect", noPending: "No pending devices", noDevices: "No paired devices", expires: "Expires", unknownDevice: "Unnamed device", justNow: "Just now",
-          actionDone: "Done", confirmClear: "Disconnect every paired device?", localOnly: "Control center listens on 127.0.0.1 only", qrUnavailable: "QR is unavailable; refresh and try again"
+          productNote: "Mac Host · designed to stay out of the way",
+          connecting: "Connecting",
+          online: "Host online",
+          failed: "Connection failed",
+          retry: "Retry",
+          hostStatus: "HOST STATUS",
+          connectingHost: "Starting local services",
+          hostReady: "Host is ready",
+          hostCopy: "Keep this Mac online. The mobile app chooses the best available connection automatically.",
+          hostReadyCopy: "The Mac side is ready. You can normally continue from your phone.",
+          relay: "Relay",
+          relayReady: "Running",
+          remoteAccess: "Remote access",
+          remoteReady: "Available",
+          localReady: "Local network ready",
+          automaticNetwork: "The mobile app chooses the connection path automatically",
+          remoteReadyDetail: "Can switch automatically when you leave the LAN",
+          localReadyDetail: "Remote path is not ready yet",
+          workspace: "Default workspace",
+          workspaceHint: "Used only as the starting point for new sessions",
+          phones: "Phones",
+          phoneHint: "Authorized devices",
+          phoneUnit: " authorized",
+          pending: "Waiting for your approval",
+          pendingDesc: "Only approve the phone you just paired.",
+          pairedPhones: "Paired phones",
+          pairedDesc: "These devices can use Relay while this Mac is online.",
+          advanced: "Advanced & diagnostics",
+          connectionAddress: "Connection address",
+          relayPort: "Relay port",
+          codexService: "Codex service",
+          sharedCodex: "Shared service ready",
+          privateCodex: "Private service fallback",
+          copyAddress: "Copy connection address",
+          refresh: "Refresh status",
+          refreshShort: "Refresh",
+          disconnectAllHint: "Remove all phone authorizations without touching Codex data on this Mac.",
+          disconnectAll: "Disconnect all",
+          pairing: "PAIRING",
+          pairPhone: "Add a phone",
+          scanHint: "Scan this QR code in the mobile app. The first connection will appear for approval on the left.",
+          loadingQr: "Preparing secure pairing code…",
+          qrUnavailable: "Pairing code is unavailable. Refresh and try again.",
+          copyPair: "Copy pairing info",
+          copyMobile: "Copy address",
+          pairNote: "The control center is local-only. The QR contains the information needed to establish a secure mobile connection.",
+          footerNote: "You do not need to keep this window open during normal use.",
+          loading: "Loading…",
+          noDevices: "No paired phones yet. Scan the QR code to add one.",
+          unknownDevice: "Unnamed device",
+          approve: "Allow",
+          reject: "Reject",
+          disconnect: "Disconnect",
+          expires: "Expires",
+          justNow: "Just now",
+          copied: "Copied",
+          copyFailed: "Copy failed; copy it manually",
+          actionDone: "Done",
+          confirmClear: "Disconnect every paired phone?"
         }
       };
       var language = localStorage.getItem("codex-relay-language") || (navigator.language && navigator.language.toLowerCase().indexOf("zh") === 0 ? "zh-CN" : "en-US");
@@ -303,8 +628,16 @@ export function renderControlCenterPage(controlToken: string) {
 
       function byId(id) { return document.getElementById(id); }
       function t(key) { return translations[language][key] || key; }
-      function escape(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, function (char) { if (char === "&") return "&amp;"; if (char === "<") return "&lt;"; if (char === ">") return "&gt;"; if (char === '"') return "&quot;"; return "&#39;"; }); }
       function each(selector, callback) { Array.prototype.forEach.call(document.querySelectorAll(selector), callback); }
+      function escape(value) {
+        return String(value == null ? "" : value).replace(/[&<>"']/g, function (char) {
+          if (char === "&") return "&amp;";
+          if (char === "<") return "&lt;";
+          if (char === ">") return "&gt;";
+          if (char === '"') return "&quot;";
+          return "&#39;";
+        });
+      }
       function applyLanguage() {
         document.documentElement.lang = language;
         byId("language").value = language;
@@ -313,7 +646,7 @@ export function renderControlCenterPage(controlToken: string) {
       }
       function api(path, options) {
         options = options || {};
-        options.headers = Object.assign({}, options.headers || {}, {"x-codex-relay-control-token": token});
+        options.headers = Object.assign({}, options.headers || {}, { "x-codex-relay-control-token": token });
         return fetch(path, options).then(function (response) {
           return response.text().then(function (text) {
             var body = {};
@@ -328,7 +661,7 @@ export function renderControlCenterPage(controlToken: string) {
         el.textContent = message;
         el.classList.add("show");
         clearTimeout(toast.timer);
-        toast.timer = setTimeout(function () { el.classList.remove("show"); }, 1700);
+        toast.timer = setTimeout(function () { el.classList.remove("show"); }, 1600);
       }
       function legacyCopy(value) {
         var input = document.createElement("textarea");
@@ -363,17 +696,16 @@ export function renderControlCenterPage(controlToken: string) {
         if (hours < 48) return hours + "h";
         return new Date(timestamp).toLocaleDateString(language);
       }
-      function setConnection(kind, message) {
-        var topDot = byId("top-dot");
-        var relayDot = byId("relay-dot");
-        topDot.className = "dot" + (kind === "ok" ? " ok" : kind === "bad" ? " bad" : "");
-        relayDot.className = topDot.className;
-        byId("top-status").textContent = message;
+      function setDots(kind) {
+        var className = "state-dot" + (kind === "good" ? " good" : kind === "bad" ? " bad" : "");
+        byId("top-dot").className = className;
+        byId("hero-dot").className = className + " hero-dot";
       }
       function setError(error) {
         var message = error && error.message ? error.message : String(error || "Unknown error");
-        setConnection("bad", t("failed"));
-        byId("relay-title").textContent = t("failed");
+        setDots("bad");
+        byId("top-state").textContent = t("failed");
+        byId("hero-title").textContent = t("failed");
         byId("error-text").textContent = message;
         byId("error-banner").classList.add("show");
         byId("qr-loading").textContent = t("qrUnavailable");
@@ -381,6 +713,12 @@ export function renderControlCenterPage(controlToken: string) {
       function clearError() { byId("error-banner").classList.remove("show"); }
       function act(promise) {
         promise.then(function () { toast(t("actionDone")); return refresh(); }).catch(setError);
+      }
+      function getPairingParam(payload, key) {
+        if (!payload) return "";
+        var question = payload.indexOf("?");
+        if (question < 0) return "";
+        try { return new URLSearchParams(payload.slice(question + 1)).get(key) || ""; } catch (_) { return ""; }
       }
       function trimQrLines(text) {
         var lines = String(text || "").replace(/\\r/g, "").split("\\n");
@@ -414,9 +752,9 @@ export function renderControlCenterPage(controlToken: string) {
         canvas.width = pixelWidth * moduleSize;
         canvas.height = pixelHeight * moduleSize;
         ctx.imageSmoothingEnabled = false;
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = "#f5f5f0";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#050505";
+        ctx.fillStyle = "#0d0e0f";
         var dark = 0;
         lines.forEach(function (line, row) {
           for (var col = 0; col < width; col += 1) {
@@ -435,64 +773,72 @@ export function renderControlCenterPage(controlToken: string) {
         }
         loading.style.display = "none";
       }
+      function bindActions() {
+        each("[data-approve]", function (button) {
+          button.onclick = function () { act(api("/api/pairings/" + encodeURIComponent(button.getAttribute("data-approve")) + "/approve", { method: "POST" })); };
+        });
+        each("[data-reject]", function (button) {
+          button.onclick = function () { act(api("/api/pairings/" + encodeURIComponent(button.getAttribute("data-reject")), { method: "DELETE" })); };
+        });
+        each("[data-disconnect]", function (button) {
+          button.onclick = function () { act(api("/api/sessions/" + encodeURIComponent(button.getAttribute("data-disconnect")), { method: "DELETE" })); };
+        });
+      }
       function render() {
         if (!state) return;
         clearError();
-        setConnection("ok", t("connected"));
-        byId("relay-title").textContent = t("relayRunning");
-        byId("relay-meta").textContent = state.relay.connectUrl + "  ·  PID " + state.relay.pid + "  ·  port " + state.relay.port;
-        byId("copy-mobile").disabled = !state.relay.connectUrl;
+        setDots("good");
+        byId("top-state").textContent = t("online");
+        byId("hero-title").textContent = t("hostReady");
+        byId("hero-copy").textContent = t("hostReadyCopy");
+        byId("relay-value").textContent = t("relayReady");
+        byId("relay-detail").textContent = "PID " + state.relay.pid + " · :" + state.relay.port;
+        byId("workspace-value").textContent = state.relay.workspacePath || "—";
+        byId("phone-count").textContent = String(state.sessions.length) + t("phoneUnit");
+        byId("phone-detail").textContent = t("phoneHint");
+
+        var tailcatAddress = getPairingParam(state.pairingPayload, "tailcatAddr");
+        byId("remote-value").textContent = tailcatAddress ? t("remoteReady") : t("localReady");
+        byId("remote-detail").textContent = tailcatAddress ? t("remoteReadyDetail") : t("localReadyDetail");
+
+        byId("connect-url").textContent = state.relay.connectUrl || "—";
+        byId("relay-port").textContent = String(state.relay.port || "—");
+        byId("codex-service").textContent = state.relay.sharedAppServerRemoteAddress ? t("sharedCodex") : t("privateCodex");
         byId("copy-address").disabled = !state.relay.connectUrl;
+        byId("copy-mobile").disabled = !state.relay.connectUrl;
         byId("copy-pair").disabled = !state.pairingPayload;
         byId("clear-all").disabled = !state.sessions.length;
-        byId("fallback-dir").textContent = state.relay.workspacePath || "—";
-        if (state.relay.sharedAppServerRemoteAddress) {
-          byId("session-mode").textContent = t("sharedOn") + " · " + t("sharedDesc");
-          byId("session-command").textContent = "codex resume --remote " + state.relay.sharedAppServerRemoteAddress;
-        } else {
-          byId("session-mode").textContent = t("sharedOff") + " · " + t("privateDesc");
-          byId("session-command").textContent = "";
-        }
+
         drawQr(state.pairingQr || "");
-        byId("pairing-payload").textContent = state.pairingPayload || "—";
+
+        var pendingSection = byId("pending-section");
+        var pendingList = byId("pending-list");
+        pendingSection.classList.toggle("visible", state.pendingPairings.length > 0);
         byId("pending-count").textContent = String(state.pendingPairings.length);
-        var pending = byId("pending-list");
-        pending.innerHTML = state.pendingPairings.length ? state.pendingPairings.map(function (item) {
-          return '<div class="row"><div class="row-main"><div class="pair-code">' + escape(item.approvalCode) + '</div><div class="meta">' + escape(item.clientName || t("unknownDevice")) + ' · ' + t("expires") + ' ' + escape(new Date(item.expiresAt).toLocaleTimeString(language, {hour:"2-digit", minute:"2-digit"})) + '</div></div><div class="actions"><button class="btn small" data-reject="' + escape(item.approvalCode) + '">' + t("reject") + '</button><button class="btn primary small" data-approve="' + escape(item.approvalCode) + '">' + t("approve") + '</button></div></div>';
-        }).join("") : '<div class="empty">' + t("noPending") + '</div>';
+        pendingList.innerHTML = state.pendingPairings.map(function (item) {
+          return '<div class="request"><div class="request-main"><div class="approval-code">' + escape(item.approvalCode) + '</div><div class="row-meta">' + escape(item.clientName || t("unknownDevice")) + ' · ' + t("expires") + ' ' + escape(new Date(item.expiresAt).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })) + '</div></div><div class="actions"><button class="btn" data-reject="' + escape(item.approvalCode) + '">' + t("reject") + '</button><button class="btn primary" data-approve="' + escape(item.approvalCode) + '">' + t("approve") + '</button></div></div>';
+        }).join("");
+
         var sessions = byId("session-list");
         sessions.innerHTML = state.sessions.length ? state.sessions.map(function (item) {
-          return '<div class="row"><div class="row-main"><div class="row-title">' + escape(item.clientName || t("unknownDevice")) + '</div><div class="meta code">' + escape(item.clientSessionId || item.displayId) + ' · ' + escape(relativeTime(item.updatedAt)) + '</div></div><button class="btn danger small" data-disconnect="' + escape(item.tokenHash) + '">' + t("disconnect") + '</button></div>';
+          return '<div class="device"><div class="device-main"><div class="row-title">' + escape(item.clientName || t("unknownDevice")) + '</div><div class="row-meta mono">' + escape(item.clientSessionId || item.displayId) + ' · ' + escape(relativeTime(item.updatedAt)) + '</div></div><button class="btn quiet" data-disconnect="' + escape(item.tokenHash) + '">' + t("disconnect") + '</button></div>';
         }).join("") : '<div class="empty">' + t("noDevices") + '</div>';
+
         var diagnostics = byId("diagnostics");
-        diagnostics.innerHTML = state.diagnostics.length ? state.diagnostics.map(function (item) {
-          return '<div class="diag"><span class="diag-icon ' + escape(item.status) + '"></span><strong>' + escape(item.label) + '</strong><span class="diag-value code">' + escape(item.value) + '</span></div>';
-        }).join("") : '<div class="empty">' + t("loading") + '</div>';
-        byId("last-sync").textContent = new Date().toLocaleTimeString(language, {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+        diagnostics.innerHTML = state.diagnostics && state.diagnostics.length ? state.diagnostics.map(function (item) {
+          return '<div class="diag"><span class="diag-dot ' + escape(item.status) + '"></span><strong>' + escape(item.label) + '</strong><span class="diag-value mono">' + escape(item.value) + '</span></div>';
+        }).join("") : "";
+
+        byId("last-sync").textContent = new Date().toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
         bindActions();
-      }
-      function bindActions() {
-        each("[data-approve]", function (button) { button.onclick = function () { act(api("/api/pairings/" + encodeURIComponent(button.getAttribute("data-approve")) + "/approve", {method:"POST"})); }; });
-        each("[data-reject]", function (button) { button.onclick = function () { act(api("/api/pairings/" + encodeURIComponent(button.getAttribute("data-reject")), {method:"DELETE"})); }; });
-        each("[data-disconnect]", function (button) { button.onclick = function () { act(api("/api/sessions/" + encodeURIComponent(button.getAttribute("data-disconnect")), {method:"DELETE"})); }; });
-      }
-      function rememberPending(nextState) {
-        var next = {};
-        nextState.pendingPairings.forEach(function (item) { next[item.approvalCode] = true; });
-        lastPendingCodes = next;
       }
       function refresh() {
         if (refreshing) return Promise.resolve();
         refreshing = true;
         return api("/api/state").then(function (next) {
-          rememberPending(next);
           state = next;
           render();
-        }).catch(function (error) {
-          setError(error);
-        }).then(function () {
-          refreshing = false;
-        });
+        }).catch(setError).then(function () { refreshing = false; });
       }
 
       byId("language").onchange = function (event) {
@@ -500,21 +846,21 @@ export function renderControlCenterPage(controlToken: string) {
         localStorage.setItem("codex-relay-language", language);
         applyLanguage();
       };
-      byId("copy-mobile").onclick = function () { copy(state && state.relay.connectUrl); };
       byId("copy-address").onclick = function () { copy(state && state.relay.connectUrl); };
+      byId("copy-mobile").onclick = function () { copy(state && state.relay.connectUrl); };
       byId("copy-pair").onclick = function () { copy(state && state.pairingPayload); };
       byId("refresh").onclick = refresh;
       byId("pair-refresh").onclick = refresh;
       byId("retry").onclick = refresh;
       byId("clear-all").onclick = function () {
         if (!state || !state.sessions.length || !confirm(t("confirmClear"))) return;
-        act(api("/api/sessions/clear", {method:"POST"}));
+        act(api("/api/sessions/clear", { method: "POST" }));
       };
       document.addEventListener("visibilitychange", function () { if (!document.hidden) refresh(); });
 
       applyLanguage();
       refresh();
-      setInterval(refresh, 3000);
+      setInterval(function () { if (!document.hidden) refresh(); }, 3000);
     })();
   </script>
 </body>
