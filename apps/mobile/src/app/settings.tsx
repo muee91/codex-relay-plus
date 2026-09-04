@@ -148,7 +148,9 @@ export default function SettingsScreen() {
       setStatusState(queryClient, reconciled.status);
       setConnection("connected");
       if (isNativeTailcatAvailable()) {
-        setPathStatus(await getNativeTailcatStatus().catch(() => ({ path: "offline" })));
+        setPathStatus(
+          await getNativeTailcatStatus().catch((): TailcatPathStatus => ({ path: "offline" })),
+        );
       }
       setRefreshKey((value) => value + 1);
       setModalVisible(false);
