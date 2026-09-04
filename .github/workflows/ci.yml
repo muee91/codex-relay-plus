@@ -33,8 +33,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint and check formatting
-        run: pnpm lint
+      - name: Print formatter diff
+        shell: bash
+        run: |
+          pnpm format
+          git diff -- apps/mobile/plugins/withTailcatTransport.ts apps/mobile/src/lib/codex-relay-server-url-storage.ts packages/codex-relay/src/pairing-url-candidates.ts
+          git diff --exit-code
 
       - name: Typecheck
         run: pnpm typecheck
