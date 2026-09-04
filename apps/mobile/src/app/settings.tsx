@@ -39,61 +39,63 @@ const copy = isZhCn
   ? {
       title: "连接",
       modeTitle: "连接模式",
-      pathTitle: "当前连接",
-      description: "自动模式优先使用局域网，需要时会自动切换到安全远程连接。",
+      pathTitle: "连接路径",
+      description: "自动模式优先使用局域网；离开当前网络后自动切换到 Tailcat 或其他远程路径。",
       unavailableTitle: "连接方式不可用",
       unavailableFallback: "当前连接方式无法访问已配对的电脑。",
+      endpoint: "端点",
       modes: {
-        auto: { label: "自动", subtitle: "推荐。优先局域网，需要时自动远程连接", shortLabel: "自动" },
-        local: { label: "仅局域网", subtitle: "只在同一 Wi-Fi / LAN 下连接", shortLabel: "LAN" },
-        remote: { label: "仅远程", subtitle: "仅使用远程连接", shortLabel: "远程" },
+        auto: { label: "自动", subtitle: "优先局域网，不可用时自动切换远程", shortLabel: "自动" },
+        local: { label: "仅局域网", subtitle: "只连接同一 Wi-Fi / LAN", shortLabel: "LAN" },
+        remote: { label: "仅远程", subtitle: "使用 Tailcat、Tailscale 或其他远程地址", shortLabel: "远程" },
       },
       paths: {
-        idle: { label: "等待连接", detail: "尚未建立可用连接", shortLabel: "AUTO" },
-        lan: { label: "局域网", detail: "正在使用本地网络", shortLabel: "LAN" },
-        connecting: { label: "正在连接", detail: "正在选择可用连接", shortLabel: "…" },
-        direct: { label: "远程", detail: "正在使用安全远程连接", shortLabel: "REMOTE" },
-        derp: { label: "远程", detail: "正在使用安全远程连接", shortLabel: "REMOTE" },
-        remote: { label: "远程", detail: "正在使用安全远程连接", shortLabel: "REMOTE" },
+        idle: { label: "等待连接", detail: "尚未建立可用传输", shortLabel: "AUTO" },
+        lan: { label: "局域网", detail: "正在使用本地 Wi-Fi / LAN", shortLabel: "LAN" },
+        connecting: { label: "正在切换", detail: "正在建立可用连接路径", shortLabel: "…" },
+        direct: { label: "Tailcat · 直连", detail: "正在使用端到端远程直连", shortLabel: "DIRECT" },
+        derp: { label: "Tailcat · DERP", detail: "直连不可用，正在通过 DERP 中继", shortLabel: "DERP" },
+        remote: { label: "远程地址", detail: "正在使用 Tailscale 或配置的远程 Relay", shortLabel: "REMOTE" },
         offline: { label: "离线", detail: "正在等待可用网络", shortLabel: "OFFLINE" },
       },
     }
   : {
       title: "Connection",
       modeTitle: "Connection mode",
-      pathTitle: "Current connection",
-      description: "Automatic prefers the local network and switches to a secure remote connection when needed.",
+      pathTitle: "Connection path",
+      description: "Automatic prefers LAN and switches to Tailcat or another remote path when needed.",
       unavailableTitle: "Connection mode unavailable",
       unavailableFallback: "Could not reach the paired computer with this connection mode.",
+      endpoint: "Endpoint",
       modes: {
         auto: {
           label: "Automatic",
-          subtitle: "Recommended. Prefer LAN and switch remotely when needed",
+          subtitle: "Prefer LAN, switch to a remote path when needed",
           shortLabel: "AUTO",
         },
         local: {
           label: "Local network only",
-          subtitle: "Connect only on the same Wi-Fi / LAN",
+          subtitle: "Use only the same Wi-Fi / LAN",
           shortLabel: "LAN",
         },
         remote: {
           label: "Remote only",
-          subtitle: "Use only a remote connection",
+          subtitle: "Use Tailcat, Tailscale, or another remote address",
           shortLabel: "REMOTE",
         },
       },
       paths: {
-        idle: { label: "Waiting", detail: "No usable connection is active yet", shortLabel: "AUTO" },
-        lan: { label: "Local network", detail: "Using the local network", shortLabel: "LAN" },
-        connecting: { label: "Connecting", detail: "Choosing an available connection", shortLabel: "…" },
-        direct: { label: "Remote", detail: "Using a secure remote connection", shortLabel: "REMOTE" },
-        derp: { label: "Remote", detail: "Using a secure remote connection", shortLabel: "REMOTE" },
-        remote: { label: "Remote", detail: "Using a secure remote connection", shortLabel: "REMOTE" },
+        idle: { label: "Waiting", detail: "No usable transport is active yet", shortLabel: "AUTO" },
+        lan: { label: "Local network", detail: "Using local Wi-Fi / LAN", shortLabel: "LAN" },
+        connecting: { label: "Switching", detail: "Finding an available connection path", shortLabel: "…" },
+        direct: { label: "Tailcat · Direct", detail: "Using a peer-to-peer remote path", shortLabel: "DIRECT" },
+        derp: { label: "Tailcat · DERP", detail: "Direct path unavailable; using a DERP relay", shortLabel: "DERP" },
+        remote: { label: "Remote address", detail: "Using Tailscale or a configured remote Relay", shortLabel: "REMOTE" },
         offline: { label: "Offline", detail: "Waiting for an available network", shortLabel: "OFFLINE" },
       },
     };
 
-const connectionModes: CodexRelayConnectionMode[] = ["auto", "local"];
+const connectionModes: CodexRelayConnectionMode[] = ["auto", "local", "remote"];
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -257,7 +259,24 @@ export default function SettingsScreen() {
                 <ThemedText type="small" themeColor="textSecondary" style={styles.pathDetail}>
                   {pathDetail(pathStatus, activePath.detail)}
                 </ThemedText>
+                {pathStatus.endpoint ? (
+                  <ThemedText
+                    type="code"
+                    themeColor="textSecondary"
+                    style={styles.pathMeta}
+                    numberOfLines={1}
+                  >
+                    {copy.endpoint}: {pathStatus.endpoint}
+                  </ThemedText>
+                ) : null}
               </View>
+              {typeof pathStatus.latencyMs === "number" ? (
+                <View style={styles.latencyBadge}>
+                  <ThemedText type="code" style={styles.latencyText}>
+                    {Math.round(pathStatus.latencyMs)} ms
+                  </ThemedText>
+                </View>
+              ) : null}
             </View>
 
             <ThemedText type="code" themeColor="textSecondary" style={styles.sectionLabel}>
@@ -340,6 +359,9 @@ function inferNonNativePath(
 }
 
 function pathDetail(status: ConnectionPathStatus, fallback: string) {
+  if (status.path === "derp" && status.derpRegion) {
+    return `${fallback} · ${status.derpRegion}`;
+  }
   if ("error" in status && status.error && status.path === "offline") {
     return status.error;
   }
@@ -347,10 +369,10 @@ function pathDetail(status: ConnectionPathStatus, fallback: string) {
 }
 
 function pathDotStyle(path: ConnectionPathStatus["path"]) {
-  if (path === "lan" || path === "direct" || path === "derp" || path === "remote") {
+  if (path === "lan" || path === "direct" || path === "remote") {
     return styles.pathDotHealthy;
   }
-  if (path === "connecting") {
+  if (path === "derp" || path === "connecting") {
     return styles.pathDotDegraded;
   }
   return styles.pathDotOffline;
@@ -433,6 +455,20 @@ const styles = StyleSheet.create({
   pathEyebrow: { fontSize: 9, lineHeight: 12, textTransform: "uppercase" },
   pathTitle: { fontSize: 15, lineHeight: 20 },
   pathDetail: { fontSize: 12, lineHeight: 17 },
+  pathMeta: { fontSize: 9, lineHeight: 13, marginTop: 3 },
+  latencyBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderRadius: 6,
+    flexShrink: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  latencyText: {
+    color: Colors.dark.textSecondary,
+    fontFamily: Fonts.monoMedium,
+    fontSize: 9,
+    lineHeight: 12,
+  },
   sectionLabel: { fontSize: 9, lineHeight: 12, textTransform: "uppercase" },
   modeList: { gap: 8 },
   modeRow: {
