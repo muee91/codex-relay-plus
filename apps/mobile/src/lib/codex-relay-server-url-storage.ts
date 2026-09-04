@@ -1,20 +1,11 @@
 import { createMMKV } from "react-native-mmkv";
 
-import {
-  configureNativeRelayProxy,
-  discoverNativeLocalRelay,
-  isNativeTailcatAvailable,
-  stopNativeTailcatProxy,
-} from "./transport/native-tailcat";
-
 const defaultServerUrl = "http://localhost:8787";
 export const nativeTransportServerUrl = "http://127.0.0.1:39127";
 const connectionModeStorageKey = "codex-relay.connection-mode";
 const serverUrlCandidatesStorageKey = "codex-relay.server-url-candidates";
 const serverUrlStorageKey = "codex-relay.server-url";
-const clientTokenStorageKey = "codex-relay.client-token";
 const nativeTransportConfiguredStorageKey = "codex-relay.native-transport-configured-v1";
-const nativeDiscoveryIntervalMs = 10_000;
 
 export const codexRelayStorage = createMMKV({ id: "codex-relay" });
 
@@ -26,14 +17,10 @@ export type CodexRelayServerUrlCandidate = {
   url: string;
 };
 
-type TailcatBootstrapCandidate = {
+export type TailcatBootstrapCandidate = {
   address: string;
   remotePort: number;
 };
-
-let pendingNativeTransportSync: Promise<string> | undefined;
-let nextNativeDiscoveryAt = 0;
-let lastDiscoveredLocalUrl: string | undefined;
 
 export const fallbackCodexRelayServerUrl =
   process.env.EXPO_PUBLIC_CODEX_RELAY_SERVER_URL?.replace(/\/$/, "") ?? defaultServerUrl;
@@ -45,9 +32,6 @@ export function getCodexRelayConnectionMode(): CodexRelayConnectionMode {
 
 export function setCodexRelayConnectionMode(mode: CodexRelayConnectionMode) {
   codexRelayStorage.set(connectionModeStorageKey, mode);
-  if (mode !== "local") {
-    scheduleNativeTransportSync(true);
-  }
   return mode;
 }
 
@@ -56,13 +40,7 @@ export function getCodexRelayServerUrl() {
   if (getCodexRelayConnectionMode() === "local") {
     return firstStoredLocalServerUrl() ?? stored;
   }
-  if (
-    shouldUseNativeRelayTransport() &&
-    codexRelayStorage.getBoolean(nativeTransportConfiguredStorageKey) === true
-  ) {
-    return nativeTransportServerUrl;
-  }
-  return stored;
+  return isNativeRelayTransportConfigured() ? nativeTransportServerUrl : stored;
 }
 
 export function getCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {
@@ -90,43 +68,44 @@ export function clearCodexRelayServerUrlState() {
   codexRelayStorage.remove(serverUrlCandidatesStorageKey);
   codexRelayStorage.remove(connectionModeStorageKey);
   codexRelayStorage.remove(nativeTransportConfiguredStorageKey);
-  lastDiscoveredLocalUrl = undefined;
-  nextNativeDiscoveryAt = 0;
-  void stopNativeTailcatProxy().catch(() => undefined);
 }
 
 export function saveCodexRelayServerUrlCandidates(urls: string[]) {
   codexRelayStorage.set(serverUrlCandidatesStorageKey, JSON.stringify(dedupeServerUrls(urls)));
-  scheduleNativeTransportSync(true);
 }
 
-export function shouldUseNativeRelayTransport() {
-  return Boolean(
-    getCodexRelayConnectionMode() !== "local" &&
-    isNativeTailcatAvailable() &&
-    codexRelayStorage.getString(clientTokenStorageKey) &&
-    readTailcatBootstrapCandidate(),
-  );
+export function isNativeRelayTransportConfigured() {
+  return codexRelayStorage.getBoolean(nativeTransportConfiguredStorageKey) === true;
 }
 
-export async function ensureNativeRelayTransportReady(forceDiscovery = false) {
-  if (!shouldUseNativeRelayTransport()) {
-    return undefined;
+export function setNativeRelayTransportConfigured(configured: boolean) {
+  if (configured) {
+    codexRelayStorage.set(nativeTransportConfiguredStorageKey, true);
+  } else {
+    codexRelayStorage.remove(nativeTransportConfiguredStorageKey);
   }
-  if (!pendingNativeTransportSync) {
-    const bootstrap = readTailcatBootstrapCandidate();
-    if (!bootstrap) {
-      return undefined;
-    }
-    const sync = syncNativeTransport(bootstrap, forceDiscovery);
-    pendingNativeTransportSync = sync;
-    void sync.finally(() => {
-      if (pendingNativeTransportSync === sync) {
-        pendingNativeTransportSync = undefined;
+}
+
+export function getTailcatBootstrapCandidate(): TailcatBootstrapCandidate | undefined {
+  for (const value of readStoredServerUrlCandidates()) {
+    try {
+      const url = new URL(value);
+      if (url.hostname !== "tailcat.invalid" || url.searchParams.get("v") !== "1") {
+        continue;
       }
-    });
+      const address = url.searchParams.get("addr")?.trim();
+      const remotePort = Number(url.searchParams.get("port"));
+      if (
+        address?.startsWith("tc") &&
+        Number.isSafeInteger(remotePort) &&
+        remotePort >= 1 &&
+        remotePort <= 65535
+      ) {
+        return { address, remotePort };
+      }
+    } catch {}
   }
-  return pendingNativeTransportSync;
+  return undefined;
 }
 
 export function normalizeServerUrl(url: string) {
@@ -206,59 +185,17 @@ export function isLocalIPv6Host(host: string) {
   );
 }
 
-function scheduleNativeTransportSync(forceDiscovery = false) {
-  void ensureNativeRelayTransportReady(forceDiscovery).catch(() => undefined);
+export function isLocalServerUrl(url: string) {
+  return serverUrlCandidateKind(url) === "local";
 }
 
-async function syncNativeTransport(bootstrap: TailcatBootstrapCandidate, forceDiscovery: boolean) {
-  const mode = getCodexRelayConnectionMode();
-  const urls = readStoredServerUrlCandidates();
-  const now = Date.now();
-  if (forceDiscovery || now >= nextNativeDiscoveryAt) {
-    nextNativeDiscoveryAt = now + nativeDiscoveryIntervalMs;
-    lastDiscoveredLocalUrl =
-      (await discoverNativeLocalRelay(900).catch(() => null)) ?? lastDiscoveredLocalUrl;
+export function isTailcatBootstrapUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "tailcat.invalid" && parsed.searchParams.get("v") === "1";
+  } catch {
+    return false;
   }
-  if (lastDiscoveredLocalUrl) {
-    urls.unshift(lastDiscoveredLocalUrl);
-  }
-  const lanTargets = dedupeLanTargets(
-    urls.filter((url) => serverUrlCandidateKind(url) === "local").map(urlToTcpTarget),
-  );
-  const localUrl = await configureNativeRelayProxy({
-    lanTargets,
-    mode,
-    remotePort: bootstrap.remotePort,
-    serverAddr: bootstrap.address,
-  });
-  const normalizedLocalUrl = normalizeServerUrl(localUrl);
-  if (normalizedLocalUrl !== nativeTransportServerUrl) {
-    throw new Error(`Native Relay transport returned unexpected URL: ${normalizedLocalUrl}`);
-  }
-  codexRelayStorage.set(nativeTransportConfiguredStorageKey, true);
-  return nativeTransportServerUrl;
-}
-
-function readTailcatBootstrapCandidate(): TailcatBootstrapCandidate | undefined {
-  for (const value of readStoredServerUrlCandidates()) {
-    try {
-      const url = new URL(value);
-      if (url.hostname !== "tailcat.invalid" || url.searchParams.get("v") !== "1") {
-        continue;
-      }
-      const address = url.searchParams.get("addr")?.trim();
-      const remotePort = Number(url.searchParams.get("port"));
-      if (
-        address?.startsWith("tc") &&
-        Number.isSafeInteger(remotePort) &&
-        remotePort >= 1 &&
-        remotePort <= 65535
-      ) {
-        return { address, remotePort };
-      }
-    } catch {}
-  }
-  return undefined;
 }
 
 function firstStoredLocalServerUrl() {
@@ -337,22 +274,4 @@ function serverUrlCandidateLabel(url: string) {
   } catch {
     return "Remote server";
   }
-}
-
-function urlToTcpTarget(url: string) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "http:") {
-      return "";
-    }
-    const port = parsed.port || "80";
-    const host = parsed.hostname.replace(/^\[/, "").replace(/\]$/, "");
-    return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
-  } catch {
-    return "";
-  }
-}
-
-function dedupeLanTargets(values: string[]) {
-  return [...new Set(values.filter(Boolean))];
 }
