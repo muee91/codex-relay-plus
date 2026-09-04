@@ -20,7 +20,7 @@ gomobile init
 mkdir -p "$OUT_DIR"
 (
   cd "$BRIDGE_DIR"
-  go mod download
+  go mod tidy
   gomobile bind \
     -target=android/arm64 \
     -androidapi=24 \
