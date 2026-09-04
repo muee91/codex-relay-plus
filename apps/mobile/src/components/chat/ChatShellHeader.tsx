@@ -13,12 +13,18 @@ export type ChatShellAction = {
   readonly onPress: () => void;
 };
 
+type ChatActivityTone = "active" | "attention" | "idle";
+
 export function ChatShellHeader({
+  activityLabel,
+  activityTone,
   leadingAction,
   subtitle,
   title,
   trailingActions,
 }: {
+  activityLabel: string;
+  activityTone: ChatActivityTone;
   leadingAction: ChatShellAction;
   subtitle: string;
   title: string;
@@ -31,14 +37,27 @@ export function ChatShellHeader({
         <ThemedText type="smallBold" style={styles.title} numberOfLines={1}>
           {title}
         </ThemedText>
-        <ThemedText
-          type="code"
-          themeColor="textSecondary"
-          style={styles.subtitle}
-          numberOfLines={1}
-        >
-          {subtitle}
-        </ThemedText>
+        <View style={styles.metaRow}>
+          <View
+            style={[
+              styles.activityDot,
+              activityTone === "active" && styles.activityDotActive,
+              activityTone === "attention" && styles.activityDotAttention,
+            ]}
+          />
+          <ThemedText type="code" themeColor="textSecondary" style={styles.activityLabel}>
+            {activityLabel}
+          </ThemedText>
+          <View style={styles.metaDivider} />
+          <ThemedText
+            type="code"
+            themeColor="textSecondary"
+            style={styles.subtitle}
+            numberOfLines={1}
+          >
+            {subtitle}
+          </ThemedText>
+        </View>
       </View>
       <View pointerEvents="box-none" style={styles.headerActions}>
         {trailingActions.map((action) => (
@@ -62,7 +81,7 @@ function HeaderButton({ action }: { action: ChatShellAction }) {
       style={({ pressed }) => [
         styles.headerButton,
         action.disabled && styles.headerButtonDisabled,
-        pressed && styles.pressed,
+        pressed && styles.headerButtonPressed,
       ]}
     >
       <Icon name={action.icon} size={17} tintColor={Colors.dark.text} />
@@ -73,55 +92,77 @@ function HeaderButton({ action }: { action: ChatShellAction }) {
 const styles = StyleSheet.create({
   header: {
     alignItems: "center",
-    elevation: 4,
     flexDirection: "row",
     gap: 10,
+    minHeight: 54,
     paddingBottom: 8,
-    paddingHorizontal: 18,
-    paddingTop: 6,
+    paddingHorizontal: 14,
+    paddingTop: 5,
     zIndex: 4,
   },
   headerActions: {
-    elevation: 6,
     flexDirection: "row",
     flexShrink: 0,
-    gap: 10,
-    zIndex: 6,
+    gap: 4,
   },
   headerButton: {
     alignItems: "center",
-    backgroundColor: "rgba(42, 42, 42, 0.8)",
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    borderRadius: 18,
-    borderWidth: 1,
+    borderRadius: 9,
     height: 36,
     justifyContent: "center",
-    position: "relative",
     width: 36,
-    zIndex: 7,
+  },
+  headerButtonPressed: {
+    backgroundColor: "rgba(255, 255, 255, 0.07)",
+    opacity: 0.76,
   },
   headerButtonDisabled: {
-    opacity: 0.45,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  subtitle: {
-    fontSize: 10,
-    lineHeight: 14,
-    maxWidth: "100%",
-    opacity: 0.84,
-    textAlign: "center",
-  },
-  title: {
-    fontSize: 17,
-    lineHeight: 22,
-    textAlign: "center",
+    opacity: 0.4,
   },
   titleGroup: {
-    alignItems: "center",
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
+  },
+  title: {
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  metaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    marginTop: 2,
+    minWidth: 0,
+  },
+  activityDot: {
+    backgroundColor: "#777C79",
+    borderRadius: 3,
+    height: 6,
+    marginRight: 5,
+    width: 6,
+  },
+  activityDotActive: {
+    backgroundColor: "#7DD3A6",
+  },
+  activityDotAttention: {
+    backgroundColor: "#D9B867",
+  },
+  activityLabel: {
+    flexShrink: 0,
+    fontSize: 9,
+    lineHeight: 12,
+  },
+  metaDivider: {
+    backgroundColor: "rgba(255, 255, 255, 0.18)",
+    height: 9,
+    marginHorizontal: 7,
+    width: StyleSheet.hairlineWidth,
+  },
+  subtitle: {
+    flex: 1,
+    fontSize: 9,
+    lineHeight: 12,
+    minWidth: 0,
+    opacity: 0.76,
   },
 });
