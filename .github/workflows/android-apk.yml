@@ -12,14 +12,6 @@ on:
         type: boolean
         required: true
         default: false
-  pull_request:
-    paths:
-      - ".github/workflows/android-apk.yml"
-      - "apps/mobile/**"
-      - "native/tailcat-bridge/**"
-      - "packages/codex-relay/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
   push:
     tags:
       - "android-v*"
