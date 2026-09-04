@@ -219,6 +219,14 @@ export type AppServerThreadResumeParams = {
   threadId: string;
 };
 
+export type AppServerThreadForkParams = {
+  beforeTurnId?: string | null;
+  ephemeral?: boolean;
+  excludeTurns?: boolean;
+  lastTurnId?: string | null;
+  threadId: string;
+};
+
 export type AppServerTurnStartParams = {
   approvalPolicy?: string | null;
   clientUserMessageId?: string | null;
@@ -236,6 +244,13 @@ export type AppServerTurnStartParams = {
   model?: string | null;
   sandboxPolicy?: unknown;
   serviceTier?: string | null;
+  threadId: string;
+};
+
+export type AppServerTurnSteerParams = {
+  clientUserMessageId?: string | null;
+  expectedTurnId?: string | null;
+  input: AppServerUserInput[];
   threadId: string;
 };
 
@@ -443,10 +458,22 @@ export class CodexAppServerClient {
     return response.thread;
   }
 
+  async forkThread(params: AppServerThreadForkParams) {
+    const response = await this.request<{ thread: AppServerThread }>("thread/fork", params);
+    this.subscribedThreadIds.add(response.thread.id);
+    this.rememberActiveTurn(response.thread);
+    return response.thread;
+  }
+
   async startTurn(params: AppServerTurnStartParams) {
     const response = await this.request<{ turn: AppServerTurn }>("turn/start", params);
     this.rememberTurn(params.threadId, response.turn);
     return response.turn;
+  }
+
+  async steerTurn(params: AppServerTurnSteerParams) {
+    const response = await this.request<{ turnId: string }>("turn/steer", params);
+    return response.turnId;
   }
 
   async interruptTurn(params: AppServerTurnInterruptParams) {
@@ -455,14 +482,21 @@ export class CodexAppServerClient {
 
   async archiveThread(params: AppServerThreadArchiveParams) {
     await this.request("thread/archive", params);
-    this.subscribedThreadIds.delete(params.threadId);
-    this.activeTurnIdsByThreadId.delete(params.threadId);
-    this.terminalTurnIdsByThreadId.delete(params.threadId);
+    this.forgetThread(params.threadId);
   }
 
   async unarchiveThread(params: AppServerThreadArchiveParams) {
     const response = await this.request<{ thread: AppServerThread }>("thread/unarchive", params);
     return response.thread;
+  }
+
+  async deleteThread(params: AppServerThreadArchiveParams) {
+    await this.request("thread/delete", params);
+    this.forgetThread(params.threadId);
+  }
+
+  async compactThread(params: AppServerThreadArchiveParams) {
+    await this.request("thread/compact/start", params);
   }
 
   async setThreadName(params: AppServerThreadNameSetParams) {
@@ -676,6 +710,12 @@ export class CodexAppServerClient {
     } else if (this.activeTurnIdsByThreadId.get(threadId) === turn.id) {
       this.activeTurnIdsByThreadId.delete(threadId);
     }
+  }
+
+  private forgetThread(threadId: string) {
+    this.subscribedThreadIds.delete(threadId);
+    this.activeTurnIdsByThreadId.delete(threadId);
+    this.terminalTurnIdsByThreadId.delete(threadId);
   }
 
   private dispatchNotification(notification: AppServerNotification) {
