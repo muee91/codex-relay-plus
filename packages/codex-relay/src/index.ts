@@ -53,6 +53,10 @@ const npxCommand = "npx codex-relay@latest";
 const authDbPath =
   process.env.CODEX_RELAY_AUTH_DB_PATH ??
   (await prepareCodexRelayDataPath("auth.db", ["auth.db-shm", "auth.db-wal"]));
+const controlTokenPath = controlCenterEnabled
+  ? (process.env.CODEX_RELAY_CONTROL_TOKEN_PATH ??
+    (await prepareCodexRelayDataPath("control-token")))
+  : undefined;
 const sessionStore = await createTursoPairingSessionStore(authDbPath);
 const preferencesStore = createFileRuntimePreferencesStore(
   process.env.CODEX_RELAY_PREFERENCES_PATH ?? (await prepareCodexRelayDataPath("preferences.json")),
@@ -172,7 +176,9 @@ serve(
 
     if (controlCenterEnabled) {
       startControlCenter({
+        appServer: relayAppServer,
         authDbPath,
+        controlTokenPath,
         getNetworkState: () => networkState.snapshot(),
         onPairApproved: ({ clientName }) => {
           const name = clientName ? ` for ${clientName}` : "";
