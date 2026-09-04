@@ -55,6 +55,34 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Configure Hot Updater
+        id: ota
+        shell: bash
+        env:
+          HOT_UPDATER_BASE_URL: ${{ vars.HOT_UPDATER_BASE_URL }}
+          HOT_UPDATER_PRIVATE_KEY: ${{ secrets.HOT_UPDATER_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          ota_status="disabled"
+          signing_disabled=1
+          if [[ -n "$HOT_UPDATER_BASE_URL" || -n "$HOT_UPDATER_PRIVATE_KEY" ]]; then
+            if [[ -z "$HOT_UPDATER_BASE_URL" || -z "$HOT_UPDATER_PRIVATE_KEY" ]]; then
+              echo "::error::Hot Updater is partially configured. Set both repository variable HOT_UPDATER_BASE_URL and secret HOT_UPDATER_PRIVATE_KEY."
+              exit 1
+            fi
+            if [[ ! "$HOT_UPDATER_BASE_URL" =~ ^https:// ]]; then
+              echo "::error::HOT_UPDATER_BASE_URL must use HTTPS."
+              exit 1
+            fi
+            ota_status="enabled"
+            signing_disabled=0
+            mkdir -p apps/mobile/keys
+            printf '%s\n' "$HOT_UPDATER_PRIVATE_KEY" > apps/mobile/keys/private-key.pem
+            chmod 600 apps/mobile/keys/private-key.pem
+          fi
+          echo "status=$ota_status" >> "$GITHUB_OUTPUT"
+          echo "signing_disabled=$signing_disabled" >> "$GITHUB_OUTPUT"
+
       - name: Resolve APK version
         id: version
         shell: bash
@@ -101,6 +129,8 @@ jobs:
           CODEX_RELAY_LOCALE: zh-CN
           CODEX_RELAY_PLATFORM: android
           CODEX_RELAY_DESKTOP_FIRST: "1"
+          EXPO_PUBLIC_HOT_UPDATER_BASE_URL: ${{ vars.HOT_UPDATER_BASE_URL }}
+          CODEX_RELAY_DISABLE_HOT_UPDATER_SIGNING: ${{ steps.ota.outputs.signing_disabled }}
           CODEX_RELAY_ANDROID_VERSION_CODE: ${{ github.run_number }}
           CODEX_RELAY_ANDROID_VERSION_NAME: ${{ steps.version.outputs.version }}
         run: |
@@ -131,6 +161,8 @@ jobs:
           CODEX_RELAY_LOCALE: zh-CN
           CODEX_RELAY_PLATFORM: android
           CODEX_RELAY_DESKTOP_FIRST: "1"
+          EXPO_PUBLIC_HOT_UPDATER_BASE_URL: ${{ vars.HOT_UPDATER_BASE_URL }}
+          CODEX_RELAY_DISABLE_HOT_UPDATER_SIGNING: ${{ steps.ota.outputs.signing_disabled }}
           CODEX_RELAY_ANDROID_VERSION_CODE: ${{ github.run_number }}
           CODEX_RELAY_ANDROID_VERSION_NAME: ${{ steps.version.outputs.version }}
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
@@ -244,6 +276,10 @@ jobs:
           echo "path=$output" >> "$GITHUB_OUTPUT"
           echo "signing-mode=$signing_mode" >> "$GITHUB_OUTPUT"
 
+      - name: Remove OTA signing key
+        if: always()
+        run: rm -rf apps/mobile/keys
+
       - name: Upload APK
         uses: actions/upload-artifact@v6
         with:
@@ -263,6 +299,7 @@ jobs:
             echo "- 版本：\`${{ steps.version.outputs.version }}\`"
             echo "- 包名：\`com.muee91.codexrelayplus\`"
             echo "- 签名模式：\`${{ steps.apk.outputs.signing-mode }}\`"
+            echo "- OTA：\`${{ steps.ota.outputs.status }}\`"
             echo "- 中文 bundle、APK 签名与包名检查：通过"
           } >> "$GITHUB_STEP_SUMMARY"
 

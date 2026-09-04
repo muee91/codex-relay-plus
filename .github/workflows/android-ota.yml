@@ -1,0 +1,151 @@
+name: Android OTA (zh-CN)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Target installed APK version or semver range
+        required: true
+        default: 1.4.0-zh.1
+      rollout:
+        description: Rollout percentage (0-100)
+        required: true
+        default: "100"
+      force_update:
+        description: Apply immediately after download
+        type: boolean
+        required: true
+        default: false
+      message:
+        description: Optional deployment message
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ota-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy signed Chinese OTA bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate OTA configuration
+        shell: bash
+        env:
+          HOT_UPDATER_BASE_URL: ${{ vars.HOT_UPDATER_BASE_URL }}
+          HOT_UPDATER_CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.HOT_UPDATER_CLOUDFLARE_R2_BUCKET_NAME }}
+          HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID: ${{ vars.HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID }}
+          HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID: ${{ vars.HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID }}
+          HOT_UPDATER_CLOUDFLARE_API_TOKEN: ${{ secrets.HOT_UPDATER_CLOUDFLARE_API_TOKEN }}
+          HOT_UPDATER_CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.HOT_UPDATER_CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          HOT_UPDATER_CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.HOT_UPDATER_CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          HOT_UPDATER_PRIVATE_KEY: ${{ secrets.HOT_UPDATER_PRIVATE_KEY }}
+          TARGET_VERSION: ${{ inputs.version }}
+          ROLLOUT: ${{ inputs.rollout }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" == "main" ]] || {
+            echo "::error::Android OTA must be deployed from main."
+            exit 1
+          }
+          missing=()
+          for name in HOT_UPDATER_BASE_URL HOT_UPDATER_CLOUDFLARE_R2_BUCKET_NAME HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID HOT_UPDATER_CLOUDFLARE_API_TOKEN HOT_UPDATER_CLOUDFLARE_R2_ACCESS_KEY_ID HOT_UPDATER_CLOUDFLARE_R2_SECRET_ACCESS_KEY HOT_UPDATER_PRIVATE_KEY; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::Missing Hot Updater configuration: ${missing[*]}"
+            exit 1
+          fi
+          [[ "$HOT_UPDATER_BASE_URL" =~ ^https:// ]] || {
+            echo "::error::HOT_UPDATER_BASE_URL must use HTTPS."
+            exit 1
+          }
+          [[ -n "$TARGET_VERSION" ]] || {
+            echo "::error::Target APK version is required."
+            exit 1
+          }
+          [[ "$ROLLOUT" =~ ^[0-9]+$ ]] && (( ROLLOUT >= 0 && ROLLOUT <= 100 )) || {
+            echo "::error::Rollout must be an integer between 0 and 100."
+            exit 1
+          }
+          mkdir -p apps/mobile/keys
+          printf '%s\n' "$HOT_UPDATER_PRIVATE_KEY" > apps/mobile/keys/private-key.pem
+          chmod 600 apps/mobile/keys/private-key.pem
+
+      - name: Verify Chinese localization
+        run: node apps/mobile/scripts/verify-zh-cn.cjs
+
+      - name: Typecheck mobile app
+        run: pnpm --filter @codex-relay/mobile typecheck
+
+      - name: Check Hot Updater infrastructure
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_HOT_UPDATER_BASE_URL: ${{ vars.HOT_UPDATER_BASE_URL }}
+        run: pnpm exec hot-updater doctor --server-base-url "$EXPO_PUBLIC_HOT_UPDATER_BASE_URL"
+
+      - name: Deploy Android OTA
+        working-directory: apps/mobile
+        shell: bash
+        env:
+          CODEX_RELAY_LOCALE: zh-CN
+          CODEX_RELAY_PLATFORM: android
+          CODEX_RELAY_DESKTOP_FIRST: "1"
+          CODEX_RELAY_DISABLE_HOT_UPDATER_SIGNING: "0"
+          EXPO_PUBLIC_HOT_UPDATER_BASE_URL: ${{ vars.HOT_UPDATER_BASE_URL }}
+          HOT_UPDATER_CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.HOT_UPDATER_CLOUDFLARE_R2_BUCKET_NAME }}
+          HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID: ${{ vars.HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID }}
+          HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID: ${{ vars.HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID }}
+          HOT_UPDATER_CLOUDFLARE_API_TOKEN: ${{ secrets.HOT_UPDATER_CLOUDFLARE_API_TOKEN }}
+          HOT_UPDATER_CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.HOT_UPDATER_CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          HOT_UPDATER_CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.HOT_UPDATER_CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          TARGET_VERSION: ${{ inputs.version }}
+          ROLLOUT: ${{ inputs.rollout }}
+          FORCE_UPDATE: ${{ inputs.force_update }}
+          DEPLOY_MESSAGE: ${{ inputs.message }}
+        run: |
+          set -euo pipefail
+          args=(deploy -p android -c production -t "$TARGET_VERSION" -r "$ROLLOUT")
+          [[ -n "$DEPLOY_MESSAGE" ]] && args+=(-m "$DEPLOY_MESSAGE")
+          [[ "$FORCE_UPDATE" == "true" ]] && args+=(-f)
+          pnpm exec hot-updater "${args[@]}"
+
+      - name: Remove signing key
+        if: always()
+        run: rm -rf apps/mobile/keys
+
+      - name: Deployment summary
+        shell: bash
+        env:
+          TARGET_VERSION: ${{ inputs.version }}
+          ROLLOUT: ${{ inputs.rollout }}
+          FORCE_UPDATE: ${{ inputs.force_update }}
+        run: |
+          {
+            echo "## Android OTA 中文更新"
+            echo ""
+            echo "- 目标 APK：\`$TARGET_VERSION\`"
+            echo "- Channel：\`production\`"
+            echo "- 灰度：\`$ROLLOUT%\`"
+            echo "- 强制更新：\`$FORCE_UPDATE\`"
+            echo "- Bundle 签名：\`enabled\`"
+          } >> "$GITHUB_STEP_SUMMARY"
