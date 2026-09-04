@@ -12,6 +12,7 @@ const threadPanelScript = String.raw`<script>
   var tokenNode = document.querySelector('meta[name="codex-relay-control-token"]');
   var token = tokenNode ? tokenNode.content : "";
   var languageSelect = document.getElementById("language");
+  var topActions = document.querySelector(".top-actions");
   var stack = document.querySelector(".layout > .stack");
   var diagnostics = document.getElementById("diagnostics");
   var diagnosticsCard = diagnostics && diagnostics.closest ? diagnostics.closest(".card") : null;
@@ -42,7 +43,9 @@ const threadPanelScript = String.raw`<script>
       activateFailed: "激活会话失败",
       unnamed: "未命名会话",
       cwd: "目录",
-      updated: "更新"
+      updated: "更新",
+      tailcatReady: "Tailcat · 已就绪",
+      tailcatLanOnly: "Tailcat · 仅 LAN"
     },
     "en-US": {
       title: "Codex sessions",
@@ -59,9 +62,20 @@ const threadPanelScript = String.raw`<script>
       activateFailed: "Could not activate session",
       unnamed: "Unnamed session",
       cwd: "Directory",
-      updated: "Updated"
+      updated: "Updated",
+      tailcatReady: "Tailcat · Ready",
+      tailcatLanOnly: "Tailcat · LAN only"
     }
   };
+
+  var tailcatPill = document.createElement("div");
+  tailcatPill.className = "connection-pill";
+  var tailcatDot = document.createElement("span");
+  tailcatDot.className = "dot";
+  var tailcatText = document.createElement("span");
+  tailcatPill.appendChild(tailcatDot);
+  tailcatPill.appendChild(tailcatText);
+  if (topActions) topActions.insertBefore(tailcatPill, topActions.firstChild);
 
   var card = document.createElement("section");
   card.className = "card";
@@ -108,6 +122,7 @@ const threadPanelScript = String.raw`<script>
   var lastError = "";
   var resumeId = "";
   var query = "";
+  var tailcatAddress = "";
 
   function locale() {
     return languageSelect && languageSelect.value === "en-US" ? "en-US" : "zh-CN";
@@ -154,6 +169,29 @@ const threadPanelScript = String.raw`<script>
     });
   }
 
+  function renderTailcat() {
+    if (!topActions) return;
+    tailcatText.textContent = tailcatAddress ? text("tailcatReady") : text("tailcatLanOnly");
+    tailcatDot.className = tailcatAddress ? "dot ok" : "dot";
+    tailcatPill.title = tailcatAddress || text("tailcatLanOnly");
+  }
+
+  function refreshTailcat() {
+    return api("/api/state")
+      .then(function (payload) {
+        tailcatAddress = "";
+        try {
+          var pairing = new URL(String(payload.pairingPayload || ""));
+          tailcatAddress = pairing.searchParams.get("tailcatAddr") || "";
+        } catch (_) {}
+        renderTailcat();
+      })
+      .catch(function () {
+        tailcatAddress = "";
+        renderTailcat();
+      });
+  }
+
   function showToast(message) {
     var toast = document.getElementById("toast");
     if (!toast) return;
@@ -187,6 +225,7 @@ const threadPanelScript = String.raw`<script>
     refreshButton.disabled = loading;
     searchInput.placeholder = text("search");
     searchInput.setAttribute("aria-label", text("search"));
+    renderTailcat();
     var visibleThreads = threads.filter(matches);
     count.textContent = query ? String(visibleThreads.length) + "/" + String(threads.length) : String(threads.length);
     while (list.firstChild) list.removeChild(list.firstChild);
@@ -280,13 +319,23 @@ const threadPanelScript = String.raw`<script>
     render();
   });
   refreshButton.onclick = refresh;
-  if (languageSelect) languageSelect.addEventListener("change", render);
+  if (languageSelect) languageSelect.addEventListener("change", function () {
+    render();
+    renderTailcat();
+  });
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) refresh();
+    if (!document.hidden) {
+      refresh();
+      refreshTailcat();
+    }
   });
   refresh();
+  refreshTailcat();
   setInterval(function () {
     if (!document.hidden) refresh();
   }, 10000);
+  setInterval(function () {
+    if (!document.hidden) refreshTailcat();
+  }, 5000);
 })();
 </script>`;
