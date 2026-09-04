@@ -7,6 +7,7 @@ TAILCAT_BIN="$RUNTIME_DIR/tailcat-relay-server"
 RELAY_PORT="${PORT:-8787}"
 SUPPORT_DIR="${CODEX_RELAY_HOME:-$HOME/Library/Application Support/Codex Relay Plus}"
 TAILCAT_KEY="$SUPPORT_DIR/tailcat-server.json"
+TAILCAT_STARTUP_FILE="$SUPPORT_DIR/tailcat-startup.$$"
 
 node_pid=""
 tailcat_pid=""
@@ -20,10 +21,12 @@ cleanup() {
   [[ -n "$node_pid" ]] && wait "$node_pid" >/dev/null 2>&1 || true
   [[ -n "$tailcat_pid" ]] && wait "$tailcat_pid" >/dev/null 2>&1 || true
   [[ -n "$bonjour_pid" ]] && wait "$bonjour_pid" >/dev/null 2>&1 || true
+  rm -f "$TAILCAT_STARTUP_FILE"
 }
 trap cleanup EXIT INT TERM
 
 mkdir -p "$SUPPORT_DIR"
+rm -f "$TAILCAT_STARTUP_FILE"
 
 # Bonjour is advisory discovery only. LAN IP candidates in the regular pairing
 # payload remain available even if the service publisher is unavailable.
@@ -32,21 +35,35 @@ if command -v dns-sd >/dev/null 2>&1; then
   bonjour_pid=$!
 fi
 
-# Tailcat is a remote fallback, not a prerequisite for the local Relay. If DERP
-# bootstrap is temporarily unavailable we still launch the existing LAN server.
+# Start Tailcat once and wait only briefly for its post-Start readiness record.
+# This keeps remote bootstrap truthful without allowing DERP lookup to block the
+# normal LAN Relay for Tailcat's full network timeout.
 if [[ -x "$TAILCAT_BIN" ]]; then
-  if tailcat_addr="$($TAILCAT_BIN --key "$TAILCAT_KEY" --port "$RELAY_PORT" --address-only 2>&1)"; then
-    tailcat_addr="$(printf '%s\n' "$tailcat_addr" | tail -n 1 | tr -d '\r\n')"
-    if [[ "$tailcat_addr" == tc* ]]; then
-      export CODEX_RELAY_TAILCAT_ADDR="$tailcat_addr"
-      export CODEX_RELAY_TAILCAT_PORT="$RELAY_PORT"
-      "$TAILCAT_BIN" --key "$TAILCAT_KEY" --port "$RELAY_PORT" 1>&2 &
-      tailcat_pid=$!
-      echo "Tailcat remote transport: $tailcat_addr" >&2
-    fi
+  "$TAILCAT_BIN" --key "$TAILCAT_KEY" --port "$RELAY_PORT" >"$TAILCAT_STARTUP_FILE" &
+  tailcat_pid=$!
+
+  for _ in {1..30}; do
+    [[ -s "$TAILCAT_STARTUP_FILE" ]] && break
+    kill -0 "$tailcat_pid" >/dev/null 2>&1 || break
+    sleep 0.1
+  done
+
+  tailcat_addr=""
+  if [[ -s "$TAILCAT_STARTUP_FILE" ]] && kill -0 "$tailcat_pid" >/dev/null 2>&1; then
+    tailcat_addr="$(sed -n 's/.*"address":"\([^"]*\)".*/\1/p' "$TAILCAT_STARTUP_FILE" | tail -n 1 | tr -d '\r\n')"
+  fi
+
+  if [[ "$tailcat_addr" == tc* ]]; then
+    export CODEX_RELAY_TAILCAT_ADDR="$tailcat_addr"
+    export CODEX_RELAY_TAILCAT_PORT="$RELAY_PORT"
+    echo "Tailcat remote transport: $tailcat_addr" >&2
   else
+    kill "$tailcat_pid" >/dev/null 2>&1 || true
+    wait "$tailcat_pid" >/dev/null 2>&1 || true
+    tailcat_pid=""
     echo "Tailcat remote transport unavailable; continuing with LAN connectivity." >&2
   fi
+  rm -f "$TAILCAT_STARTUP_FILE"
 fi
 
 "$NODE_BIN" "$@" &

@@ -47,7 +47,7 @@ export function getCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate
   return routeServerUrlCandidates(
     getAllCodexRelayServerUrlCandidates(),
     getCodexRelayConnectionMode(),
-  );
+  ).filter((candidate) => !isTailcatBootstrapUrl(candidate.url));
 }
 
 export function getAllCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {

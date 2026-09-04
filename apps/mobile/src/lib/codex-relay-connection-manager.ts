@@ -156,6 +156,10 @@ async function syncNativeTransport(forceDiscovery: boolean, generation: number) 
 
   const verifiedLanTargets =
     mode === "remote" ? [] : await verifiedLanTcpTargets(dedupeStrings(candidateUrls));
+  if (!isNativeSyncCurrent(generation, mode)) {
+    return undefined;
+  }
+
   const localUrl = await configureNativeRelayProxy({
     lanTargets: verifiedLanTargets,
     mode,
@@ -166,13 +170,22 @@ async function syncNativeTransport(forceDiscovery: boolean, generation: number) 
   if (normalized !== nativeTransportServerUrl) {
     throw new Error(`Native Relay transport returned unexpected URL: ${normalized}`);
   }
-  if (generation !== nativeSyncGeneration || getCodexRelayConnectionMode() === "local") {
+  if (!isNativeSyncCurrent(generation, mode)) {
     return undefined;
   }
 
   setNativeRelayTransportConfigured(true);
   ensureBackgroundNativeDiscovery();
   return nativeTransportServerUrl;
+}
+
+function isNativeSyncCurrent(generation: number, mode: ReturnType<typeof getCodexRelayConnectionMode>) {
+  return Boolean(
+    generation === nativeSyncGeneration &&
+    getCodexRelayConnectionMode() === mode &&
+    hasCodexRelaySession() &&
+    shouldUseNativeRelayTransport(),
+  );
 }
 
 async function verifiedLanTcpTargets(urls: string[]) {
@@ -197,6 +210,10 @@ function ensureBackgroundNativeDiscovery() {
     return;
   }
   nativeRefreshTimer = setInterval(() => {
+    if (!hasCodexRelaySession() || getCodexRelayConnectionMode() === "local") {
+      void stopNativeTransport();
+      return;
+    }
     if (!shouldUseNativeRelayTransport() || getCodexRelayConnectionMode() !== "auto") {
       return;
     }

@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import qrcode from "qrcode-terminal";
 
 import type { AppServerThread, CodexAppServerClient } from "./app-server.js";
-import { renderControlCenterPage } from "./control-center-page.js";
+import { renderControlCenterPageWithThreads } from "./control-center-thread-panel.js";
 import { connect } from "./libsql-database.js";
 import type { NetworkStateSnapshot } from "./network-state-manager.js";
 import type { PairingSessionStore } from "./pairing-store.js";
@@ -107,7 +107,7 @@ export function startControlCenter(options: ControlCenterOptions) {
     await next();
   });
 
-  app.get("/", (c) => c.html(renderControlCenterPage(controlToken)));
+  app.get("/", (c) => c.html(renderControlCenterPageWithThreads(controlToken)));
 
   app.use("/api/*", async (c, next) => {
     if (c.req.header("x-codex-relay-control-token") !== controlToken) {
@@ -144,7 +144,9 @@ export function startControlCenter(options: ControlCenterOptions) {
   });
 
   app.get("/api/threads", async (c) => {
-    if (!options.appServer) return c.json({ threads: [] });
+    if (!options.appServer) {
+      return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
+    }
     const requested = Number(c.req.query("limit") ?? 20);
     const limit = Number.isFinite(requested)
       ? Math.min(80, Math.max(1, Math.floor(requested)))
