@@ -23,7 +23,6 @@ mkdir -p "$OUT_DIR"
   gomobile bind \
     -target=android \
     -androidapi=24 \
-    -javapkg=com.muee91.codexrelay.tailcat \
     -o "$OUT_DIR/CodexRelayTailcat.aar" \
     ./bridge
 )
