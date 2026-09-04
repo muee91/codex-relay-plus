@@ -7,3 +7,8 @@ require (
 	golang.org/x/mobile v0.0.0-20260821190718-4776eadac327
 	tailscale.com v1.103.0-pre.0.20260830144538-72780705eda8
 )
+
+tool (
+	golang.org/x/mobile/cmd/gobind
+	golang.org/x/mobile/cmd/gomobile
+)
