@@ -5,10 +5,16 @@ export type TailcatPathStatus = {
   endpoint?: string;
   error?: string;
   latencyMs?: number;
-  path: "idle" | "connecting" | "direct" | "derp" | "offline";
+  path: "idle" | "lan" | "connecting" | "direct" | "derp" | "offline";
 };
 
 type CodexRelayTransportNativeModule = {
+  configureRelayProxy(
+    serverAddr: string,
+    remotePort: number,
+    lanTargetsJson: string,
+    mode: "auto" | "local" | "remote",
+  ): Promise<string>;
   discoverLocalRelay(timeoutMs: number): Promise<string | null>;
   refreshTailcatPath(): Promise<string>;
   startTailcatProxy(serverAddr: string, remotePort: number): Promise<string>;
@@ -16,15 +22,38 @@ type CodexRelayTransportNativeModule = {
   tailcatStatus(): Promise<string>;
 };
 
-function nativeModule(): CodexRelayTransportNativeModule | undefined {
-  if (Platform.OS !== "android") {
-    return undefined;
-  }
-  return NativeModules.CodexRelayTransport as CodexRelayTransportNativeModule | undefined;
+// Accessing NativeModules here eagerly instantiates the Android module. Its
+// constructor restores the fixed-port proxy from native SharedPreferences, so
+// a previously selected remote route is available before normal API traffic.
+const nativeTransport =
+  Platform.OS === "android"
+    ? (NativeModules.CodexRelayTransport as CodexRelayTransportNativeModule | undefined)
+    : undefined;
+
+function nativeModule() {
+  return nativeTransport;
 }
 
 export function isNativeTailcatAvailable() {
   return Boolean(nativeModule());
+}
+
+export async function configureNativeRelayProxy(input: {
+  lanTargets: string[];
+  mode: "auto" | "local" | "remote";
+  remotePort: number;
+  serverAddr: string;
+}) {
+  const module = nativeModule();
+  if (!module) {
+    throw new Error("Tailcat transport is not available in this build.");
+  }
+  return module.configureRelayProxy(
+    input.serverAddr,
+    input.remotePort,
+    JSON.stringify(input.lanTargets),
+    input.mode,
+  );
 }
 
 export async function startNativeTailcatProxy(serverAddr: string, remotePort: number) {
