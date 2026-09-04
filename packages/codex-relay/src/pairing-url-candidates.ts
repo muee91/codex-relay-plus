@@ -1,9 +1,22 @@
 import { execFileSync } from "node:child_process";
 import { networkInterfaces } from "node:os";
 
+export type ConnectUrlCandidateKind = "lan" | "tailscale" | "server";
+export type ConnectUrlMode = "auto" | "local" | "remote";
+
 export type ConnectUrlCandidate = {
+  kind: ConnectUrlCandidateKind;
   label: string;
   url: string;
+};
+
+type TailscaleStatus = {
+  BackendState?: string;
+  Self?: {
+    DNSName?: string;
+    Online?: boolean;
+    TailscaleIPs?: string[];
+  };
 };
 
 export function getConnectUrlGuidance(url: string) {
@@ -13,15 +26,21 @@ export function getConnectUrlGuidance(url: string) {
   }
 
   if (isLocalhost(host) || isUnspecifiedHost(host)) {
-    return "This address is only reachable from this computer. Use a same-Wi-Fi address or Tailscale for mobile pairing.";
+    return (
+      "This address is only reachable from this computer. " +
+      "Use a same-Wi-Fi address or a verified remote path for mobile pairing."
+    );
   }
 
   if (isTailscaleHost(host)) {
-    return "Using Tailscale. Keep Tailscale connected on both this computer and the phone.";
+    return (
+      "Using Tailscale. This address is offered only while Tailscale is running " +
+      "on this computer; the phone must also be able to reach the tailnet."
+    );
   }
 
-  if (isPrivateIPv4Host(host) || isLocalIPv6Host(host)) {
-    return "Using a local Wi-Fi/LAN address. Keep the phone and computer on the same network; if pairing is flaky, try Tailscale.";
+  if (isPrivateIPv4Host(host) || isLocalIPv6Host(host) || host.endsWith(".local")) {
+    return "Using a local Wi-Fi/LAN address. Keep the phone and computer on the same network.";
   }
 
   return "Using a configured or public address. Make sure the phone can reach it before pairing.";
@@ -36,19 +55,47 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
   const url = new URL("codex-relay://pair");
   url.searchParams.set("serverUrl", primaryServerUrl);
   url.searchParams.set("serverPublicKey", details.serverPublicKey);
-  const hosts = compactCandidateHosts(primaryServerUrl, details.serverUrls);
-  if (hosts.length > 0) {
-    url.searchParams.set("h", hosts.join(","));
+  const compacted = compactCandidateHosts(primaryServerUrl, details.serverUrls);
+  if (compacted.hosts.length > 0) {
+    url.searchParams.set("h", compacted.hosts.join(","));
+  }
+  if (compacted.fullUrls.length > 0) {
+    url.searchParams.set("serverUrls", JSON.stringify(compacted.fullUrls));
   }
   return url.toString();
 }
 
-export function getConnectUrlCandidates(details: { listenUrl: string; port: number }) {
-  return dedupeCandidates([
-    ...tailscaleConnectUrlCandidates(details.port),
+export function getConnectUrlCandidates(
+  details: { listenUrl: string; port: number },
+  options: { mode?: ConnectUrlMode } = {},
+) {
+  const status = getTailscaleStatus();
+  const tailscaleRunning = isTailscaleStatusRunning(status);
+  const serverCandidate = configuredServerCandidate(details.listenUrl, tailscaleRunning);
+  const candidates = dedupeCandidates([
     ...localNetworkConnectUrlCandidates(details.port),
-    { label: "Server", url: details.listenUrl },
+    ...tailscaleConnectUrlCandidates(details.port, status),
+    ...(serverCandidate ? [serverCandidate] : []),
   ]);
+  return filterCandidatesForMode(
+    prioritizeConnectUrlCandidates(candidates),
+    options.mode ?? "auto",
+  );
+}
+
+export function prioritizeConnectUrlCandidates(candidates: ConnectUrlCandidate[]) {
+  return candidates
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      rank: connectUrlCandidateRank(candidate),
+    }))
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+    .map(({ candidate }) => candidate);
+}
+
+export function isTailscaleStatusRunning(status: TailscaleStatus | undefined) {
+  return status?.BackendState === "Running" && status.Self?.Online !== false;
 }
 
 export function normalizeUrl(value: string | undefined) {
@@ -71,12 +118,49 @@ export function normalizeUrl(value: string | undefined) {
   }
 }
 
-function tailscaleConnectUrlCandidates(port: number) {
-  const status = getTailscaleStatus();
+function filterCandidatesForMode(candidates: ConnectUrlCandidate[], mode: ConnectUrlMode) {
+  if (mode === "local") {
+    return candidates.filter((candidate) => candidate.kind === "lan");
+  }
+  if (mode === "remote") {
+    return candidates.filter(
+      (candidate) => candidate.kind === "tailscale" || isMobileReachableServer(candidate.url),
+    );
+  }
+  return candidates;
+}
+
+function configuredServerCandidate(
+  listenUrl: string,
+  tailscaleRunning: boolean,
+): ConnectUrlCandidate | undefined {
+  const url = normalizeUrl(listenUrl);
+  if (!url) {
+    return undefined;
+  }
+  const host = parseUrlHost(url);
+  if (!host || isLocalhost(host) || isUnspecifiedHost(host)) {
+    return undefined;
+  }
+  if (isTailscaleHost(host) && !tailscaleRunning) {
+    return undefined;
+  }
+  return {
+    kind: connectUrlCandidateKind(url),
+    label: "Server",
+    url,
+  };
+}
+
+function tailscaleConnectUrlCandidates(port: number, status: TailscaleStatus | undefined) {
+  if (!isTailscaleStatusRunning(status)) {
+    return [];
+  }
+
   const candidates: ConnectUrlCandidate[] = [];
   for (const ip of status?.Self?.TailscaleIPs ?? []) {
-    if (ip.startsWith("100.") && ip.includes(".")) {
-      candidates.push({ label: "Tailscale", url: `http://${ip}:${port}` });
+    if (isTailscaleIPv4Host(ip)) {
+      candidates.push({ kind: "tailscale", label: "Tailscale", url: `http://${ip}:${port}` });
     }
   }
 
@@ -84,15 +168,10 @@ function tailscaleConnectUrlCandidates(port: number) {
   if (dnsName) {
     const servedUrl = getTailscaleServeHttpsUrl(dnsName, port);
     candidates.push({
+      kind: "tailscale",
       label: servedUrl ? "Tailscale Serve" : "Tailscale DNS",
       url: servedUrl ?? `http://${dnsName}:${port}`,
     });
-  }
-
-  for (const ip of status?.Self?.TailscaleIPs ?? []) {
-    if (ip.includes(".")) {
-      candidates.push({ label: "Tailscale", url: `http://${ip}:${port}` });
-    }
   }
 
   return candidates;
@@ -100,14 +179,62 @@ function tailscaleConnectUrlCandidates(port: number) {
 
 function localNetworkConnectUrlCandidates(port: number) {
   const candidates: ConnectUrlCandidate[] = [];
-  for (const [name, addresses] of Object.entries(networkInterfaces())) {
+  for (const [name, addresses] of Object.entries(networkInterfaces()).sort(([left], [right]) =>
+    interfaceRank(left) - interfaceRank(right) || left.localeCompare(right),
+  )) {
+    if (isVirtualInterfaceName(name)) {
+      continue;
+    }
     for (const address of addresses ?? []) {
-      if (address.family === "IPv4" && !address.internal) {
-        candidates.push({ label: name, url: `http://${address.address}:${port}` });
+      if (
+        address.family === "IPv4" &&
+        !address.internal &&
+        isPrivateIPv4Host(address.address) &&
+        !isLinkLocalIPv4Host(address.address) &&
+        !isTailscaleIPv4Host(address.address)
+      ) {
+        candidates.push({ kind: "lan", label: name, url: `http://${address.address}:${port}` });
       }
     }
   }
   return candidates;
+}
+
+function connectUrlCandidateRank(candidate: ConnectUrlCandidate) {
+  if (candidate.kind === "lan") {
+    return 0;
+  }
+  if (candidate.kind === "tailscale") {
+    return 1;
+  }
+  const host = parseUrlHost(candidate.url);
+  if (host && (isLocalhost(host) || isUnspecifiedHost(host))) {
+    return 3;
+  }
+  return 2;
+}
+
+function connectUrlCandidateKind(url: string): ConnectUrlCandidateKind {
+  const host = parseUrlHost(url);
+  if (!host) {
+    return "server";
+  }
+  if (isTailscaleHost(host)) {
+    return "tailscale";
+  }
+  if (
+    host.endsWith(".local") ||
+    (isPrivateIPv4Host(host) && !isTailscaleIPv4Host(host)) ||
+    isLocalIPv6Host(host)
+  ) {
+    return "lan";
+  }
+  return "server";
+}
+
+function isMobileReachableServer(url: string) {
+  const host = parseUrlHost(url);
+  return Boolean(host && !isLocalhost(host) && !isUnspecifiedHost(host));
 }
 
 function dedupeCandidates(candidates: ConnectUrlCandidate[]) {
@@ -124,22 +251,27 @@ function dedupeCandidates(candidates: ConnectUrlCandidate[]) {
 function compactCandidateHosts(primaryServerUrl: string, serverUrls: string[]) {
   const primary = parseUrl(primaryServerUrl);
   if (!primary) {
-    return [];
+    return { fullUrls: [] as string[], hosts: [] as string[] };
   }
 
+  const fullUrls: string[] = [];
   const hosts: string[] = [];
   for (const serverUrl of serverUrls.slice(1)) {
     const candidate = parseUrl(serverUrl);
-    if (
-      candidate &&
-      candidate.protocol === primary.protocol &&
-      candidate.port === primary.port &&
-      !hosts.includes(candidate.hostname)
-    ) {
-      hosts.push(candidate.hostname);
+    if (!candidate) {
+      continue;
+    }
+    if (candidate.protocol === primary.protocol && candidate.port === primary.port) {
+      if (!hosts.includes(candidate.hostname)) {
+        hosts.push(candidate.hostname);
+      }
+      continue;
+    }
+    if (!fullUrls.includes(serverUrl)) {
+      fullUrls.push(serverUrl);
     }
   }
-  return hosts;
+  return { fullUrls, hosts };
 }
 
 function parseUrl(url: string) {
@@ -185,6 +317,11 @@ function isPrivateIPv4Host(host: string) {
   );
 }
 
+function isLinkLocalIPv4Host(host: string) {
+  const octets = host.split(".").map(Number);
+  return octets.length === 4 && octets[0] === 169 && octets[1] === 254;
+}
+
 function isTailscaleIPv4Host(host: string) {
   const octets = host.split(".").map(Number);
   return octets.length === 4 && octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
@@ -197,6 +334,25 @@ function isLocalIPv6Host(host: string) {
   );
 }
 
+function isVirtualInterfaceName(name: string) {
+  return /^(?:awdl|bridge|docker|llw|tap|tailscale|tun|utun|vbox|virbr|vmenet|vmnet|wg)/i.test(
+    name,
+  );
+}
+
+function interfaceRank(name: string) {
+  if (/^en0$/i.test(name)) {
+    return 0;
+  }
+  if (/^en\d+$/i.test(name)) {
+    return 1;
+  }
+  if (/^(?:eth|ethernet|wlan|wifi)/i.test(name)) {
+    return 2;
+  }
+  return 3;
+}
+
 function getTailscaleStatus() {
   try {
     const output = execFileSync("tailscale", ["status", "--json"], {
@@ -204,12 +360,7 @@ function getTailscaleStatus() {
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1500,
     });
-    return JSON.parse(output) as {
-      Self?: {
-        DNSName?: string;
-        TailscaleIPs?: string[];
-      };
-    };
+    return JSON.parse(output) as TailscaleStatus;
   } catch {
     return undefined;
   }

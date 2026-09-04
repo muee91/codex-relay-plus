@@ -1,12 +1,17 @@
 import { createMMKV } from "react-native-mmkv";
 
 const defaultServerUrl = "http://localhost:8787";
+const connectionModeStorageKey = "codex-relay.connection-mode";
 const serverUrlCandidatesStorageKey = "codex-relay.server-url-candidates";
 const serverUrlStorageKey = "codex-relay.server-url";
 
 export const codexRelayStorage = createMMKV({ id: "codex-relay" });
 
+export type CodexRelayConnectionMode = "auto" | "local" | "remote";
+export type CodexRelayServerUrlCandidateKind = "local" | "remote" | "loopback";
+
 export type CodexRelayServerUrlCandidate = {
+  kind: CodexRelayServerUrlCandidateKind;
   label: string;
   url: string;
 };
@@ -14,11 +19,28 @@ export type CodexRelayServerUrlCandidate = {
 export const fallbackCodexRelayServerUrl =
   process.env.EXPO_PUBLIC_CODEX_RELAY_SERVER_URL?.replace(/\/$/, "") ?? defaultServerUrl;
 
+export function getCodexRelayConnectionMode(): CodexRelayConnectionMode {
+  const stored = codexRelayStorage.getString(connectionModeStorageKey);
+  return stored === "local" || stored === "remote" ? stored : "auto";
+}
+
+export function setCodexRelayConnectionMode(mode: CodexRelayConnectionMode) {
+  codexRelayStorage.set(connectionModeStorageKey, mode);
+  return mode;
+}
+
 export function getCodexRelayServerUrl() {
   return codexRelayStorage.getString(serverUrlStorageKey) ?? fallbackCodexRelayServerUrl;
 }
 
 export function getCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {
+  return routeServerUrlCandidates(
+    getAllCodexRelayServerUrlCandidates(),
+    getCodexRelayConnectionMode(),
+  );
+}
+
+export function getAllCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {
   return serverUrlCandidatesFromUrls([
     getCodexRelayServerUrl(),
     ...readStoredServerUrlCandidates(),
@@ -34,6 +56,7 @@ export function setCodexRelayServerUrl(url: string) {
 export function clearCodexRelayServerUrlState() {
   codexRelayStorage.remove(serverUrlStorageKey);
   codexRelayStorage.remove(serverUrlCandidatesStorageKey);
+  codexRelayStorage.remove(connectionModeStorageKey);
 }
 
 export function saveCodexRelayServerUrlCandidates(urls: string[]) {
@@ -64,6 +87,31 @@ export function dedupeServerUrls(urls: string[]) {
     }
   }
   return [...deduped];
+}
+
+export function routeServerUrlCandidates(
+  candidates: CodexRelayServerUrlCandidate[],
+  mode: CodexRelayConnectionMode,
+) {
+  if (mode === "local") {
+    return candidates.filter((candidate) => candidate.kind === "local");
+  }
+  if (mode === "remote") {
+    return candidates.filter((candidate) => candidate.kind === "remote");
+  }
+
+  const rank: Record<CodexRelayServerUrlCandidateKind, number> = {
+    local: 0,
+    remote: 1,
+    loopback: 2,
+  };
+  return candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .sort(
+      (left, right) =>
+        rank[left.candidate.kind] - rank[right.candidate.kind] || left.index - right.index,
+    )
+    .map(({ candidate }) => candidate);
 }
 
 export function isPrivateIPv4Host(host: string) {
@@ -109,9 +157,32 @@ function readStoredServerUrlCandidates() {
 
 function serverUrlCandidatesFromUrls(urls: string[]): CodexRelayServerUrlCandidate[] {
   return dedupeServerUrls(urls).map((url) => ({
+    kind: serverUrlCandidateKind(url),
     label: serverUrlCandidateLabel(url),
     url,
   }));
+}
+
+function serverUrlCandidateKind(url: string): CodexRelayServerUrlCandidateKind {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+      return "loopback";
+    }
+    if (
+      host.endsWith(".ts.net") ||
+      host.endsWith(".beta.tailscale.net") ||
+      isCarrierGradePrivateIPv4Host(host)
+    ) {
+      return "remote";
+    }
+    if (host.endsWith(".local") || isPrivateIPv4Host(host) || isLocalIPv6Host(host)) {
+      return "local";
+    }
+    return "remote";
+  } catch {
+    return "remote";
+  }
 }
 
 function serverUrlCandidateLabel(url: string) {
@@ -133,8 +204,8 @@ function serverUrlCandidateLabel(url: string) {
     if (isPrivateIPv4Host(host) || isLocalIPv6Host(host)) {
       return "LAN IP";
     }
-    return "Server";
+    return "Remote server";
   } catch {
-    return "Server";
+    return "Remote server";
   }
 }

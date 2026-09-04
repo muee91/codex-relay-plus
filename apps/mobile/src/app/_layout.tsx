@@ -4,6 +4,7 @@ import "react-native-gesture-handler";
 
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { HotUpdater } from "@hot-updater/react-native";
+import { useSelector } from "@legendapp/state/react";
 import { PortalHost } from "@rn-primitives/portal";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
@@ -19,6 +20,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { useInitialPushNotificationRegistration } from "@/hooks/use-initial-push-notification-registration";
+import { reconcileCodexRelayConnection } from "@/lib/codex-relay-connection-manager";
 import { addHotUpdaterLog, formatHotUpdaterProgress } from "@/lib/hot-updater-logs";
 import {
   configurePushNotificationPresentation,
@@ -30,8 +32,9 @@ import {
   queryClientPersister,
   shouldPersistQuery,
 } from "@/lib/query-persistence";
+import { setStatusState } from "@/lib/server-state";
 import { restoreChatStoreFromQueryCache } from "@/lib/server-state-hydration";
-import { setActiveThread } from "@/state/chat-store";
+import { chatStore$, setActiveThread, setConnection, setServerUrl } from "@/state/chat-store";
 
 void SplashScreen.preventAutoHideAsync();
 configurePushNotificationPresentation();
@@ -125,6 +128,8 @@ async function checkForLaunchUpdate() {
 
 function TabLayout() {
   useInitialPushNotificationRegistration();
+  const connection = useSelector(() => chatStore$.connection.get());
+  const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
   const [fontsLoaded] = useFonts({
     GeistMono: require("../../assets/fonts/GeistMono-Regular.ttf"),
     "GeistMono-Medium": require("../../assets/fonts/GeistMono-Medium.ttf"),
@@ -145,6 +150,51 @@ function TabLayout() {
 
     return unsubscribeProgress;
   }, []);
+
+  useEffect(() => {
+    if (!hasPairedSession || connection !== "offline") {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      let attempt = 0;
+      while (!cancelled && chatStore$.hasPairedSession.peek()) {
+        if (attempt > 0) {
+          const delayMs = Math.min(1000 * 2 ** Math.min(attempt, 4), 15_000);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          if (cancelled) {
+            return;
+          }
+        }
+
+        try {
+          const reconciled = await reconcileCodexRelayConnection();
+          if (cancelled) {
+            return;
+          }
+          setServerUrl(reconciled.serverUrl);
+          setStatusState(queryClient, reconciled.status);
+          setConnection("connected");
+          void queryClient.invalidateQueries();
+          return;
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+          setConnection(
+            "offline",
+            error instanceof Error ? error.message : "Could not reconnect to Codex Relay.",
+          );
+          attempt += 1;
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, hasPairedSession]);
 
   useEffect(() => {
     if (!supportsPushNotifications()) {
