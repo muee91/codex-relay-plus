@@ -41,8 +41,6 @@ if [[ ! -f "$SOURCE_ICON" ]]; then
   exit 1
 fi
 
-# Process the canonical Expo/iOS PNG only enough to remove an edge-connected near-black matte.
-# Existing transparency and all non-background artwork are retained.
 swift "$DESKTOP_DIR/Tools/IconPrep.swift" "$SOURCE_ICON" "$MASTER_ICON"
 
 make_icon() {
@@ -82,17 +80,14 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 
-# Keep the Swift launcher contract stable: it still executes Resources/runtime/node.
-# That path is now a tiny process supervisor, while node-bin is the original Node
-# executable and tailcat-relay-server is an isolated transport helper.
 cp "$NODE_BIN" "$RESOURCES/runtime/node-bin"
 cp "$DESKTOP_DIR/relay-launcher.sh" "$RESOURCES/runtime/node"
 chmod 755 "$RESOURCES/runtime/node" "$RESOURCES/runtime/node-bin"
 bash -n "$RESOURCES/runtime/node"
 (
   cd "$TAILCAT_BRIDGE_DIR"
-  go mod download
-  go build -trimpath -o "$RESOURCES/runtime/tailcat-relay-server" ./cmd/tailcat-relay-server
+  go mod tidy
+  go build -mod=mod -trimpath -o "$RESOURCES/runtime/tailcat-relay-server" ./cmd/tailcat-relay-server
 )
 chmod 755 "$RESOURCES/runtime/tailcat-relay-server"
 
@@ -124,7 +119,6 @@ swiftc \
   -o "$MACOS/CodexRelayPlus"
 chmod 755 "$MACOS/CodexRelayPlus"
 
-# Exercise the exact Node binary + deployed Relay that will ship in the app.
 "$RESOURCES/runtime/node-bin" "$RESOURCES/relay/dist/cli.js" --help >/dev/null
 
 cleanup_signing() {
@@ -160,8 +154,6 @@ else
   sign_timestamp_args+=(--timestamp=none)
 fi
 
-# Sign every Mach-O payload explicitly before the outer bundle. This catches native
-# Node modules and Codex helper binaries that a file-extension-only pass would miss.
 while IFS= read -r -d '' candidate; do
   if file "$candidate" | grep -q "Mach-O"; then
     codesign --force --options runtime --sign "$SIGN_IDENTITY" "${sign_timestamp_args[@]}" "$candidate"
