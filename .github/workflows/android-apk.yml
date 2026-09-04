@@ -12,6 +12,14 @@ on:
         type: boolean
         required: true
         default: false
+  pull_request:
+    paths:
+      - ".github/workflows/android-apk.yml"
+      - "apps/mobile/**"
+      - "native/tailcat-bridge/**"
+      - "packages/codex-relay/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
   push:
     tags:
       - "android-v*"
@@ -40,6 +48,12 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: native/tailcat-bridge/go.mod
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -63,8 +77,10 @@ jobs:
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#android-v}"
-          else
+          elif [[ -n "$INPUT_VERSION" ]]; then
             version="$INPUT_VERSION"
+          else
+            version="1.4.0-ci.${GITHUB_RUN_NUMBER}"
           fi
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Invalid APK release label: $version"
@@ -95,6 +111,27 @@ jobs:
 
       - name: Typecheck mobile app
         run: pnpm --filter @codex-relay/mobile typecheck
+
+      - name: Build Tailcat Android bridge
+        run: ./apps/mobile/scripts/build-tailcat-android.sh
+
+      - name: Inspect Tailcat AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          aar="apps/mobile/native-libs/CodexRelayTailcat.aar"
+          test -s "$aar"
+          unzip -l "$aar" | grep -Eq 'jni/arm64-v8a/[^/]+\.so$' || {
+            echo "::error::Tailcat AAR does not contain an arm64-v8a native library"
+            exit 1
+          }
+          classes="$RUNNER_TEMP/tailcat-classes.jar"
+          unzip -p "$aar" classes.jar > "$classes"
+          jar tf "$classes" | grep -Fxq 'bridge/Bridge.class' || {
+            echo "::error::Tailcat AAR does not expose bridge.Bridge"
+            jar tf "$classes" | grep -E '(^|/)Bridge.class$' || true
+            exit 1
+          }
 
       - name: Generate Android project
         env:
@@ -205,6 +242,10 @@ jobs:
 
           rm -f "$aligned"
           "$apksigner" verify --verbose --print-certs "$output"
+          unzip -l "$output" | grep -Eq 'lib/arm64-v8a/[^/]+\.so$' || {
+            echo "::error::APK does not contain the Tailcat arm64 native payload"
+            exit 1
+          }
 
           bundle="$(mktemp)"
           if ! unzip -p "$output" assets/index.android.bundle > "$bundle"; then
@@ -239,6 +280,7 @@ jobs:
           sha256sum "$output" > "$output.sha256"
           printf 'Signing mode: %s\n' "$signing_mode" > dist/android/BUILD-INFO.txt
           printf 'Package: %s\n' "${package_name:-com.muee91.codexrelayplus}" >> dist/android/BUILD-INFO.txt
+          printf 'Tailcat: v0.5.0, android/arm64\n' >> dist/android/BUILD-INFO.txt
           printf 'Version code: %s\n' "$GITHUB_RUN_NUMBER" >> dist/android/BUILD-INFO.txt
           printf 'Commit: %s\n' "$GITHUB_SHA" >> dist/android/BUILD-INFO.txt
           echo "path=$output" >> "$GITHUB_OUTPUT"
@@ -262,8 +304,9 @@ jobs:
             echo ""
             echo "- 版本：\`${{ steps.version.outputs.version }}\`"
             echo "- 包名：\`com.muee91.codexrelayplus\`"
+            echo "- Tailcat：\`v0.5.0 / arm64-v8a\`"
             echo "- 签名模式：\`${{ steps.apk.outputs.signing-mode }}\`"
-            echo "- 中文 bundle、APK 签名与包名检查：通过"
+            echo "- 中文 bundle、Tailcat AAR、APK 签名与包名检查：通过"
           } >> "$GITHUB_STEP_SUMMARY"
 
   release:
@@ -298,7 +341,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           tag="android-v$VERSION"
-          notes="Codex Relay Plus 中文 Android APK。Mac 端优先配对流程；APK 已执行签名、包名和中文 bundle 校验。"
+          notes="Codex Relay Plus 中文 Android APK。Mac 端优先配对流程；APK 已执行 Tailcat native、签名、包名和中文 bundle 校验。"
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" --target "$GITHUB_SHA" --title "Codex Relay Plus Android 中文版 $VERSION" --notes "$notes"
           fi
