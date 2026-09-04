@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { networkInterfaces } from "node:os";
 
 export type ConnectUrlCandidateKind = "lan" | "tailscale" | "server";
@@ -10,13 +9,19 @@ export type ConnectUrlCandidate = {
   url: string;
 };
 
-type TailscaleStatus = {
+export type TailscaleStatus = {
   BackendState?: string;
   Self?: {
     DNSName?: string;
     Online?: boolean;
     TailscaleIPs?: string[];
   };
+};
+
+export type TailscaleSnapshot = {
+  checkedAt: number;
+  serveHttpsUrl?: string;
+  status?: TailscaleStatus;
 };
 
 export function getConnectUrlGuidance(url: string) {
@@ -45,9 +50,7 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
   if (!primaryServerUrl) throw new Error("Pairing QR requires at least one server URL.");
 
   const tailcat = tailcatBootstrapCandidate();
-  const candidateUrls = tailcat
-    ? [...details.serverUrls, tailcat.candidateUrl]
-    : details.serverUrls;
+  const candidateUrls = tailcat ? [...details.serverUrls, tailcat.candidateUrl] : details.serverUrls;
 
   const url = new URL("codex-relay://pair");
   url.searchParams.set("serverUrl", primaryServerUrl);
@@ -58,9 +61,6 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
     url.searchParams.set("serverUrls", JSON.stringify(compacted.fullUrls));
   }
   if (tailcat) {
-    // Explicit fields are understood by future/new clients. The synthetic
-    // http://tailcat.invalid candidate is deliberately also emitted so the
-    // existing parser persists the bootstrap after a normal LAN pairing.
     url.searchParams.set("tailcatAddr", tailcat.address);
     url.searchParams.set("tailcatPort", String(tailcat.port));
     url.searchParams.set("transportVersion", "1");
@@ -70,14 +70,14 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
 
 export function getConnectUrlCandidates(
   details: { listenUrl: string; port: number },
-  options: { mode?: ConnectUrlMode } = {},
+  options: { mode?: ConnectUrlMode; tailscale?: TailscaleSnapshot } = {},
 ) {
-  const status = getTailscaleStatus();
+  const status = options.tailscale?.status;
   const tailscaleRunning = isTailscaleStatusRunning(status);
   const serverCandidate = configuredServerCandidate(details.listenUrl, tailscaleRunning);
   const candidates = dedupeCandidates([
     ...localNetworkConnectUrlCandidates(details.port),
-    ...tailscaleConnectUrlCandidates(details.port, status),
+    ...tailscaleConnectUrlCandidates(details.port, status, options.tailscale?.serveHttpsUrl),
     ...(serverCandidate ? [serverCandidate] : []),
   ]);
   return filterCandidatesForMode(
@@ -109,6 +109,20 @@ export function normalizeUrl(value: string | undefined) {
   } catch {
     return undefined;
   }
+}
+
+export function networkInterfaceFingerprint() {
+  const entries: string[] = [];
+  for (const [name, addresses] of Object.entries(networkInterfaces()).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    if (isVirtualInterfaceName(name)) continue;
+    for (const address of addresses ?? []) {
+      if (address.internal) continue;
+      entries.push(`${name}|${address.family}|${address.address}`);
+    }
+  }
+  return entries.sort().join("\n");
 }
 
 function tailcatBootstrapCandidate() {
@@ -146,7 +160,11 @@ function configuredServerCandidate(
   return { kind: connectUrlCandidateKind(url), label: "Server", url };
 }
 
-function tailscaleConnectUrlCandidates(port: number, status: TailscaleStatus | undefined) {
+function tailscaleConnectUrlCandidates(
+  port: number,
+  status: TailscaleStatus | undefined,
+  serveHttpsUrl?: string,
+) {
   if (!isTailscaleStatusRunning(status)) return [];
   const candidates: ConnectUrlCandidate[] = [];
   for (const ip of status?.Self?.TailscaleIPs ?? []) {
@@ -156,11 +174,10 @@ function tailscaleConnectUrlCandidates(port: number, status: TailscaleStatus | u
   }
   const dnsName = status?.Self?.DNSName?.replace(/\.$/, "");
   if (dnsName) {
-    const servedUrl = getTailscaleServeHttpsUrl(dnsName, port);
     candidates.push({
       kind: "tailscale",
-      label: servedUrl ? "Tailscale Serve" : "Tailscale DNS",
-      url: servedUrl ?? `http://${dnsName}:${port}`,
+      label: serveHttpsUrl ? "Tailscale Serve" : "Tailscale DNS",
+      url: serveHttpsUrl ?? `http://${dnsName}:${port}`,
     });
   }
   return candidates;
@@ -203,8 +220,9 @@ function connectUrlCandidateKind(url: string): ConnectUrlCandidateKind {
     host.endsWith(".local") ||
     (isPrivateIPv4Host(host) && !isTailscaleIPv4Host(host)) ||
     isLocalIPv6Host(host)
-  )
+  ) {
     return "lan";
+  }
   return "server";
 }
 
@@ -312,38 +330,4 @@ function interfaceRank(name: string) {
   if (/^en\d+$/i.test(name)) return 1;
   if (/^(?:eth|ethernet|wlan|wifi)/i.test(name)) return 2;
   return 3;
-}
-
-function getTailscaleStatus() {
-  try {
-    const output = execFileSync("tailscale", ["status", "--json"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1500,
-    });
-    return JSON.parse(output) as TailscaleStatus;
-  } catch {
-    return undefined;
-  }
-}
-
-function getTailscaleServeHttpsUrl(dnsName: string, port: number) {
-  try {
-    const output = execFileSync("tailscale", ["serve", "status", "--json"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1500,
-    });
-    const serveStatus = JSON.parse(output) as {
-      TCP?: Record<string, { HTTPS?: boolean }>;
-      Web?: Record<string, unknown>;
-    };
-    const portKey = String(port);
-    const hostPort = `${dnsName}:${portKey}`;
-    return serveStatus.TCP?.[portKey]?.HTTPS && serveStatus.Web?.[hostPort]
-      ? `https://${hostPort}`
-      : undefined;
-  } catch {
-    return undefined;
-  }
 }
