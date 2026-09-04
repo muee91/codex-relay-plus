@@ -52,12 +52,12 @@ describe("pairing URL candidates", () => {
   it("only considers Tailscale usable when the backend is running", () => {
     expect(isTailscaleStatusRunning(undefined)).toBe(false);
     expect(isTailscaleStatusRunning({ BackendState: "Stopped" })).toBe(false);
-    expect(
-      isTailscaleStatusRunning({ BackendState: "Running", Self: { Online: false } }),
-    ).toBe(false);
-    expect(
-      isTailscaleStatusRunning({ BackendState: "Running", Self: { Online: true } }),
-    ).toBe(true);
+    expect(isTailscaleStatusRunning({ BackendState: "Running", Self: { Online: false } })).toBe(
+      false,
+    );
+    expect(isTailscaleStatusRunning({ BackendState: "Running", Self: { Online: true } })).toBe(
+      true,
+    );
     expect(isTailscaleStatusRunning({ BackendState: "Running", Self: {} })).toBe(true);
   });
 

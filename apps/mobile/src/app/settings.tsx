@@ -38,8 +38,16 @@ const copy = isZhCn
       unavailableTitle: "Connection mode unavailable",
       unavailableFallback: "Could not reach the paired computer with this connection mode.",
       modes: {
-        auto: { label: "Automatic", subtitle: "Prefer LAN, fall back to remote", shortLabel: "AUTO" },
-        local: { label: "Local network only", subtitle: "Never use a remote path", shortLabel: "LAN" },
+        auto: {
+          label: "Automatic",
+          subtitle: "Prefer LAN, fall back to remote",
+          shortLabel: "AUTO",
+        },
+        local: {
+          label: "Local network only",
+          subtitle: "Never use a remote path",
+          shortLabel: "LAN",
+        },
         remote: {
           label: "Remote only",
           subtitle: "Use Tailscale or another remote address",

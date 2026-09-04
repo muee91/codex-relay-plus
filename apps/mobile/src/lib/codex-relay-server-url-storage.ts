@@ -8,10 +8,9 @@ const serverUrlStorageKey = "codex-relay.server-url";
 export const codexRelayStorage = createMMKV({ id: "codex-relay" });
 
 export type CodexRelayConnectionMode = "auto" | "local" | "remote";
-export type CodexRelayServerUrlCandidateKind = "local" | "remote" | "loopback";
+type CodexRelayServerUrlCandidateKind = "local" | "remote" | "loopback";
 
 export type CodexRelayServerUrlCandidate = {
-  kind: CodexRelayServerUrlCandidateKind;
   label: string;
   url: string;
 };
@@ -94,10 +93,10 @@ export function routeServerUrlCandidates(
   mode: CodexRelayConnectionMode,
 ) {
   if (mode === "local") {
-    return candidates.filter((candidate) => candidate.kind === "local");
+    return candidates.filter((candidate) => serverUrlCandidateKind(candidate.url) === "local");
   }
   if (mode === "remote") {
-    return candidates.filter((candidate) => candidate.kind === "remote");
+    return candidates.filter((candidate) => serverUrlCandidateKind(candidate.url) === "remote");
   }
 
   const rank: Record<CodexRelayServerUrlCandidateKind, number> = {
@@ -106,11 +105,12 @@ export function routeServerUrlCandidates(
     loopback: 2,
   };
   return candidates
-    .map((candidate, index) => ({ candidate, index }))
-    .sort(
-      (left, right) =>
-        rank[left.candidate.kind] - rank[right.candidate.kind] || left.index - right.index,
-    )
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      kind: serverUrlCandidateKind(candidate.url),
+    }))
+    .sort((left, right) => rank[left.kind] - rank[right.kind] || left.index - right.index)
     .map(({ candidate }) => candidate);
 }
 
@@ -157,7 +157,6 @@ function readStoredServerUrlCandidates() {
 
 function serverUrlCandidatesFromUrls(urls: string[]): CodexRelayServerUrlCandidate[] {
   return dedupeServerUrls(urls).map((url) => ({
-    kind: serverUrlCandidateKind(url),
     label: serverUrlCandidateLabel(url),
     url,
   }));

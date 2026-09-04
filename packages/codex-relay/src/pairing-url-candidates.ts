@@ -179,8 +179,8 @@ function tailscaleConnectUrlCandidates(port: number, status: TailscaleStatus | u
 
 function localNetworkConnectUrlCandidates(port: number) {
   const candidates: ConnectUrlCandidate[] = [];
-  for (const [name, addresses] of Object.entries(networkInterfaces()).sort(([left], [right]) =>
-    interfaceRank(left) - interfaceRank(right) || left.localeCompare(right),
+  for (const [name, addresses] of Object.entries(networkInterfaces()).sort(
+    ([left], [right]) => interfaceRank(left) - interfaceRank(right) || left.localeCompare(right),
   )) {
     if (isVirtualInterfaceName(name)) {
       continue;
