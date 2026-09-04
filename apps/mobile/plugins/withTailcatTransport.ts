@@ -58,8 +58,7 @@ const withTailcatPackageRegistration: ConfigPlugin = (config) =>
       return config;
     }
     const marker = "PackageList(this).packages.apply {";
-    const index = config.modResults.contents.indexOf(marker);
-    if (index === -1) {
+    if (!config.modResults.contents.includes(marker)) {
       throw new Error("Could not find PackageList(this).packages.apply in MainApplication.kt.");
     }
     const replacement = `${marker}\n              ${packageMarker}\n              add(CodexRelayTransportPackage())`;
@@ -94,13 +93,15 @@ const kotlinSource = `package ${kotlinPackage}
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Handler
+import android.os.Looper
 import bridge.Bridge
+import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReactPackage
-import com.facebook.react.bridge.NativeModule
 import com.facebook.react.uimanager.ViewManager
 import java.io.File
 import java.util.concurrent.Executors
@@ -108,25 +109,42 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class CodexRelayTransportModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   private val executor = Executors.newSingleThreadExecutor()
+  private val preferences = context.getSharedPreferences("codex-relay-tailcat", Context.MODE_PRIVATE)
+
+  init {
+    executor.execute { restoreProxyIfConfigured() }
+  }
 
   override fun getName() = "CodexRelayTransport"
 
   @ReactMethod
-  fun startTailcatProxy(serverAddr: String, remotePort: Double, promise: Promise) {
+  fun configureRelayProxy(serverAddr: String, remotePort: Double, lanTargetsJson: String, mode: String, promise: Promise) {
     executor.execute {
       try {
-        val keyFile = File(context.filesDir, "codex-relay-tailcat-client-key")
-        promise.resolve(Bridge.startProxy(serverAddr, remotePort.toLong(), keyFile.absolutePath))
+        val localUrl = configureProxy(serverAddr, remotePort.toLong(), lanTargetsJson, mode)
+        preferences.edit()
+          .putString("serverAddr", serverAddr)
+          .putLong("remotePort", remotePort.toLong())
+          .putString("lanTargetsJson", lanTargetsJson)
+          .putString("mode", mode)
+          .apply()
+        promise.resolve(localUrl)
       } catch (error: Throwable) {
-        promise.reject("TAILCAT_START_FAILED", error.message, error)
+        promise.reject("TAILCAT_CONFIGURE_FAILED", error.message, error)
       }
     }
+  }
+
+  @ReactMethod
+  fun startTailcatProxy(serverAddr: String, remotePort: Double, promise: Promise) {
+    configureRelayProxy(serverAddr, remotePort, "[]", "remote", promise)
   }
 
   @ReactMethod
   fun stopTailcatProxy(promise: Promise) {
     executor.execute {
       try {
+        preferences.edit().clear().apply()
         Bridge.stopProxy()
         promise.resolve(null)
       } catch (error: Throwable) {
@@ -183,6 +201,7 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
       override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
       override fun onServiceFound(serviceInfo: NsdServiceInfo) {
         if (settled.get() || !serviceInfo.serviceType.startsWith("_codex-relay._tcp")) return
+        @Suppress("DEPRECATION")
         manager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
           override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
           override fun onServiceResolved(resolved: NsdServiceInfo) {
@@ -202,14 +221,30 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
     }
 
     manager.discoverServices("_codex-relay._tcp.", NsdManager.PROTOCOL_DNS_SD, listener)
-    context.runOnUiQueueThread({
-      context.runOnUiQueueThread({
-        if (settled.compareAndSet(false, true)) {
-          stopDiscovery()
-          promise.resolve(null)
-        }
-      }, timeoutMs.toLong().coerceAtLeast(250L))
-    })
+    Handler(Looper.getMainLooper()).postDelayed({
+      if (settled.compareAndSet(false, true)) {
+        stopDiscovery()
+        promise.resolve(null)
+      }
+    }, timeoutMs.toLong().coerceAtLeast(250L))
+  }
+
+  private fun configureProxy(serverAddr: String, remotePort: Long, lanTargetsJson: String, mode: String): String {
+    val keyFile = File(context.filesDir, "codex-relay-tailcat-client-key")
+    return Bridge.configureProxy(serverAddr, remotePort, lanTargetsJson, mode, keyFile.absolutePath)
+  }
+
+  private fun restoreProxyIfConfigured() {
+    val serverAddr = preferences.getString("serverAddr", null) ?: return
+    val remotePort = preferences.getLong("remotePort", 0L)
+    if (remotePort !in 1L..65535L) return
+    val lanTargetsJson = preferences.getString("lanTargetsJson", "[]") ?: "[]"
+    val mode = preferences.getString("mode", "auto") ?: "auto"
+    try {
+      configureProxy(serverAddr, remotePort, lanTargetsJson, mode)
+    } catch (_: Throwable) {
+      // A later JS synchronization retries configuration with current discovery data.
+    }
   }
 }
 
