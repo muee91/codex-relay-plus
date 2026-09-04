@@ -8,11 +8,12 @@ import {
 } from "./transport/native-tailcat";
 
 const defaultServerUrl = "http://localhost:8787";
-const nativeTransportServerUrl = "http://127.0.0.1:39127";
+export const nativeTransportServerUrl = "http://127.0.0.1:39127";
 const connectionModeStorageKey = "codex-relay.connection-mode";
 const serverUrlCandidatesStorageKey = "codex-relay.server-url-candidates";
 const serverUrlStorageKey = "codex-relay.server-url";
 const clientTokenStorageKey = "codex-relay.client-token";
+const nativeTransportConfiguredStorageKey = "codex-relay.native-transport-configured-v1";
 const nativeDiscoveryIntervalMs = 10_000;
 
 export const codexRelayStorage = createMMKV({ id: "codex-relay" });
@@ -30,7 +31,7 @@ type TailcatBootstrapCandidate = {
   remotePort: number;
 };
 
-let pendingNativeTransportSync: Promise<void> | undefined;
+let pendingNativeTransportSync: Promise<string> | undefined;
 let nextNativeDiscoveryAt = 0;
 let lastDiscoveredLocalUrl: string | undefined;
 
@@ -44,22 +45,21 @@ export function getCodexRelayConnectionMode(): CodexRelayConnectionMode {
 
 export function setCodexRelayConnectionMode(mode: CodexRelayConnectionMode) {
   codexRelayStorage.set(connectionModeStorageKey, mode);
-  scheduleNativeTransportSync();
+  if (mode !== "local") {
+    scheduleNativeTransportSync(true);
+  }
   return mode;
 }
 
 export function getCodexRelayServerUrl() {
   const stored = codexRelayStorage.getString(serverUrlStorageKey) ?? fallbackCodexRelayServerUrl;
-  const mode = getCodexRelayConnectionMode();
-  if (mode === "local") {
+  if (getCodexRelayConnectionMode() === "local") {
     return firstStoredLocalServerUrl() ?? stored;
   }
   if (
-    isNativeTailcatAvailable() &&
-    codexRelayStorage.getString(clientTokenStorageKey) &&
-    readTailcatBootstrapCandidate()
+    shouldUseNativeRelayTransport() &&
+    codexRelayStorage.getBoolean(nativeTransportConfiguredStorageKey) === true
   ) {
-    scheduleNativeTransportSync();
     return nativeTransportServerUrl;
   }
   return stored;
@@ -82,7 +82,6 @@ export function getAllCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandid
 export function setCodexRelayServerUrl(url: string) {
   const normalizedUrl = normalizeServerUrl(url);
   codexRelayStorage.set(serverUrlStorageKey, normalizedUrl);
-  scheduleNativeTransportSync();
   return normalizedUrl;
 }
 
@@ -90,13 +89,44 @@ export function clearCodexRelayServerUrlState() {
   codexRelayStorage.remove(serverUrlStorageKey);
   codexRelayStorage.remove(serverUrlCandidatesStorageKey);
   codexRelayStorage.remove(connectionModeStorageKey);
+  codexRelayStorage.remove(nativeTransportConfiguredStorageKey);
   lastDiscoveredLocalUrl = undefined;
+  nextNativeDiscoveryAt = 0;
   void stopNativeTailcatProxy().catch(() => undefined);
 }
 
 export function saveCodexRelayServerUrlCandidates(urls: string[]) {
   codexRelayStorage.set(serverUrlCandidatesStorageKey, JSON.stringify(dedupeServerUrls(urls)));
   scheduleNativeTransportSync(true);
+}
+
+export function shouldUseNativeRelayTransport() {
+  return Boolean(
+    getCodexRelayConnectionMode() !== "local" &&
+      isNativeTailcatAvailable() &&
+      codexRelayStorage.getString(clientTokenStorageKey) &&
+      readTailcatBootstrapCandidate(),
+  );
+}
+
+export async function ensureNativeRelayTransportReady(forceDiscovery = false) {
+  if (!shouldUseNativeRelayTransport()) {
+    return undefined;
+  }
+  if (!pendingNativeTransportSync) {
+    const bootstrap = readTailcatBootstrapCandidate();
+    if (!bootstrap) {
+      return undefined;
+    }
+    const sync = syncNativeTransport(bootstrap, forceDiscovery);
+    pendingNativeTransportSync = sync;
+    void sync.finally(() => {
+      if (pendingNativeTransportSync === sync) {
+        pendingNativeTransportSync = undefined;
+      }
+    });
+  }
+  return pendingNativeTransportSync;
 }
 
 export function normalizeServerUrl(url: string) {
@@ -177,20 +207,7 @@ export function isLocalIPv6Host(host: string) {
 }
 
 function scheduleNativeTransportSync(forceDiscovery = false) {
-  if (!isNativeTailcatAvailable() || pendingNativeTransportSync) {
-    return;
-  }
-  const bootstrap = readTailcatBootstrapCandidate();
-  if (!bootstrap) {
-    return;
-  }
-  const sync = syncNativeTransport(bootstrap, forceDiscovery);
-  pendingNativeTransportSync = sync;
-  void sync.finally(() => {
-    if (pendingNativeTransportSync === sync) {
-      pendingNativeTransportSync = undefined;
-    }
-  });
+  void ensureNativeRelayTransportReady(forceDiscovery).catch(() => undefined);
 }
 
 async function syncNativeTransport(
@@ -211,12 +228,18 @@ async function syncNativeTransport(
   const lanTargets = dedupeLanTargets(
     urls.filter((url) => serverUrlCandidateKind(url) === "local").map(urlToTcpTarget),
   );
-  await configureNativeRelayProxy({
+  const localUrl = await configureNativeRelayProxy({
     lanTargets,
     mode,
     remotePort: bootstrap.remotePort,
     serverAddr: bootstrap.address,
   });
+  const normalizedLocalUrl = normalizeServerUrl(localUrl);
+  if (normalizedLocalUrl !== nativeTransportServerUrl) {
+    throw new Error(`Native Relay transport returned unexpected URL: ${normalizedLocalUrl}`);
+  }
+  codexRelayStorage.set(nativeTransportConfiguredStorageKey, true);
+  return nativeTransportServerUrl;
 }
 
 function readTailcatBootstrapCandidate(): TailcatBootstrapCandidate | undefined {
