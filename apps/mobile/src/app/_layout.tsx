@@ -13,7 +13,7 @@ import * as Notifications from "expo-notifications";
 import { router, Stack } from "expo-router";
 import { DarkTheme, ThemeProvider } from "expo-router/react-navigation";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -133,6 +133,7 @@ function TabLayout() {
   useInitialPushNotificationRegistration();
   const connection = useSelector(() => chatStore$.connection.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
+  const nativePrimeRequestedRef = useRef(false);
   const [fontsLoaded] = useFonts({
     GeistMono: require("../../assets/fonts/GeistMono-Regular.ttf"),
     "GeistMono-Medium": require("../../assets/fonts/GeistMono-Medium.ttf"),
@@ -156,16 +157,21 @@ function TabLayout() {
 
   useEffect(() => {
     if (!hasPairedSession) {
+      nativePrimeRequestedRef.current = false;
       void teardownCodexRelayNativeTransport();
       return;
     }
 
     let cancelled = false;
 
-    // Prime the fixed loopback transport as soon as a secure pairing exists.
-    // Failure here must not disrupt an already-working LAN connection; the
-    // normal offline retry loop below will try again when connectivity changes.
+    // Prime the fixed loopback transport once as soon as a secure pairing
+    // exists. Failure must not disrupt an already-working LAN connection; the
+    // offline retry loop below remains authoritative after connectivity loss.
     if (connection !== "offline") {
+      if (nativePrimeRequestedRef.current) {
+        return;
+      }
+      nativePrimeRequestedRef.current = true;
       void reconcileCodexRelayConnection()
         .then((reconciled) => {
           if (cancelled || !chatStore$.hasPairedSession.peek()) {
