@@ -181,8 +181,10 @@ function runTailscale(args: string[]) {
 }
 
 function sameTailscaleSnapshot(left: TailscaleSnapshot, right: TailscaleSnapshot) {
-  return JSON.stringify({ serveHttpsUrl: left.serveHttpsUrl, status: left.status }) ===
-    JSON.stringify({ serveHttpsUrl: right.serveHttpsUrl, status: right.status });
+  return (
+    JSON.stringify({ serveHttpsUrl: left.serveHttpsUrl, status: left.status }) ===
+    JSON.stringify({ serveHttpsUrl: right.serveHttpsUrl, status: right.status })
+  );
 }
 
 function networkStateKey(snapshot: NetworkStateSnapshot) {
