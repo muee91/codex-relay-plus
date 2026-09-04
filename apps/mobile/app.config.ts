@@ -114,12 +114,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
       "expo-notifications",
       "expo-system-ui",
       "expo-web-browser",
-      [
-        "@hot-updater/react-native",
-        {
-          channel: "production",
-        },
-      ],
+      "@hot-updater/react-native",
       "./plugins/withBrotliDependencyResolution",
       "react-native-enriched-markdown",
       [

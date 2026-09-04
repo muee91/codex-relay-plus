@@ -124,11 +124,6 @@ async function checkForLaunchUpdate() {
     "OTA launch update bundle finished",
     `Downloaded: ${didDownload ? "yes" : "no"}`,
   );
-
-  if (didDownload && updateInfo.shouldForceUpdate) {
-    addHotUpdaterLog("info", "OTA force update restarting app");
-    await HotUpdater.reload();
-  }
 }
 
 function TabLayout() {
@@ -151,9 +146,7 @@ function TabLayout() {
       addHotUpdaterLog("info", "OTA download progress", formatHotUpdaterProgress(event));
     });
 
-    if (hotUpdaterBaseUrl) {
-      void checkForLaunchUpdate().catch(() => undefined);
-    }
+    void checkForLaunchUpdate().catch(() => undefined);
 
     return unsubscribeProgress;
   }, []);
