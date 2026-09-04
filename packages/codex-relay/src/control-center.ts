@@ -146,19 +146,27 @@ export function startControlCenter(options: ControlCenterOptions) {
   app.get("/api/threads", async (c) => {
     if (!options.appServer) return c.json({ threads: [] });
     const requested = Number(c.req.query("limit") ?? 20);
-    const limit = Number.isFinite(requested) ? Math.min(80, Math.max(1, Math.floor(requested))) : 20;
+    const limit = Number.isFinite(requested)
+      ? Math.min(80, Math.max(1, Math.floor(requested)))
+      : 20;
     const threads = await options.appServer.listThreads(limit);
     return c.json({ threads: threads.slice(0, limit).map(summarizeThread) });
   });
 
   app.get("/api/threads/:threadId", async (c) => {
-    if (!options.appServer) return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
-    const thread = await options.appServer.readThread(c.req.param("threadId"), { includeTurns: true });
+    if (!options.appServer) {
+      return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
+    }
+    const thread = await options.appServer.readThread(c.req.param("threadId"), {
+      includeTurns: true,
+    });
     return c.json({ thread });
   });
 
   app.post("/api/threads/:threadId/resume", async (c) => {
-    if (!options.appServer) return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
+    if (!options.appServer) {
+      return c.json({ error: "Shared Codex app-server is unavailable." }, 503);
+    }
     const thread = await options.appServer.resumeThread({
       threadId: c.req.param("threadId"),
       excludeTurns: false,
