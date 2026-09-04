@@ -3,16 +3,14 @@ import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import qrcode from "qrcode-terminal";
 
-import { connect } from "./libsql-database.js";
-import type { PairingSessionStore } from "./pairing-store.js";
-import type { ConnectUrlCandidate } from "./pairing-url-candidates.js";
 import { renderControlCenterPage } from "./control-center-page.js";
+import { connect } from "./libsql-database.js";
+import type { NetworkStateSnapshot } from "./network-state-manager.js";
+import type { PairingSessionStore } from "./pairing-store.js";
 
 export type ControlCenterOptions = {
   authDbPath: string;
-  connectUrl: string;
-  connectUrlCandidates: ConnectUrlCandidate[];
-  pairingPayload: string;
+  getNetworkState: () => NetworkStateSnapshot;
   onPairApproved?: (client: { approvalCode: string; clientName?: string }) => void;
   onPairingsCleared?: (result: { pendingPairingsCleared: number; sessionsCleared: number }) => void;
   port: number;
@@ -48,7 +46,7 @@ export function startControlCenter(options: ControlCenterOptions) {
   const app = new Hono();
   const controlToken = randomBytes(24).toString("base64url");
   const database = connect(options.authDbPath);
-  const pairingQr = renderPairingQr(options.pairingPayload);
+  let cachedPairingQr = { payload: "", qr: "" };
   let deviceSnapshot: DeviceSnapshot = { pendingPairings: [], sessions: [], updatedAt: 0 };
   let snapshotRefresh: Promise<void> | undefined;
 
@@ -105,25 +103,30 @@ export function startControlCenter(options: ControlCenterOptions) {
     await next();
   });
 
-  // Keep the primary state endpoint non-blocking. Pairing and relay details must remain
-  // usable even if SQLite/device enumeration is slow on a particular machine.
   app.get("/api/state", (c) => {
     void refreshDeviceSnapshot();
+    const network = options.getNetworkState();
+    if (cachedPairingQr.payload !== network.pairingPayload) {
+      cachedPairingQr = {
+        payload: network.pairingPayload,
+        qr: renderPairingQr(network.pairingPayload),
+      };
+    }
     return c.json({
-      diagnostics: collectCoreDiagnostics(options),
-      pairingPayload: options.pairingPayload,
-      pairingQr,
+      diagnostics: collectCoreDiagnostics(options, network),
+      pairingPayload: network.pairingPayload,
+      pairingQr: cachedPairingQr.qr,
       pendingPairings: deviceSnapshot.pendingPairings,
       relay: {
-        connectUrl: options.connectUrl,
-        connectUrlCandidates: options.connectUrlCandidates,
+        connectUrl: network.connectUrl,
+        connectUrlCandidates: network.connectUrlCandidates,
         pid: process.pid,
         port: options.relayPort,
         sharedAppServerRemoteAddress: options.sharedAppServerRemoteAddress,
         workspacePath: options.workspacePath,
       },
       sessions: deviceSnapshot.sessions,
-      snapshotUpdatedAt: deviceSnapshot.updatedAt,
+      snapshotUpdatedAt: Math.max(deviceSnapshot.updatedAt, network.updatedAt),
     });
   });
 
@@ -219,7 +222,7 @@ async function listSessions(database: ReturnType<typeof connect>) {
   });
 }
 
-function collectCoreDiagnostics(options: ControlCenterOptions) {
+function collectCoreDiagnostics(options: ControlCenterOptions, network: NetworkStateSnapshot) {
   const nodeVersion = process.versions.node;
   const nodeParts = nodeVersion.split(".").map(Number);
   const nodeSupported =
@@ -239,9 +242,9 @@ function collectCoreDiagnostics(options: ControlCenterOptions) {
     },
     {
       label: "Network",
-      status: options.connectUrlCandidates.length > 0 ? "ok" : "warn",
-      value: `${options.connectUrlCandidates.length || 1} address candidate${
-        options.connectUrlCandidates.length === 1 ? "" : "s"
+      status: network.connectUrlCandidates.length > 0 ? "ok" : "warn",
+      value: `${network.connectUrlCandidates.length || 1} address candidate${
+        network.connectUrlCandidates.length === 1 ? "" : "s"
       }`,
     },
     {
