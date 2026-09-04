@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Script } from "node:vm";
 
 import { renderControlCenterPage } from "../src/control-center-page.js";
 
@@ -18,5 +19,13 @@ describe("renderControlCenterPage", () => {
 
     expect(html).toContain('content="a&quot;b&lt;c"');
     expect(html).not.toContain('content="a\\"b<c"');
+  });
+
+  it("renders executable inline JavaScript", () => {
+    const html = renderControlCenterPage("local-token");
+    const script = html.match(/<script>\n([\s\S]*?)\n  <\/script>/)?.[1];
+
+    expect(script).toBeDefined();
+    expect(() => new Script(script ?? "")).not.toThrow();
   });
 });

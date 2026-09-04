@@ -303,7 +303,7 @@ export function renderControlCenterPage(controlToken: string) {
 
       function byId(id) { return document.getElementById(id); }
       function t(key) { return translations[language][key] || key; }
-      function escape(value) { return String(value == null ? "" : value).replace(/[&<>\"']/g, function (char) { return ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[char]; }); }
+      function escape(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, function (char) { if (char === "&") return "&amp;"; if (char === "<") return "&lt;"; if (char === ">") return "&gt;"; if (char === '"') return "&quot;"; return "&#39;"; }); }
       function each(selector, callback) { Array.prototype.forEach.call(document.querySelectorAll(selector), callback); }
       function applyLanguage() {
         document.documentElement.lang = language;
@@ -383,7 +383,7 @@ export function renderControlCenterPage(controlToken: string) {
         promise.then(function () { toast(t("actionDone")); return refresh(); }).catch(setError);
       }
       function trimQrLines(text) {
-        var lines = String(text || "").replace(/\r/g, "").split("\n");
+        var lines = String(text || "").replace(/\\r/g, "").split("\\n");
         while (lines.length && !lines[0].trim()) lines.shift();
         while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
         return lines;

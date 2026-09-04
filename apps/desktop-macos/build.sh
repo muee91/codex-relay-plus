@@ -13,9 +13,16 @@ APP_DIR="$OUTPUT_DIR/$APP_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 RESOURCES="$CONTENTS/Resources"
 MACOS="$CONTENTS/MacOS"
-STAGE="$OUTPUT_DIR/stage"
+STAGE_ROOT=""
+STAGE=""
 ICONSET="$OUTPUT_DIR/AppIcon.iconset"
 MASTER_ICON="$OUTPUT_DIR/AppIcon-master.png"
+
+cleanup_stage() {
+  if [[ -n "${STAGE_ROOT:-}" && -d "$STAGE_ROOT" ]]; then
+    rm -rf "$STAGE_ROOT"
+  fi
+}
 
 case "$ARCH" in
   arm64|x86_64) ;;
@@ -23,6 +30,9 @@ case "$ARCH" in
 esac
 
 rm -rf "$OUTPUT_DIR"
+STAGE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/codex-relay-plus-deploy.XXXXXX")"
+STAGE="$STAGE_ROOT/stage"
+trap cleanup_stage EXIT
 mkdir -p "$MACOS" "$RESOURCES/runtime" "$STAGE" "$ICONSET"
 
 if [[ ! -f "$SOURCE_ICON" ]]; then
@@ -51,9 +61,13 @@ make_icon 512 icon_512x512.png
 cp "$MASTER_ICON" "$ICONSET/icon_512x512@2x.png"
 iconutil -c icns "$ICONSET" -o "$RESOURCES/AppIcon.icns"
 
-pnpm --filter codex-relay build
+(
+  cd "$ROOT_DIR/packages/codex-relay"
+  "$ROOT_DIR/node_modules/.bin/tsdown"
+)
 if ! pnpm --filter codex-relay deploy --prod "$STAGE/relay"; then
-  pnpm --config.forceLegacyDeploy=true --filter codex-relay deploy --prod "$STAGE/relay"
+  rm -rf "$STAGE/relay"
+  pnpm --filter codex-relay deploy --prod --legacy "$STAGE/relay"
 fi
 cp -R "$STAGE/relay" "$RESOURCES/relay"
 
@@ -95,6 +109,7 @@ cleanup_signing() {
     security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
   fi
   rm -f "${P12:-}"
+  cleanup_stage
 }
 trap cleanup_signing EXIT
 
@@ -149,6 +164,11 @@ if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_PASSWORD:
   xcrun stapler staple "$APP_DIR"
   xcrun stapler validate "$APP_DIR"
   rm -f "$APP_NOTARY_ZIP"
+fi
+
+if [[ "${MACOS_APP_ONLY:-0}" == "1" ]]; then
+  echo "Built: $APP_DIR"
+  exit 0
 fi
 
 DMG_NAME="Codex-Relay-Plus_${APP_VERSION}_${ARCH}.dmg"

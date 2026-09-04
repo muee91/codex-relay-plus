@@ -9,7 +9,7 @@ private enum C {
   static let controlOffset = 2
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
   private var window: NSWindow!
   private var webView: WKWebView!
   private var statusItem: NSStatusItem!
@@ -65,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     window.minSize = NSSize(width: 860, height: 620)
     window.center()
     window.contentView = webView
+    window.delegate = self
     window.makeKeyAndOrderFront(nil)
   }
 
@@ -92,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
   private func setupStatusItem() {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     if let button = statusItem.button {
-      let icon = NSApp.applicationIconImage.copy() as? NSImage ?? NSApp.applicationIconImage
+      let icon = NSApp.applicationIconImage?.copy() as? NSImage ?? NSImage()
       icon.size = NSSize(width: 18, height: 18)
       icon.isTemplate = false
       button.image = icon
@@ -135,8 +136,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
   }
 
   @objc private func showMainWindow(_ sender: Any?) {
+    NSApp.setActivationPolicy(.regular)
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
+  }
+
+  func windowShouldClose(_ sender: NSWindow) -> Bool {
+    window.orderOut(nil)
+    NSApp.setActivationPolicy(.accessory)
+    return false
   }
 
   @objc private func showPairing(_ sender: Any?) {
