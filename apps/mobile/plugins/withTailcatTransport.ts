@@ -32,7 +32,9 @@ const withTailcatTransport: ConfigPlugin = (config) => {
 const withTailcatAar: ConfigPlugin = (config) =>
   withAppBuildGradle(config, (config) => {
     if (config.modResults.language !== "groovy") {
-      throw new Error("Tailcat integration requires the generated Android app/build.gradle to use Groovy.");
+      throw new Error(
+        "Tailcat integration requires the generated Android app/build.gradle to use Groovy.",
+      );
     }
     if (config.modResults.contents.includes(gradleMarker)) {
       return config;
@@ -219,7 +221,7 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
             }
             val host = if (rawHost.contains(":")) "[$rawHost]" else rawHost
             stopDiscovery()
-            promise.resolve("http://$host:${resolved.port}")
+            promise.resolve("http://$host:\${resolved.port}")
           }
         })
       }

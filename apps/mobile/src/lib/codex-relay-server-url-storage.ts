@@ -103,9 +103,9 @@ export function saveCodexRelayServerUrlCandidates(urls: string[]) {
 export function shouldUseNativeRelayTransport() {
   return Boolean(
     getCodexRelayConnectionMode() !== "local" &&
-      isNativeTailcatAvailable() &&
-      codexRelayStorage.getString(clientTokenStorageKey) &&
-      readTailcatBootstrapCandidate(),
+    isNativeTailcatAvailable() &&
+    codexRelayStorage.getString(clientTokenStorageKey) &&
+    readTailcatBootstrapCandidate(),
   );
 }
 
@@ -210,10 +210,7 @@ function scheduleNativeTransportSync(forceDiscovery = false) {
   void ensureNativeRelayTransportReady(forceDiscovery).catch(() => undefined);
 }
 
-async function syncNativeTransport(
-  bootstrap: TailcatBootstrapCandidate,
-  forceDiscovery: boolean,
-) {
+async function syncNativeTransport(bootstrap: TailcatBootstrapCandidate, forceDiscovery: boolean) {
   const mode = getCodexRelayConnectionMode();
   const urls = readStoredServerUrlCandidates();
   const now = Date.now();

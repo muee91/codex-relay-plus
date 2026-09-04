@@ -91,6 +91,7 @@ chmod 755 "$RESOURCES/runtime/node" "$RESOURCES/runtime/node-bin"
 bash -n "$RESOURCES/runtime/node"
 (
   cd "$TAILCAT_BRIDGE_DIR"
+  go mod download
   go build -trimpath -o "$RESOURCES/runtime/tailcat-relay-server" ./cmd/tailcat-relay-server
 )
 chmod 755 "$RESOURCES/runtime/tailcat-relay-server"

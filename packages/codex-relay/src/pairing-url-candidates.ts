@@ -80,7 +80,10 @@ export function getConnectUrlCandidates(
     ...tailscaleConnectUrlCandidates(details.port, status),
     ...(serverCandidate ? [serverCandidate] : []),
   ]);
-  return filterCandidatesForMode(prioritizeConnectUrlCandidates(candidates), options.mode ?? "auto");
+  return filterCandidatesForMode(
+    prioritizeConnectUrlCandidates(candidates),
+    options.mode ?? "auto",
+  );
 }
 
 export function prioritizeConnectUrlCandidates(candidates: ConnectUrlCandidate[]) {
@@ -200,7 +203,8 @@ function connectUrlCandidateKind(url: string): ConnectUrlCandidateKind {
     host.endsWith(".local") ||
     (isPrivateIPv4Host(host) && !isTailscaleIPv4Host(host)) ||
     isLocalIPv6Host(host)
-  ) return "lan";
+  )
+    return "lan";
   return "server";
 }
 
@@ -240,21 +244,33 @@ function compactCandidateHosts(primaryServerUrl: string, serverUrls: string[]) {
 }
 
 function parseUrl(url: string) {
-  try { return new URL(url); } catch { return undefined; }
+  try {
+    return new URL(url);
+  } catch {
+    return undefined;
+  }
 }
 
 function parseUrlHost(url: string) {
-  try { return new URL(url).hostname.toLowerCase(); } catch { return undefined; }
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
 }
 
 function isLocalhost(host: string) {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
-function isUnspecifiedHost(host: string) { return host === "0.0.0.0" || host === "::"; }
+function isUnspecifiedHost(host: string) {
+  return host === "0.0.0.0" || host === "::";
+}
 
 function isTailscaleHost(host: string) {
-  return host.endsWith(".ts.net") || host.endsWith(".beta.tailscale.net") || isTailscaleIPv4Host(host);
+  return (
+    host.endsWith(".ts.net") || host.endsWith(".beta.tailscale.net") || isTailscaleIPv4Host(host)
+  );
 }
 
 function isPrivateIPv4Host(host: string) {
@@ -280,11 +296,15 @@ function isTailscaleIPv4Host(host: string) {
 
 function isLocalIPv6Host(host: string) {
   const normalized = host.replace(/^\[/, "").replace(/\]$/, "");
-  return normalized.startsWith("fe80:") || normalized.startsWith("fc") || normalized.startsWith("fd");
+  return (
+    normalized.startsWith("fe80:") || normalized.startsWith("fc") || normalized.startsWith("fd")
+  );
 }
 
 function isVirtualInterfaceName(name: string) {
-  return /^(?:awdl|bridge|docker|llw|tap|tailscale|tun|utun|vbox|virbr|vmenet|vmnet|wg)/i.test(name);
+  return /^(?:awdl|bridge|docker|llw|tap|tailscale|tun|utun|vbox|virbr|vmenet|vmnet|wg)/i.test(
+    name,
+  );
 }
 
 function interfaceRank(name: string) {
