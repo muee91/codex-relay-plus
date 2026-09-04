@@ -11,6 +11,7 @@ import { Colors, Fonts, Spacing } from "@/constants/theme";
 import { reconcileCodexRelayConnection } from "@/lib/codex-relay-connection-manager";
 import {
   getCodexRelayConnectionMode,
+  isLocalServerUrl,
   setCodexRelayConnectionMode,
   type CodexRelayConnectionMode,
 } from "@/lib/codex-relay-server-url-storage";
@@ -26,27 +27,35 @@ import { chatStore$, setConnection, setServerUrl } from "@/state/chat-store";
 const isZhCn = process.env.CODEX_RELAY_LOCALE === "zh-CN";
 const pathRefreshMs = 4_000;
 
+type ConnectionPathStatus =
+  | TailcatPathStatus
+  | {
+      endpoint?: string;
+      latencyMs?: number;
+      path: "remote";
+    };
+
 const copy = isZhCn
   ? {
       title: "连接",
       modeTitle: "连接模式",
       pathTitle: "连接路径",
-      description: "自动模式优先使用局域网；离开当前网络后自动切换到 Tailcat。",
+      description: "自动模式优先使用局域网；离开当前网络后自动切换到 Tailcat 或其他远程路径。",
       unavailableTitle: "连接方式不可用",
       unavailableFallback: "当前连接方式无法访问已配对的电脑。",
       endpoint: "端点",
-      latency: "延迟",
       modes: {
-        auto: { label: "自动", subtitle: "优先局域网，不可用时自动切换 Tailcat", shortLabel: "自动" },
+        auto: { label: "自动", subtitle: "优先局域网，不可用时自动切换远程", shortLabel: "自动" },
         local: { label: "仅局域网", subtitle: "只连接同一 Wi-Fi / LAN", shortLabel: "LAN" },
-        remote: { label: "仅远程", subtitle: "始终使用 Tailcat 远程路径", shortLabel: "远程" },
+        remote: { label: "仅远程", subtitle: "使用 Tailcat、Tailscale 或其他远程地址", shortLabel: "远程" },
       },
       paths: {
-        idle: { label: "等待连接", detail: "尚未建立原生传输", shortLabel: "AUTO" },
+        idle: { label: "等待连接", detail: "尚未建立可用传输", shortLabel: "AUTO" },
         lan: { label: "局域网", detail: "正在使用本地 Wi-Fi / LAN", shortLabel: "LAN" },
         connecting: { label: "正在切换", detail: "正在建立可用连接路径", shortLabel: "…" },
         direct: { label: "Tailcat · 直连", detail: "正在使用端到端远程直连", shortLabel: "DIRECT" },
         derp: { label: "Tailcat · DERP", detail: "直连不可用，正在通过 DERP 中继", shortLabel: "DERP" },
+        remote: { label: "远程地址", detail: "正在使用 Tailscale 或配置的远程 Relay", shortLabel: "REMOTE" },
         offline: { label: "离线", detail: "正在等待可用网络", shortLabel: "OFFLINE" },
       },
     }
@@ -54,15 +63,14 @@ const copy = isZhCn
       title: "Connection",
       modeTitle: "Connection mode",
       pathTitle: "Connection path",
-      description: "Automatic prefers LAN and switches to Tailcat when you leave the local network.",
+      description: "Automatic prefers LAN and switches to Tailcat or another remote path when needed.",
       unavailableTitle: "Connection mode unavailable",
       unavailableFallback: "Could not reach the paired computer with this connection mode.",
       endpoint: "Endpoint",
-      latency: "Latency",
       modes: {
         auto: {
           label: "Automatic",
-          subtitle: "Prefer LAN, switch to Tailcat when needed",
+          subtitle: "Prefer LAN, switch to a remote path when needed",
           shortLabel: "AUTO",
         },
         local: {
@@ -72,16 +80,17 @@ const copy = isZhCn
         },
         remote: {
           label: "Remote only",
-          subtitle: "Always use the Tailcat remote path",
+          subtitle: "Use Tailcat, Tailscale, or another remote address",
           shortLabel: "REMOTE",
         },
       },
       paths: {
-        idle: { label: "Waiting", detail: "Native transport is not active yet", shortLabel: "AUTO" },
+        idle: { label: "Waiting", detail: "No usable transport is active yet", shortLabel: "AUTO" },
         lan: { label: "Local network", detail: "Using local Wi-Fi / LAN", shortLabel: "LAN" },
         connecting: { label: "Switching", detail: "Finding an available connection path", shortLabel: "…" },
         direct: { label: "Tailcat · Direct", detail: "Using a peer-to-peer remote path", shortLabel: "DIRECT" },
         derp: { label: "Tailcat · DERP", detail: "Direct path unavailable; using a DERP relay", shortLabel: "DERP" },
+        remote: { label: "Remote address", detail: "Using Tailscale or a configured remote Relay", shortLabel: "REMOTE" },
         offline: { label: "Offline", detail: "Waiting for an available network", shortLabel: "OFFLINE" },
       },
     };
@@ -94,8 +103,11 @@ export default function SettingsScreen() {
   const connection = useSelector(() => chatStore$.connection.get());
   const connectionError = useSelector(() => chatStore$.error.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
+  const serverUrl = useSelector(() => chatStore$.serverUrl.get());
   const [connectionMode, setConnectionMode] = useState(() => getCodexRelayConnectionMode());
-  const [pathStatus, setPathStatus] = useState<TailcatPathStatus>({ path: "idle" });
+  const [pathStatus, setPathStatus] = useState<ConnectionPathStatus>(() =>
+    inferNonNativePath(connection, serverUrl, hasPairedSession),
+  );
   const [modalVisible, setModalVisible] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [switching, setSwitching] = useState(false);
@@ -106,15 +118,17 @@ export default function SettingsScreen() {
     let active = true;
 
     async function refreshPath() {
-      if (!hasPairedSession || !isNativeTailcatAvailable()) {
+      const fallback = inferNonNativePath(connection, serverUrl, hasPairedSession);
+      if (!hasPairedSession || !isNativeTailcatAvailable() || connectionMode === "local") {
         if (active) {
-          setPathStatus({ path: hasPairedSession && connection === "offline" ? "offline" : "idle" });
+          setPathStatus(fallback);
         }
         return;
       }
+
       const next = await getNativeTailcatStatus().catch((): TailcatPathStatus => ({ path: "offline" }));
       if (active) {
-        setPathStatus(next);
+        setPathStatus(next.path === "idle" && connection === "connected" ? fallback : next);
       }
     }
 
@@ -124,7 +138,7 @@ export default function SettingsScreen() {
       active = false;
       clearInterval(timer);
     };
-  }, [connection, connectionMode, hasPairedSession]);
+  }, [connection, connectionMode, hasPairedSession, serverUrl]);
 
   async function selectConnectionMode(mode: CodexRelayConnectionMode) {
     if (switching || !hasPairedSession || (mode === connectionMode && mode !== "auto")) {
@@ -147,10 +161,17 @@ export default function SettingsScreen() {
       setServerUrl(reconciled.serverUrl);
       setStatusState(queryClient, reconciled.status);
       setConnection("connected");
-      if (isNativeTailcatAvailable()) {
-        setPathStatus(
-          await getNativeTailcatStatus().catch((): TailcatPathStatus => ({ path: "offline" })),
+      if (isNativeTailcatAvailable() && mode !== "local") {
+        const next = await getNativeTailcatStatus().catch(
+          (): TailcatPathStatus => ({ path: "offline" }),
         );
+        setPathStatus(
+          next.path === "idle"
+            ? inferNonNativePath("connected", reconciled.serverUrl, true)
+            : next,
+        );
+      } else {
+        setPathStatus(inferNonNativePath("connected", reconciled.serverUrl, true));
       }
       setRefreshKey((value) => value + 1);
       setModalVisible(false);
@@ -222,7 +243,11 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
 
-            <View style={styles.pathCard} accessible accessibilityLabel={`${copy.pathTitle}: ${activePath.label}`}>
+            <View
+              accessible
+              accessibilityLabel={`${copy.pathTitle}: ${activePath.label}`}
+              style={styles.pathCard}
+            >
               <View style={[styles.pathDotLarge, pathDotStyle(pathStatus.path)]} />
               <View style={styles.pathCopy}>
                 <ThemedText type="code" themeColor="textSecondary" style={styles.pathEyebrow}>
@@ -235,7 +260,12 @@ export default function SettingsScreen() {
                   {pathDetail(pathStatus, activePath.detail)}
                 </ThemedText>
                 {pathStatus.endpoint ? (
-                  <ThemedText type="code" themeColor="textSecondary" style={styles.pathMeta} numberOfLines={1}>
+                  <ThemedText
+                    type="code"
+                    themeColor="textSecondary"
+                    style={styles.pathMeta}
+                    numberOfLines={1}
+                  >
                     {copy.endpoint}: {pathStatus.endpoint}
                   </ThemedText>
                 ) : null}
@@ -281,7 +311,10 @@ export default function SettingsScreen() {
                       </ThemedText>
                     </View>
                     <View style={[styles.modeBadge, selected && styles.modeBadgeSelected]}>
-                      <ThemedText type="code" style={[styles.modeBadgeText, selected && styles.modeBadgeTextSelected]}>
+                      <ThemedText
+                        type="code"
+                        style={[styles.modeBadgeText, selected && styles.modeBadgeTextSelected]}
+                      >
                         {switching && selected
                           ? isZhCn
                             ? "检查中"
@@ -306,18 +339,37 @@ export default function SettingsScreen() {
   );
 }
 
-function pathDetail(status: TailcatPathStatus, fallback: string) {
+function inferNonNativePath(
+  connection: string,
+  serverUrl: string,
+  hasPairedSession: boolean,
+): ConnectionPathStatus {
+  if (!hasPairedSession) {
+    return { path: "idle" };
+  }
+  if (connection === "offline") {
+    return { path: "offline" };
+  }
+  if (connection !== "connected") {
+    return { path: "connecting" };
+  }
+  return isLocalServerUrl(serverUrl)
+    ? { endpoint: serverUrl, path: "lan" }
+    : { endpoint: serverUrl, path: "remote" };
+}
+
+function pathDetail(status: ConnectionPathStatus, fallback: string) {
   if (status.path === "derp" && status.derpRegion) {
     return `${fallback} · ${status.derpRegion}`;
   }
-  if (status.error && status.path === "offline") {
+  if ("error" in status && status.error && status.path === "offline") {
     return status.error;
   }
   return fallback;
 }
 
-function pathDotStyle(path: TailcatPathStatus["path"]) {
-  if (path === "lan" || path === "direct") {
+function pathDotStyle(path: ConnectionPathStatus["path"]) {
+  if (path === "lan" || path === "direct" || path === "remote") {
     return styles.pathDotHealthy;
   }
   if (path === "derp" || path === "connecting") {
