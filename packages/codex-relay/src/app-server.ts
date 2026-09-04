@@ -319,7 +319,7 @@ export class CodexAppServerClient {
     return this.ensureInitialized();
   }
 
-  async listThreads(limit = 80) {
+  async listThreads(limit = 80, options: { archived?: boolean } = {}) {
     const threads: AppServerThread[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | undefined;
@@ -328,7 +328,7 @@ export class CodexAppServerClient {
         data: AppServerThread[];
         nextCursor?: string | null;
       }>("thread/list", {
-        archived: false,
+        archived: options.archived ?? false,
         limit,
         sortDirection: "desc",
         sortKey: "recency_at",
@@ -347,11 +347,61 @@ export class CodexAppServerClient {
   }
 
   async readThread(threadId: string, options: { includeTurns?: boolean } = {}) {
+    const includeTurns = options.includeTurns ?? true;
+    if (!includeTurns) {
+      const response = await this.request<{ thread: AppServerThread }>("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      return response.thread;
+    }
+
+    const metadataResponse = await this.request<{ thread: AppServerThread }>("thread/read", {
+      threadId,
+      includeTurns: false,
+    });
+    if (metadataResponse.thread.historyMode === "paginated") {
+      try {
+        const turns = await this.listThreadTurns(threadId);
+        return { ...metadataResponse.thread, turns };
+      } catch (error) {
+        if (!isUnsupportedAppServerMethodError(error)) {
+          throw error;
+        }
+      }
+    }
+
     const response = await this.request<{ thread: AppServerThread }>("thread/read", {
       threadId,
-      includeTurns: options.includeTurns ?? true,
+      includeTurns: true,
     });
     return response.thread;
+  }
+
+  async listThreadTurns(threadId: string, limit = 100) {
+    const turns: AppServerTurn[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const response = await this.request<{
+        data: AppServerTurn[];
+        nextCursor?: string | null;
+      }>("thread/turns/list", {
+        threadId,
+        limit,
+        sortDirection: "asc",
+        itemsView: "full",
+        ...(cursor ? { cursor } : {}),
+      });
+      turns.push(...response.data);
+      const nextCursor = response.nextCursor ?? undefined;
+      if (!nextCursor || seenCursors.has(nextCursor)) {
+        break;
+      }
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    } while (cursor);
+    return turns;
   }
 
   async listModels(limit = 80) {
@@ -408,6 +458,11 @@ export class CodexAppServerClient {
     this.subscribedThreadIds.delete(params.threadId);
     this.activeTurnIdsByThreadId.delete(params.threadId);
     this.terminalTurnIdsByThreadId.delete(params.threadId);
+  }
+
+  async unarchiveThread(params: AppServerThreadArchiveParams) {
+    const response = await this.request<{ thread: AppServerThread }>("thread/unarchive", params);
+    return response.thread;
   }
 
   async setThreadName(params: AppServerThreadNameSetParams) {
@@ -1075,6 +1130,11 @@ function isAppServerTurnInProgress(turn: AppServerTurn) {
   return ["active", "inprogress", "running"].includes(
     status.toLowerCase().replace(/[^a-z0-9]/g, ""),
   );
+}
+
+function isUnsupportedAppServerMethodError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /method not found|unsupported|-32601/i.test(message);
 }
 
 function asError(error: unknown) {
