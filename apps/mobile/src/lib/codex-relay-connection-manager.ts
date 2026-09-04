@@ -57,6 +57,11 @@ export function reconcileCodexRelayConnection() {
   return pendingReconciliation;
 }
 
+export function teardownCodexRelayNativeTransport() {
+  pendingReconciliation = undefined;
+  return stopNativeTransport();
+}
+
 async function reconcileCodexRelayConnectionOnce(): Promise<CodexRelayConnectionReconciliation> {
   if (!hasCodexRelaySession()) {
     throw new Error("Pair this device before choosing a connection path.");
