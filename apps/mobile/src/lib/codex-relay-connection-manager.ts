@@ -108,10 +108,10 @@ async function reconcileCodexRelayConnectionOnce(): Promise<CodexRelayConnection
 function shouldUseNativeRelayTransport() {
   return Boolean(
     Platform.OS === "android" &&
-      getCodexRelayConnectionMode() !== "local" &&
-      hasCodexRelaySession() &&
-      isNativeTailcatAvailable() &&
-      getTailcatBootstrapCandidate(),
+    getCodexRelayConnectionMode() !== "local" &&
+    hasCodexRelaySession() &&
+    isNativeTailcatAvailable() &&
+    getTailcatBootstrapCandidate(),
   );
 }
 
