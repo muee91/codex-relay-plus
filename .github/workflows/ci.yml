@@ -33,16 +33,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Print exact formatter patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          files=(
-            apps/mobile/src/lib/codex-relay-connection-manager.ts
-            packages/codex-relay/src/index.ts
-            packages/codex-relay/src/network-state-manager.ts
-            packages/codex-relay/src/pairing-url-candidates.ts
-          )
-          pnpm exec oxfmt "${files[@]}" --write
-          git diff -- "${files[@]}"
-          exit 1
+      - name: Lint and check formatting
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test release version policy
+        run: pnpm test:release
