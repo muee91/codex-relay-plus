@@ -196,7 +196,10 @@ async function syncNativeTransport(forceDiscovery: boolean, generation: number) 
   return nativeTransportServerUrl;
 }
 
-function isNativeSyncCurrent(generation: number, mode: ReturnType<typeof getCodexRelayConnectionMode>) {
+function isNativeSyncCurrent(
+  generation: number,
+  mode: ReturnType<typeof getCodexRelayConnectionMode>,
+) {
   return Boolean(
     generation === nativeSyncGeneration &&
     getCodexRelayConnectionMode() === mode &&

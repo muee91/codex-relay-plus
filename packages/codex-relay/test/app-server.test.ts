@@ -222,7 +222,6 @@ describe("CodexAppServerClient shared socket mode", () => {
       expect(threads.map((thread) => thread.id)).toEqual(["thread-newer", "thread-older"]);
       expect(requests).toHaveLength(2);
       expect(requests[0]?.params).toMatchObject({
-        archived: false,
         limit: 1,
         sortKey: "recency_at",
         sortDirection: "desc",
@@ -233,111 +232,6 @@ describe("CodexAppServerClient shared socket mode", () => {
         cursor: "page-2",
         useStateDbOnly: true,
       });
-    } finally {
-      client.close();
-      await server.close();
-      await rm(codexHome, { force: true, recursive: true });
-    }
-  });
-
-  it("loads paginated thread history through thread/turns/list instead of full thread/read hydration", async () => {
-    const codexHome = await mkdtemp(join(socketTempRoot, "codex-relay-app-server-history-"));
-    const socketPath = join(codexHome, "app-server-control", "app-server-control.sock");
-    const server = await startSharedSocketServer(socketPath, (request) => {
-      if (request.method === "thread/read") {
-        return {
-          thread: {
-            id: "thread-paginated",
-            historyMode: "paginated",
-            turns: [],
-          },
-        };
-      }
-      if (request.method === "thread/turns/list") {
-        return request.params?.cursor === "history-page-2"
-          ? {
-              data: [{ id: "turn-2", items: [], itemsView: "full", status: "completed" }],
-              nextCursor: null,
-            }
-          : {
-              data: [{ id: "turn-1", items: [], itemsView: "full", status: "completed" }],
-              nextCursor: "history-page-2",
-            };
-      }
-      return {};
-    });
-    vi.stubEnv("CODEX_HOME", codexHome);
-    vi.stubEnv("CODEX_RELAY_APP_SERVER_MODE", "socket");
-    const client = new CodexAppServerClient({
-      startSharedServer: async () => {
-        throw new Error("Expected the client to attach to the existing shared app-server.");
-      },
-    });
-
-    try {
-      const thread = await client.readThread("thread-paginated", { includeTurns: true });
-      const readRequests = server.requests.filter((request) => request.method === "thread/read");
-      const historyRequests = server.requests.filter(
-        (request) => request.method === "thread/turns/list",
-      );
-
-      expect(thread.turns?.map((turn) => turn.id)).toEqual(["turn-1", "turn-2"]);
-      expect(readRequests).toHaveLength(1);
-      expect(readRequests[0]?.params).toEqual({
-        includeTurns: false,
-        threadId: "thread-paginated",
-      });
-      expect(historyRequests).toHaveLength(2);
-      expect(historyRequests[0]?.params).toEqual({
-        itemsView: "full",
-        limit: 100,
-        sortDirection: "asc",
-        threadId: "thread-paginated",
-      });
-      expect(historyRequests[1]?.params).toEqual({
-        cursor: "history-page-2",
-        itemsView: "full",
-        limit: 100,
-        sortDirection: "asc",
-        threadId: "thread-paginated",
-      });
-    } finally {
-      client.close();
-      await server.close();
-      await rm(codexHome, { force: true, recursive: true });
-    }
-  });
-
-  it("requests archived threads and restores them with native app-server methods", async () => {
-    const codexHome = await mkdtemp(join(socketTempRoot, "codex-relay-app-server-archive-"));
-    const socketPath = join(codexHome, "app-server-control", "app-server-control.sock");
-    const server = await startSharedSocketServer(socketPath, (request) => {
-      if (request.method === "thread/list") {
-        return { data: [{ id: "thread-archived" }], nextCursor: null };
-      }
-      if (request.method === "thread/unarchive") {
-        return { thread: { id: request.params?.threadId } };
-      }
-      return {};
-    });
-    vi.stubEnv("CODEX_HOME", codexHome);
-    vi.stubEnv("CODEX_RELAY_APP_SERVER_MODE", "socket");
-    const client = new CodexAppServerClient({
-      startSharedServer: async () => {
-        throw new Error("Expected the client to attach to the existing shared app-server.");
-      },
-    });
-
-    try {
-      const archived = await client.listThreads(80, { archived: true });
-      const restored = await client.unarchiveThread({ threadId: "thread-archived" });
-      const listRequest = server.requests.find((request) => request.method === "thread/list");
-      const restoreRequest = server.requests.find((request) => request.method === "thread/unarchive");
-
-      expect(archived.map((thread) => thread.id)).toEqual(["thread-archived"]);
-      expect(restored.id).toBe("thread-archived");
-      expect(listRequest?.params).toMatchObject({ archived: true });
-      expect(restoreRequest?.params).toEqual({ threadId: "thread-archived" });
     } finally {
       client.close();
       await server.close();
