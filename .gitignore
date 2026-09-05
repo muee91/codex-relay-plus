@@ -25,7 +25,7 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 apps/mobile/native-libs/*.aar
-apps/mobile/native-tailcat-ios/Bridge.xcframework/
+apps/mobile/native-tailcat-ios/Frameworks/
 
 # Metro
 .metro-health-check*
@@ -55,4 +55,4 @@ apps/mobile/ios/
 apps/mobile/android/
 .omx/
 # hot-updater
-.hot-updater/output
+.hot-updater/output/
