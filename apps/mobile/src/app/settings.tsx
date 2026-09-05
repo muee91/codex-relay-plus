@@ -93,6 +93,14 @@ export default function SettingsScreen() {
   const activePath = copy.paths[path];
 
   useEffect(() => {
+    if (connectionMode !== "remote") {
+      return;
+    }
+    setCodexRelayConnectionMode("auto");
+    setConnectionMode("auto");
+  }, [connectionMode]);
+
+  useEffect(() => {
     let active = true;
 
     async function refreshPath() {
