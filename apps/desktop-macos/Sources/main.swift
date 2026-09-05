@@ -13,6 +13,9 @@ private enum C {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
   private var window: NSWindow?
   private var webView: WKWebView?
+  private var tailcatSwitch: NSSwitch?
+  private var tailcatStatusLabel: NSTextField?
+  private var tailcatCopyButton: NSButton?
   private var statusItem: NSStatusItem!
   private var relayStatusMenuItem: NSMenuItem!
   private var tailcatStatusMenuItem: NSMenuItem!
@@ -145,6 +148,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     nextWebView.navigationDelegate = self
     nextWebView.uiDelegate = self
     nextWebView.underPageBackgroundColor = .clear
+    nextWebView.translatesAutoresizingMaskIntoConstraints = false
+
+    let tailcatBar = NSVisualEffectView()
+    tailcatBar.material = .headerView
+    tailcatBar.blendingMode = .withinWindow
+    tailcatBar.state = .active
+    tailcatBar.translatesAutoresizingMaskIntoConstraints = false
+
+    let tailcatTitle = NSTextField(labelWithString: "Tailcat 远程访问")
+    tailcatTitle.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+    tailcatTitle.textColor = .labelColor
+
+    let nextTailcatStatusLabel = NSTextField(labelWithString: "正在读取状态…")
+    nextTailcatStatusLabel.font = NSFont.systemFont(ofSize: 11)
+    nextTailcatStatusLabel.textColor = .secondaryLabelColor
+    nextTailcatStatusLabel.lineBreakMode = .byTruncatingMiddle
+
+    let labels = NSStackView(views: [tailcatTitle, nextTailcatStatusLabel])
+    labels.orientation = .vertical
+    labels.alignment = .leading
+    labels.spacing = 2
+    labels.translatesAutoresizingMaskIntoConstraints = false
+
+    let nextTailcatCopyButton = NSButton(
+      title: "复制地址",
+      target: self,
+      action: #selector(copyTailcatAddress(_:))
+    )
+    nextTailcatCopyButton.bezelStyle = .rounded
+    nextTailcatCopyButton.controlSize = .small
+    nextTailcatCopyButton.isEnabled = false
+
+    let nextTailcatSwitch = NSSwitch()
+    nextTailcatSwitch.state = tailcatEnabled ? .on : .off
+    nextTailcatSwitch.target = self
+    nextTailcatSwitch.action = #selector(toggleTailcatSwitch(_:))
+
+    let controls = NSStackView(views: [nextTailcatCopyButton, nextTailcatSwitch])
+    controls.orientation = .horizontal
+    controls.alignment = .centerY
+    controls.spacing = 10
+    controls.translatesAutoresizingMaskIntoConstraints = false
+
+    tailcatBar.addSubview(labels)
+    tailcatBar.addSubview(controls)
+
+    let content = NSView()
+    content.addSubview(tailcatBar)
+    content.addSubview(nextWebView)
+
+    NSLayoutConstraint.activate([
+      tailcatBar.topAnchor.constraint(equalTo: content.topAnchor),
+      tailcatBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+      tailcatBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+      tailcatBar.heightAnchor.constraint(equalToConstant: 56),
+
+      labels.leadingAnchor.constraint(equalTo: tailcatBar.leadingAnchor, constant: 16),
+      labels.centerYAnchor.constraint(equalTo: tailcatBar.centerYAnchor),
+      labels.trailingAnchor.constraint(lessThanOrEqualTo: controls.leadingAnchor, constant: -16),
+
+      controls.trailingAnchor.constraint(equalTo: tailcatBar.trailingAnchor, constant: -16),
+      controls.centerYAnchor.constraint(equalTo: tailcatBar.centerYAnchor),
+
+      nextWebView.topAnchor.constraint(equalTo: tailcatBar.bottomAnchor),
+      nextWebView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+      nextWebView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+      nextWebView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+    ])
 
     let nextWindow = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 1040, height: 700),
@@ -155,13 +226,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     nextWindow.title = C.name
     nextWindow.titlebarAppearsTransparent = true
     nextWindow.titleVisibility = .hidden
+    nextWindow.isMovableByWindowBackground = true
     nextWindow.minSize = NSSize(width: 820, height: 580)
     nextWindow.center()
-    nextWindow.contentView = nextWebView
+    nextWindow.contentView = content
     nextWindow.delegate = self
 
+    tailcatSwitch = nextTailcatSwitch
+    tailcatStatusLabel = nextTailcatStatusLabel
+    tailcatCopyButton = nextTailcatCopyButton
     webView = nextWebView
     window = nextWindow
+    refreshTailcatMenu()
   }
 
   @objc private func showHostPanel(_ sender: Any?) {
@@ -195,8 +271,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   }
 
   @objc private func toggleTailcat(_ sender: NSMenuItem) {
-    tailcatEnabled = !tailcatEnabled
-    sender.state = tailcatEnabled ? .on : .off
+    setTailcatEnabled(!tailcatEnabled)
+  }
+
+  @objc private func toggleTailcatSwitch(_ sender: NSSwitch) {
+    setTailcatEnabled(sender.state == .on)
+  }
+
+  private func setTailcatEnabled(_ enabled: Bool) {
+    guard enabled != tailcatEnabled else {
+      refreshTailcatMenu()
+      return
+    }
+    tailcatEnabled = enabled
     currentTailcatAddress = nil
     refreshTailcatMenu()
     startRelay()
@@ -321,38 +408,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
   }
 
-  private func refreshTailcatMenu() {
-    guard tailcatStatusMenuItem != nil else { return }
+  private func renderTailcatStatus(
+    status: String,
+    detail: String,
+    menuAddress: String? = nil,
+    copyEnabled: Bool
+  ) {
+    tailcatStatusMenuItem?.title = "Tailcat：\(status)"
+    tailcatAddressMenuItem?.title = "Tailcat 地址：\(menuAddress ?? "—")"
+    tailcatStatusLabel?.stringValue = detail.isEmpty ? status : "\(status) · \(detail)"
     tailcatToggleMenuItem?.state = tailcatEnabled ? .on : .off
+    tailcatSwitch?.state = tailcatEnabled ? .on : .off
+    copyTailcatAddressMenuItem?.isEnabled = copyEnabled
+    tailcatCopyButton?.isEnabled = copyEnabled
+  }
+
+  private func refreshTailcatMenu() {
+    tailcatToggleMenuItem?.state = tailcatEnabled ? .on : .off
+    tailcatSwitch?.state = tailcatEnabled ? .on : .off
 
     guard tailcatEnabled else {
-      tailcatStatusMenuItem.title = "Tailcat：已关闭"
-      tailcatAddressMenuItem.title = "Tailcat 地址：—"
-      copyTailcatAddressMenuItem?.isEnabled = false
       currentTailcatAddress = nil
+      renderTailcatStatus(status: "已关闭", detail: "仅局域网", copyEnabled: false)
       return
     }
 
     guard let process = relay else {
-      tailcatStatusMenuItem.title = "Tailcat：等待 Relay"
-      tailcatAddressMenuItem.title = "Tailcat 地址：—"
-      copyTailcatAddressMenuItem?.isEnabled = false
       currentTailcatAddress = nil
+      renderTailcatStatus(status: "等待 Relay", detail: "远程访问尚未启动", copyEnabled: false)
       return
     }
 
     guard let status = readTailcatStatus(for: process.processIdentifier) else {
-      tailcatStatusMenuItem.title = relayReady ? "Tailcat：启动中或暂不可用" : "Tailcat：正在启动"
-      tailcatAddressMenuItem.title = "Tailcat 地址：—"
-      copyTailcatAddressMenuItem?.isEnabled = false
       currentTailcatAddress = nil
+      renderTailcatStatus(
+        status: relayReady ? "启动中或暂不可用" : "正在启动",
+        detail: "局域网仍可用",
+        copyEnabled: false
+      )
       return
     }
 
     currentTailcatAddress = status.address
-    tailcatStatusMenuItem.title = "Tailcat：已就绪"
-    tailcatAddressMenuItem.title = "Tailcat 地址：\(status.address) · :\(status.port)"
-    copyTailcatAddressMenuItem?.isEnabled = true
+    let address = "\(status.address) · :\(status.port)"
+    renderTailcatStatus(
+      status: "已就绪",
+      detail: address,
+      menuAddress: address,
+      copyEnabled: true
+    )
   }
 
   private func readTailcatStatus(for relayPid: pid_t) -> (address: String, port: Int)? {
