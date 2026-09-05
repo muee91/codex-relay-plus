@@ -11,7 +11,12 @@ if [[ -z "${ANDROID_HOME:-}" ]]; then
   echo "ANDROID_HOME or ANDROID_SDK_ROOT is required" >&2
   exit 1
 fi
+if ! command -v go >/dev/null 2>&1; then
+  echo "Go is required to build the Tailcat Android transport." >&2
+  exit 1
+fi
 
+export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
 export PATH="$(go env GOPATH)/bin:$PATH"
 go install "golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
 go install "golang.org/x/mobile/cmd/gobind@${GOMOBILE_VERSION}"
@@ -20,9 +25,10 @@ gomobile init
 mkdir -p "$OUT_DIR"
 (
   cd "$BRIDGE_DIR"
-  go mod tidy
   gomobile bind \
-    -target=android/arm64 \
+    -mod=readonly \
+    -trimpath \
+    -target=android \
     -androidapi=24 \
     -o "$OUT_DIR/CodexRelayTailcat.aar" \
     ./bridge
