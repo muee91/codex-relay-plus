@@ -6,7 +6,6 @@ import { dirname } from "node:path";
 import pc from "picocolors";
 import qrcode from "qrcode-terminal";
 
-import { createApp } from "./app.js";
 import { CodexAppServerClient } from "./app-server.js";
 import {
   resolveCodexAppServerMode,
@@ -19,6 +18,7 @@ import { getConnectUrlGuidance, type ConnectUrlCandidate } from "./pairing-url-c
 import { createTursoPairingSessionStore } from "./pairing-store.js";
 import { codexRelayDataPath, legacyCodexRelayDataPath } from "./paths.js";
 import { createFileRuntimePreferencesStore } from "./preferences-store.js";
+import { createRuntimeApp } from "./runtime-app.js";
 import {
   createServerIdentity,
   createServerIdentityFromPrivateKey,
@@ -83,7 +83,7 @@ if (relayAppServer) {
 
 serve(
   {
-    fetch: createApp({
+    fetch: createRuntimeApp({
       appServer: relayAppServer,
       pairing: {
         approvalSecret,
