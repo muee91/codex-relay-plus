@@ -15,7 +15,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   private var webView: WKWebView?
   private var tailcatSwitch: NSSwitch?
   private var tailcatStatusLabel: NSTextField?
-  private var tailcatCopyButton: NSButton?
   private var statusItem: NSStatusItem!
   private var relayStatusMenuItem: NSMenuItem!
   private var tailcatStatusMenuItem: NSMenuItem!
@@ -85,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     tailcatStatusMenuItem.isEnabled = false
     menu.addItem(tailcatStatusMenuItem)
 
-    tailcatAddressMenuItem = NSMenuItem(title: "Tailcat 地址：—", action: nil, keyEquivalent: "")
+    tailcatAddressMenuItem = NSMenuItem(title: "Tailcat 节点：—", action: nil, keyEquivalent: "")
     tailcatAddressMenuItem.isEnabled = false
     menu.addItem(tailcatAddressMenuItem)
     menu.addItem(.separator())
@@ -109,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     menu.addItem(tailcatToggleMenuItem)
 
     copyTailcatAddressMenuItem = NSMenuItem(
-      title: "复制 Tailcat 地址",
+      title: "复制 Tailcat 节点",
       action: #selector(copyTailcatAddress(_:)),
       keyEquivalent: ""
     )
@@ -171,28 +170,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     labels.spacing = 2
     labels.translatesAutoresizingMaskIntoConstraints = false
 
-    let nextTailcatCopyButton = NSButton(
-      title: "复制地址",
-      target: self,
-      action: #selector(copyTailcatAddress(_:))
-    )
-    nextTailcatCopyButton.bezelStyle = .rounded
-    nextTailcatCopyButton.controlSize = .small
-    nextTailcatCopyButton.isEnabled = false
-
     let nextTailcatSwitch = NSSwitch()
     nextTailcatSwitch.state = tailcatEnabled ? .on : .off
     nextTailcatSwitch.target = self
     nextTailcatSwitch.action = #selector(toggleTailcatSwitch(_:))
-
-    let controls = NSStackView(views: [nextTailcatCopyButton, nextTailcatSwitch])
-    controls.orientation = .horizontal
-    controls.alignment = .centerY
-    controls.spacing = 10
-    controls.translatesAutoresizingMaskIntoConstraints = false
+    nextTailcatSwitch.translatesAutoresizingMaskIntoConstraints = false
 
     tailcatBar.addSubview(labels)
-    tailcatBar.addSubview(controls)
+    tailcatBar.addSubview(nextTailcatSwitch)
 
     let content = NSView()
     content.addSubview(tailcatBar)
@@ -206,10 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
       labels.leadingAnchor.constraint(equalTo: tailcatBar.leadingAnchor, constant: 16),
       labels.centerYAnchor.constraint(equalTo: tailcatBar.centerYAnchor),
-      labels.trailingAnchor.constraint(lessThanOrEqualTo: controls.leadingAnchor, constant: -16),
+      labels.trailingAnchor.constraint(lessThanOrEqualTo: nextTailcatSwitch.leadingAnchor, constant: -16),
 
-      controls.trailingAnchor.constraint(equalTo: tailcatBar.trailingAnchor, constant: -16),
-      controls.centerYAnchor.constraint(equalTo: tailcatBar.centerYAnchor),
+      nextTailcatSwitch.trailingAnchor.constraint(equalTo: tailcatBar.trailingAnchor, constant: -16),
+      nextTailcatSwitch.centerYAnchor.constraint(equalTo: tailcatBar.centerYAnchor),
 
       nextWebView.topAnchor.constraint(equalTo: tailcatBar.bottomAnchor),
       nextWebView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -234,7 +219,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     tailcatSwitch = nextTailcatSwitch
     tailcatStatusLabel = nextTailcatStatusLabel
-    tailcatCopyButton = nextTailcatCopyButton
     webView = nextWebView
     window = nextWindow
     refreshTailcatMenu()
@@ -415,12 +399,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     copyEnabled: Bool
   ) {
     tailcatStatusMenuItem?.title = "Tailcat：\(status)"
-    tailcatAddressMenuItem?.title = "Tailcat 地址：\(menuAddress ?? "—")"
+    tailcatAddressMenuItem?.title = "Tailcat 节点：\(menuAddress ?? "—")"
     tailcatStatusLabel?.stringValue = detail.isEmpty ? status : "\(status) · \(detail)"
     tailcatToggleMenuItem?.state = tailcatEnabled ? .on : .off
     tailcatSwitch?.state = tailcatEnabled ? .on : .off
     copyTailcatAddressMenuItem?.isEnabled = copyEnabled
-    tailcatCopyButton?.isEnabled = copyEnabled
   }
 
   private func refreshTailcatMenu() {
