@@ -28,25 +28,27 @@ describe("control center page", () => {
     expect(html).not.toContain("getPairingParam");
   });
 
-  it("labels diagnostic copy actions by the data they copy", () => {
+  it("keeps technical Tailcat identifiers out of the primary status summary", () => {
     const html = renderControlCenterPage("test-token");
 
-    expect(html).toContain("复制 Relay 地址");
+    expect(html).toContain('id="remote-detail"');
+    expect(html).toContain('byId("remote-detail").textContent = t("remoteReadyDetail");');
+    expect(html).toContain("自动远程连接");
     expect(html).toContain("Tailcat 节点");
-    expect(html).not.toContain('data-i18n="copyMobile"');
   });
 
-  it("uses a compact two-column desktop dashboard instead of the old hero and fact grid", () => {
+  it("uses a balanced full-width summary above equal-height device and pairing work areas", () => {
     const html = renderControlCenterPage("test-token");
 
-    expect(html).toContain('class="dashboard"');
-    expect(html).toContain('class="card overview-card"');
+    expect(html).toContain('class="card summary-card"');
+    expect(html).toContain('class="content-grid"');
     expect(html).toContain('class="card devices-card"');
     expect(html).toContain('class="card pair-card"');
-    expect(html).toContain("grid-template-columns: minmax(0, 1fr) 332px;");
-    expect(html).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
+    expect(html).toContain("grid-template-rows: 118px minmax(0, 1fr);");
+    expect(html).toContain("grid-template-columns: minmax(0, 1fr) 360px;");
     expect(html).not.toContain('class="hero"');
     expect(html).not.toContain('class="facts"');
+    expect(html).not.toContain('class="brand-mark"');
   });
 
   it("keeps the desktop dashboard inside one viewport and diagnostics out of document flow", () => {
@@ -60,13 +62,16 @@ describe("control center page", () => {
     expect(html).not.toContain("details.advanced");
   });
 
-  it("keeps the Tailcat toggle in the menu bar instead of the dashboard", () => {
+  it("keeps the Tailcat toggle in a compact menu without rendering the long node address", () => {
     const html = renderControlCenterPage("test-token");
 
     expect(desktopSource).toContain('title: "Tailcat 远程访问"');
+    expect(desktopSource).toContain('title: "复制 Tailcat 节点"');
+    expect(desktopSource).not.toContain("tailcatAddressMenuItem");
+    expect(desktopSource).not.toContain('"Tailcat 节点：');
     expect(desktopSource).not.toContain("NSSwitch()");
-    expect(desktopSource).not.toContain("tailcatBar");
-    expect(desktopSource).toContain("nextWebView.topAnchor.constraint(equalTo: content.topAnchor)");
+    expect(desktopSource).toContain("width: 1040, height: 620");
+    expect(desktopSource).toContain("width: 900, height: 580");
     expect(html).not.toContain('type="checkbox"');
   });
 });
