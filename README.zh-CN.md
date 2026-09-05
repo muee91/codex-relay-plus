@@ -1,135 +1,152 @@
 # Codex Relay Plus
 
-Codex Relay Plus 是基于 Codex Relay 的增强 fork，重点补齐两类日常入口：
+Codex Relay Plus 是一个 **mobile-first 的 Codex 远程工作界面**。
 
-- **macOS 原生桌面端**：直接启动本机 Relay、管理默认工作目录、显示配对二维码、批准/拒绝手机、管理已配对设备和环境诊断，不需要先打开终端执行启动命令。
-- **Android 简体中文 APK**：面向桌面端优先的配对流程，保留原有聊天、工作区、模型、图片附件和会话能力，并提供独立 Android 包名，避免与原版客户端安装冲突。
+核心原则只有一条：
 
-> 当前 npm 包名仍沿用上游 `codex-relay`。本 fork 尚未以独立 npm 包名发布；桌面正式版会把 Node.js、Relay 以及 Relay 依赖的 `@openai/codex` runtime 一并打进应用包，因此普通 Mac 用户不需要单独安装或运行 Relay/Codex CLI。已有 Codex 登录状态仍沿用用户本机的 Codex 配置。
+> **真正的日常产品在手机上；Mac 只负责让 Relay 和 Codex 稳定运行。**
 
-## macOS 桌面端
+代码、Git 状态、终端和 Codex runtime 仍留在电脑上，手机通过已配对的 Relay 继续会话、查看执行状态、处理审批和输入请求。
 
-桌面代码位于 `apps/desktop-macos`，使用原生 AppKit + WKWebView。应用启动后会：
+## 产品结构
 
-1. 直接进入桌面端，不要求首次启动先选择文件夹；未设置默认工作目录时，从用户主目录启动 Relay。
-2. 如果用户曾主动设置默认工作目录，则后续启动自动恢复该目录；可随时在“文件 → 更改默认工作目录…”中调整。
-3. 从应用包内启动 Node.js + Codex Relay，自动选择可用的 Relay/Control Center 端口。
-4. 在桌面窗口中打开只监听 `127.0.0.1` 的 Control Center。
-5. 直接在 GUI 中查看二维码、批准或拒绝手机、断开设备、复制连接地址、查看环境诊断。
-6. 退出桌面应用时先向 Relay 发送优雅终止信号，最多等待 2 秒，再对异常残留进程兜底强制结束。
+### Android / Mobile：主产品
 
-“文件”菜单提供：更改默认工作目录、重启 Relay、重新载入控制中心和打开 Relay 日志。默认工作目录只是 Relay/Codex 的启动位置，不是首次使用前必须完成的项目配置。日志写入 `~/Library/Logs/Codex Relay Plus/relay.log`，达到 5 MiB 后轮转一份 `relay.log.1`。
+移动端承担日常使用：
 
-### 原版图标处理
+- 查看、搜索、切换和继续 Codex 会话
+- 新建任务、发送 prompt、追加输入和中断运行
+- 处理 command / file change / permission / structured input 等 Codex 请求
+- 选择 Codex 实际支持的模型、reasoning effort、runtime / permission 模式
+- 查看运行状态、上下文使用量、rate limit、计划和 subagent 活动
+- 添加图片、文件/技能引用
+- 查看 workspace 文件、Git 变化、Web preview 和 terminal 等远程工作表面
+- 在网络变化后继续恢复同一台已配对 Mac 的连接
+- 接收 turn complete / action required 通知
 
-`apps/mobile/assets/images/icon.png` 是唯一图标母版。桌面构建不会重新设计 logo，也不会改变原图的形状、比例或颜色：
+移动端功能是否保留或调整，以 **当前 Codex app-server/CLI 的真实能力和 Relay 的实际映射**为依据，不因为界面看起来复杂就删除真实能力。
 
-- 如果原 PNG 已经有透明背景，母版按字节保留；
-- 如果四角不是已知的近黑色 matte，同样按字节保留；
-- 只有检测到**从图片边缘连通的近黑色背景**时，才会透明化该背景；
-- 内部不与边缘连通的黑色细节不会被删除。
+### macOS：后台 Host
 
-随后由该母版生成标准 macOS `.icns` 尺寸链，避免 Finder、Dock 或 DMG 中出现转换造成的黑色方底。
+macOS App 不是第二个 Codex 客户端，也不是日常控制台。
 
-### 构建 DMG
+它只负责：
 
-在 macOS 13+、Xcode Command Line Tools、Node.js 22.14+ 和 pnpm 11 环境中：
+- 启动并保持 Relay / Codex runtime 运行
+- 菜单栏显示 Relay 状态
+- 添加手机和显示配对二维码
+- 管理已配对设备和待批准设备
+- 提供默认工作目录
+- 重启 Relay
+- 打开日志和基础诊断
+
+应用启动后默认进入**菜单栏后台运行**，不会自动弹出主窗口，也不会抢占焦点。只有需要添加手机、检查状态或排障时才打开 Host 面板；关闭窗口不会停止 Relay。
+
+## 正常使用流程
+
+1. 在 Mac 安装并启动 **Codex Relay Plus**。
+2. Relay 自动在后台启动，菜单栏显示运行状态。
+3. 第一次使用时，从菜单栏选择“添加手机…”。
+4. 手机扫描二维码，在 Mac 上批准该设备。
+5. 关闭 Mac 窗口。
+6. 之后主要在手机端使用 Codex；Mac 端保持后台运行即可。
+
+正常使用不要求用户理解端口、DERP、Tailcat、Tailscale candidate 或其他传输实现细节。移动端负责在可用路径之间恢复连接；这些技术信息只属于诊断层。
+
+## 网络与安全
+
+- Control Center 只监听本机 `127.0.0.1`。
+- 手机 API 使用配对 token 和现有 secure session 加密机制。
+- LAN 可用时优先本地网络；跨网络时 Relay 可使用已配置的安全远程路径。
+- 网络从 LAN → 远程 → LAN 切换时，目标是保持同一移动端会话连续，而不是要求用户重新配对。
+- Sign out / unpair 必须同时清理移动端凭据和原生 transport 状态。
+
+实现细节可以在诊断和开发文档中存在，但不应该成为正常移动 UI 的核心概念。
+
+## 目录职责
+
+```text
+apps/mobile/          主产品：Expo / React Native 移动客户端
+apps/desktop-macos/   Mac Host：AppKit 菜单栏壳和本地 Relay 启动器
+packages/codex-relay/ Relay、配对、安全传输、Codex app-server 映射
+```
+
+新的产品功能默认优先进入移动端。只有以下类型的能力应该进入 macOS：
+
+- Relay 生命周期
+- 配对和设备管理
+- 默认 workspace
+- 日志和诊断
+
+Codex 会话浏览、任务控制、模型/runtime 操作等日常能力不应在 Mac 再实现一套重复 UI。
+
+## Android 构建
+
+Android 包名为：
+
+```text
+com.muee91.codexrelayplus
+```
+
+本地构建环境需要 Node.js 22.14+、pnpm 11、Android SDK/JDK：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm --filter @codex-relay/mobile typecheck
+pnpm --filter @codex-relay/mobile android
+```
+
+仓库保留 Android release artifact workflow，但不应因为普通源码改动频繁手动触发重型构建。
+
+## macOS 构建
+
+要求 macOS 13+、Xcode Command Line Tools、Node.js 22.14+ 和 pnpm 11：
 
 ```bash
 pnpm install --frozen-lockfile
 APP_VERSION=1.0.0 BUILD_NUMBER=1 ./apps/desktop-macos/build.sh
 ```
 
-构建脚本会校验嵌入 Node 的 CPU 架构、实际执行随包 Relay 的 `--help` 烟雾测试、显式签名所有 Mach-O 载荷，并对最终 `.app` 做 `codesign --deep --strict` 校验。
+构建产物会包含匹配架构的 Node runtime 和 Relay，不要求普通用户另外启动终端命令。
 
-GitHub Actions 的 **macOS Desktop** 工作流同时构建：
+## OTA
 
-- Apple Silicon：`arm64`
-- Intel：`x86_64`
+本项目当前**不使用 OTA / HotUpdater 作为发布路径**。
 
-没有 Developer ID 凭据时可生成 ad-hoc 签名 DMG 用于本机测试。要生成可正常 Gatekeeper 分发并完成 Apple notarization/stapling 的版本，请配置：
+移动端更新通过正常安装包发布；仓库中的 OTA workflow、运行时检查和相关配置不应重新引入，除非产品方向明确重新决定支持自更新。
 
-- `MACOS_CERTIFICATE_P12_BASE64`
-- `MACOS_CERTIFICATE_PASSWORD`
-- `MACOS_SIGNING_IDENTITY`
-- `APPLE_ID`
-- `APPLE_TEAM_ID`
-- `APPLE_APP_PASSWORD`
+## 发布前必须验证
 
-## Android 简体中文 APK
+软件静态检查不能替代以下实机链路：
 
-中文 APK 使用现有 Expo/React Native 客户端源码，不复制业务逻辑。构建时通过 `CODEX_RELAY_LOCALE=zh-CN` 启用中文资源转换，因此默认上游/iOS 构建路径不被强制改成中文。
-
-中文版重点覆盖实际使用路径：
-
-- Mac 桌面端优先的首次配对引导
-- QR 扫描、相机权限、配对确认和错误提示
-- 会话抽屉、搜索、新建聊天、置顶/重命名
-- 设置、服务器切换、通知、退出配对
-- 图片附件、聊天回退和常见连接错误
-
-Android 包名为 `com.muee91.codexrelayplus`，与原版 `com.gronstudio.codexrelay` 分离。GitHub 构建时使用 `github.run_number` 作为递增 `versionCode`，便于后续覆盖升级。
-
-### 构建与签名
-
-GitHub Actions 的 **Android APK (zh-CN)** 工作流会：
-
-1. 校验中文转换表；
-2. 对 mobile workspace 执行 TypeScript typecheck；
-3. 使用 Expo `prebuild --platform android --clean` 生成原生 Android 工程；
-4. 构建 `:app:assembleRelease`；
-5. 对 APK 执行 `zipalign` 和 `apksigner`；
-6. 验证 APK 内确实包含中文配对界面标记；
-7. 校验独立包名并生成 SHA-256 文件。
-
-如配置以下四个 Secrets，流水线会使用你的正式 keystore 重新签名：
-
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
-
-如果没有配置正式 keystore，流水线会生成**可直接侧载安装**的 fallback 签名 APK，适合自用和功能验收；它不应作为 Google Play 的最终签名密钥。以后准备上架时应固定使用自己的 release keystore，否则不同签名之间不能直接覆盖升级。
-
-## 配对方式
-
-正式桌面使用路径不要求命令行，也不要求先配置工作目录：
-
-1. 在 Mac 打开 **Codex Relay Plus**；
-2. 在 Android 中文客户端点“扫码”；
-3. 扫描桌面端二维码；
-4. 在 Mac 桌面端“待确认设备”中允许该手机。
-
-如果希望 Codex 默认从某个项目目录开始，可之后在 Mac 的“文件 → 更改默认工作目录…”中设置；这不会影响配对本身。
-
-同一 Wi‑Fi 最简单；跨网络使用时可让 Mac 和手机加入同一 Tailscale 网络。
-
-CLI 仍保留用于开发、自动化和故障排查，例如 `npx codex-relay@latest`、`approve`、`qr`、`clear`、`stop`，但它不再是 Mac 正式桌面用户的必经入口。
-
-## 安全设计
-
-- Control Center 只监听 `127.0.0.1`；
-- API 需要每进程随机 Control Token；
-- 校验 Host Header，降低 DNS rebinding 风险；
-- 设置 CSP、`X-Frame-Options: DENY`、`nosniff`、`no-store`；
-- 手机仍使用现有加密配对/session 机制；
-- 单设备断开时同时清理对应 push subscription；
-- 桌面只终止自己启动的 Relay 实例。
-
-## 开发与回归检查
-
-核心 workspace：
-
-```bash
-pnpm install --frozen-lockfile
-pnpm -r typecheck
-pnpm lint
-pnpm --filter codex-relay test
-node apps/mobile/scripts/verify-zh-cn.cjs
+```text
+Mac + Android 同一 Wi‑Fi
+→ LAN 连接
+→ 手机切到蜂窝/其他网络
+→ 自动恢复远程连接
+→ 手机回到 Wi‑Fi
+→ 自动恢复 LAN
+→ sign out / unpair
+→ App 重启后旧 native proxy 不得恢复
 ```
 
-macOS 原生壳必须在 macOS runner 上完成真实编译、签名和 DMG 验证；Android APK 必须在 Android SDK/JDK 环境中完成 Gradle 构建和签名验证。仓库为这两类产物分别提供独立手动工作流，避免普通源码提交无条件消耗双架构 Mac 和 Android 构建额度。
+Mac 侧同时需要确认：
 
-## 上游同步
+- 启动后不自动弹主窗口
+- Relay 在菜单栏后台正常运行
+- 添加手机/二维码可用
+- Relay 重启和日志入口可用
+- 关闭 Host 面板后 Relay 继续运行
 
-这是 fork，建议持续保留上游远端并定期同步，而不是大范围改写上游包结构。桌面壳、中文 APK 构建和本机 Control Center 尽量以独立层实现，降低后续吸收上游更新时的冲突成本。
+## 开发原则
+
+- `main` 是实际工作分支。
+- 优先完成一个功能闭环，再进入下一个功能。
+- 不为“以后可能会用”新增 wrapper、第二套 API 或重复页面。
+- 移动端能力以当前 Codex 实际能力为依据。
+- Mac 端判断标准：**这个功能是否能让用户更少碰 Mac？** 如果不能，通常不应进入桌面 UI。
+- 非必要不运行重型 CI；先使用源码检查、typecheck 和针对性测试。
+
+## 上游
+
+本仓库是 Codex Relay 的增强 fork。同步上游时优先保持 Relay 核心结构可合并，移动端产品层和 Mac Host 壳尽量保持边界明确，避免为了本 fork 的 UI 需求大面积改写上游协议层。
