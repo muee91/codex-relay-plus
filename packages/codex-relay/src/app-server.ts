@@ -302,6 +302,7 @@ export class CodexAppServerClient {
   private notificationHandlers = new Set<(notification: AppServerNotification) => void>();
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
+  private permissionRequestsById = new Map<number | string, unknown>();
   private reconnecting: Promise<void> | undefined;
   private requestHandlers = new Set<(request: AppServerRequest) => void>();
   private readline: Interface | undefined;
@@ -541,11 +542,28 @@ export class CodexAppServerClient {
   }
 
   async respondToRequest(id: number | string, result: unknown) {
-    await this.writeJson({ id, result });
+    const hasPermissionRequest = this.permissionRequestsById.has(id);
+    const requestedPermissions = this.permissionRequestsById.get(id);
+    try {
+      await this.writeJson({
+        id,
+        result: hasPermissionRequest
+          ? normalizePermissionsApprovalResponse(requestedPermissions, result)
+          : result,
+      });
+    } finally {
+      if (hasPermissionRequest) {
+        this.permissionRequestsById.delete(id);
+      }
+    }
   }
 
   async rejectRequest(id: number | string, code: number, message: string) {
-    await this.writeJson({ id, error: { code, message } });
+    try {
+      await this.writeJson({ id, error: { code, message } });
+    } finally {
+      this.permissionRequestsById.delete(id);
+    }
   }
 
   close() {
@@ -557,6 +575,7 @@ export class CodexAppServerClient {
       pending.reject(new Error("Codex app-server was closed."));
     }
     this.pending.clear();
+    this.permissionRequestsById.clear();
     this.stopStdioCodexAppServer();
     this.stopSharedCodexAppServer();
     this.initialized = undefined;
@@ -1007,6 +1026,13 @@ export class CodexAppServerClient {
       (typeof message.id === "number" || typeof message.id === "string")
     ) {
       debugAppServer("server-request", message.method, message.id);
+      if (message.method === "item/permissions/requestApproval") {
+        const params =
+          message.params && typeof message.params === "object"
+            ? (message.params as Record<string, unknown>)
+            : undefined;
+        this.permissionRequestsById.set(message.id, params?.permissions);
+      }
       const request = { id: message.id, method: message.method, params: message.params };
       if (this.requestHandlers.size === 0) {
         void this.rejectRequest(request.id, -32601, `No handler for ${request.method}.`);
@@ -1175,6 +1201,32 @@ function isAppServerTurnInProgress(turn: AppServerTurn) {
 function isUnsupportedAppServerMethodError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /method not found|unsupported|-32601/i.test(message);
+}
+
+function normalizePermissionsApprovalResponse(requestedPermissions: unknown, result: unknown) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  const response = result as Record<string, unknown>;
+  if (typeof response.strictAutoReview !== "boolean") {
+    return result;
+  }
+  const { strictAutoReview, ...normalized } = response;
+  return {
+    ...normalized,
+    permissions: strictAutoReview ? {} : grantedPermissionsFromRequest(requestedPermissions),
+  };
+}
+
+function grantedPermissionsFromRequest(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      ([, permission]) => permission !== null && permission !== undefined,
+    ),
+  );
 }
 
 function asError(error: unknown) {
