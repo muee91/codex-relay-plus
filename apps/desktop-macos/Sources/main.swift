@@ -16,7 +16,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   private var statusItem: NSStatusItem!
   private var relayStatusMenuItem: NSMenuItem!
   private var tailcatStatusMenuItem: NSMenuItem!
-  private var tailcatAddressMenuItem: NSMenuItem!
   private var tailcatToggleMenuItem: NSMenuItem!
   private var copyTailcatAddressMenuItem: NSMenuItem!
   private var relay: Process?
@@ -84,19 +83,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     tailcatStatusMenuItem = NSMenuItem(title: "Tailcat：正在启动", action: nil, keyEquivalent: "")
     tailcatStatusMenuItem.isEnabled = false
     menu.addItem(tailcatStatusMenuItem)
-
-    tailcatAddressMenuItem = NSMenuItem(title: "Tailcat 节点：—", action: nil, keyEquivalent: "")
-    tailcatAddressMenuItem.isEnabled = false
-    menu.addItem(tailcatAddressMenuItem)
     menu.addItem(.separator())
-
-    let pair = NSMenuItem(title: "添加手机…", action: #selector(showPairing(_:)), keyEquivalent: "")
-    pair.target = self
-    menu.addItem(pair)
 
     let panel = NSMenuItem(title: "打开 Host 面板", action: #selector(showHostPanel(_:)), keyEquivalent: "")
     panel.target = self
     menu.addItem(panel)
+
+    let pair = NSMenuItem(title: "添加手机…", action: #selector(showPairing(_:)), keyEquivalent: "")
+    pair.target = self
+    menu.addItem(pair)
     menu.addItem(.separator())
 
     tailcatToggleMenuItem = NSMenuItem(
@@ -161,7 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     ])
 
     let nextWindow = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680),
+      contentRect: NSRect(x: 0, y: 0, width: 1040, height: 620),
       styleMask: [.titled, .closable, .miniaturizable, .resizable],
       backing: .buffered,
       defer: false
@@ -170,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     nextWindow.titlebarAppearsTransparent = true
     nextWindow.titleVisibility = .hidden
     nextWindow.isMovableByWindowBackground = true
-    nextWindow.minSize = NSSize(width: 900, height: 620)
+    nextWindow.minSize = NSSize(width: 900, height: 580)
     nextWindow.center()
     nextWindow.contentView = content
     nextWindow.delegate = self
@@ -344,14 +339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
   }
 
-  private func renderTailcatStatus(
-    status: String,
-    detail: String,
-    menuAddress: String? = nil,
-    copyEnabled: Bool
-  ) {
+  private func renderTailcatStatus(status: String, copyEnabled: Bool) {
     tailcatStatusMenuItem?.title = "Tailcat：\(status)"
-    tailcatAddressMenuItem?.title = "Tailcat 节点：\(menuAddress ?? "—")"
     tailcatToggleMenuItem?.state = tailcatEnabled ? .on : .off
     copyTailcatAddressMenuItem?.isEnabled = copyEnabled
   }
@@ -361,34 +350,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     guard tailcatEnabled else {
       currentTailcatAddress = nil
-      renderTailcatStatus(status: "已关闭", detail: "仅局域网", copyEnabled: false)
+      renderTailcatStatus(status: "已关闭", copyEnabled: false)
       return
     }
 
     guard let process = relay else {
       currentTailcatAddress = nil
-      renderTailcatStatus(status: "等待 Relay", detail: "远程访问尚未启动", copyEnabled: false)
+      renderTailcatStatus(status: "等待 Relay", copyEnabled: false)
       return
     }
 
     guard let status = readTailcatStatus(for: process.processIdentifier) else {
       currentTailcatAddress = nil
-      renderTailcatStatus(
-        status: relayReady ? "启动中或暂不可用" : "正在启动",
-        detail: "局域网仍可用",
-        copyEnabled: false
-      )
+      renderTailcatStatus(status: relayReady ? "启动中" : "正在启动", copyEnabled: false)
       return
     }
 
     currentTailcatAddress = status.address
-    let address = "\(status.address) · :\(status.port)"
-    renderTailcatStatus(
-      status: "已就绪",
-      detail: address,
-      menuAddress: address,
-      copyEnabled: true
-    )
+    renderTailcatStatus(status: "已就绪", copyEnabled: true)
   }
 
   private func readTailcatStatus(for relayPid: pid_t) -> (address: String, port: Int)? {
