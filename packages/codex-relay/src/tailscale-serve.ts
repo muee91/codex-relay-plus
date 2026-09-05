@@ -60,6 +60,11 @@ export function parseTailscaleServePreviewUrl(url: string): TailscaleServePrevie
   if (parsedUrl.protocol !== "http:") {
     throw new TailscaleServeInvalidUrlError("Preview URL must use HTTP.");
   }
+  if (!isLegacyTailscaleHost(parsedUrl.hostname)) {
+    throw new TailscaleServeInvalidUrlError(
+      "Preview URL host must be a legacy Tailscale address.",
+    );
+  }
   if (!parsedUrl.port) {
     throw new TailscaleServeInvalidUrlError("Preview URL must include an explicit port.");
   }
@@ -85,5 +90,21 @@ export async function startTailscaleServeForPreviewUrl(
   parseTailscaleServePreviewUrl(input.url);
   throw new TailscaleServeCommandError(
     "Tailscale Serve is no longer supported. Update the mobile app to use the built-in Tailcat transport.",
+  );
+}
+
+function isLegacyTailscaleHost(host: string) {
+  const normalized = host.toLowerCase();
+  if (normalized.endsWith(".ts.net") || normalized.endsWith(".beta.tailscale.net")) {
+    return true;
+  }
+
+  const octets = normalized.split(".").map(Number);
+  return (
+    octets.length === 4 &&
+    octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) &&
+    octets[0] === 100 &&
+    octets[1] >= 64 &&
+    octets[1] <= 127
   );
 }
