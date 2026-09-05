@@ -1,11 +1,17 @@
 import { createMMKV } from "react-native-mmkv";
 
+import {
+  configureNativeRelayProxySync,
+  isNativeTailcatAvailable,
+} from "./transport/native-tailcat";
+
 const defaultServerUrl = "http://localhost:8787";
 export const nativeTransportServerUrl = "http://127.0.0.1:39127";
 const connectionModeStorageKey = "codex-relay.connection-mode";
 const serverUrlCandidatesStorageKey = "codex-relay.server-url-candidates";
 const serverUrlStorageKey = "codex-relay.server-url";
 const nativeTransportConfiguredStorageKey = "codex-relay.native-transport-configured-v1";
+const tailcatBootstrapStorageKey = "codex-relay.tailcat-bootstrap-v1";
 
 export const codexRelayStorage = createMMKV({ id: "codex-relay" });
 
@@ -73,6 +79,7 @@ export function clearCodexRelayServerUrlState() {
   codexRelayStorage.remove(serverUrlCandidatesStorageKey);
   codexRelayStorage.remove(connectionModeStorageKey);
   codexRelayStorage.remove(nativeTransportConfiguredStorageKey);
+  codexRelayStorage.remove(tailcatBootstrapStorageKey);
 }
 
 export function saveCodexRelayServerUrlCandidates(urls: string[]) {
@@ -92,23 +99,17 @@ export function setNativeRelayTransportConfigured(configured: boolean) {
 }
 
 export function getTailcatBootstrapCandidate(): TailcatBootstrapCandidate | undefined {
+  const stored = readStoredTailcatBootstrap();
+  if (stored) {
+    return stored;
+  }
+
   for (const value of readStoredServerUrlCandidates()) {
-    try {
-      const url = new URL(value);
-      if (url.hostname !== "tailcat.invalid" || url.searchParams.get("v") !== "1") {
-        continue;
-      }
-      const address = url.searchParams.get("addr")?.trim();
-      const remotePort = Number(url.searchParams.get("port"));
-      if (
-        address?.startsWith("tc") &&
-        Number.isSafeInteger(remotePort) &&
-        remotePort >= 1 &&
-        remotePort <= 65535
-      ) {
-        return { address, remotePort };
-      }
-    } catch {}
+    const candidate = tailcatBootstrapCandidateFromUrl(value);
+    if (candidate) {
+      persistTailcatBootstrap(candidate);
+      return candidate;
+    }
   }
   return undefined;
 }
@@ -122,6 +123,26 @@ export function normalizeServerUrl(url: string) {
   const parsed = new URL(trimmed);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("Server URL must start with http:// or https://.");
+  }
+
+  const tailcat = tailcatBootstrapCandidateFromUrl(parsed.toString());
+  if (tailcat) {
+    persistTailcatBootstrap(tailcat);
+    if (!isNativeTailcatAvailable()) {
+      return parsed.toString().replace(/\/$/, "");
+    }
+
+    const localUrl = configureNativeRelayProxySync({
+      lanTargets: [],
+      mode: "remote",
+      remotePort: tailcat.remotePort,
+      serverAddr: tailcat.address,
+    });
+    const normalizedLocalUrl = new URL(localUrl).toString().replace(/\/$/, "");
+    if (normalizedLocalUrl !== nativeTransportServerUrl) {
+      throw new Error(`Tailcat transport returned unexpected URL: ${normalizedLocalUrl}`);
+    }
+    return normalizedLocalUrl;
   }
 
   return parsed.toString().replace(/\/$/, "");
@@ -195,12 +216,7 @@ export function isLocalServerUrl(url: string) {
 }
 
 export function isTailcatBootstrapUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname === "tailcat.invalid" && parsed.searchParams.get("v") === "1";
-  } catch {
-    return false;
-  }
+  return Boolean(tailcatBootstrapCandidateFromUrl(url));
 }
 
 function firstStoredLocalServerUrl() {
@@ -221,6 +237,52 @@ function readStoredServerUrlCandidates() {
   } catch {
     return [];
   }
+}
+
+function readStoredTailcatBootstrap(): TailcatBootstrapCandidate | undefined {
+  const stored = codexRelayStorage.getString(tailcatBootstrapStorageKey);
+  if (!stored) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(stored) as Partial<TailcatBootstrapCandidate>;
+    return validTailcatBootstrap(parsed.address, parsed.remotePort);
+  } catch {
+    return undefined;
+  }
+}
+
+function persistTailcatBootstrap(candidate: TailcatBootstrapCandidate) {
+  codexRelayStorage.set(tailcatBootstrapStorageKey, JSON.stringify(candidate));
+}
+
+function tailcatBootstrapCandidateFromUrl(value: string): TailcatBootstrapCandidate | undefined {
+  try {
+    const url = new URL(value);
+    if (url.hostname !== "tailcat.invalid" || url.searchParams.get("v") !== "1") {
+      return undefined;
+    }
+    return validTailcatBootstrap(
+      url.searchParams.get("addr")?.trim(),
+      Number(url.searchParams.get("port")),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+function validTailcatBootstrap(address: unknown, remotePort: unknown) {
+  if (
+    typeof address === "string" &&
+    address.startsWith("tc") &&
+    typeof remotePort === "number" &&
+    Number.isSafeInteger(remotePort) &&
+    remotePort >= 1 &&
+    remotePort <= 65535
+  ) {
+    return { address, remotePort };
+  }
+  return undefined;
 }
 
 function serverUrlCandidatesFromUrls(urls: string[]): CodexRelayServerUrlCandidate[] {
@@ -258,7 +320,7 @@ function serverUrlCandidateLabel(url: string) {
     const parsed = new URL(url);
     const host = parsed.hostname.toLowerCase();
     if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
-      return "Localhost";
+      return host === "127.0.0.1" && parsed.port === "39127" ? "Tailcat" : "Localhost";
     }
     if (host === "tailcat.invalid") {
       return "Tailcat remote";
