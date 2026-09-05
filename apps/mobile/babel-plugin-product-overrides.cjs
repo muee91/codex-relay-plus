@@ -113,15 +113,21 @@ function stripSettingsOta(t, path) {
     return true;
   });
 
-  const settings = path.node.body
-    .map((statement) => {
-      if (t.isFunctionDeclaration(statement)) return statement;
-      if (t.isExportDefaultDeclaration(statement) && t.isFunctionDeclaration(statement.declaration)) {
-        return statement.declaration;
-      }
-      return null;
-    })
-    .find((statement) => statement?.id?.name === "SettingsScreen");
+  let settings = null;
+  for (const statement of path.node.body) {
+    if (t.isFunctionDeclaration(statement) && statement.id?.name === "SettingsScreen") {
+      settings = statement;
+      break;
+    }
+    if (
+      t.isExportDefaultDeclaration(statement) &&
+      t.isFunctionDeclaration(statement.declaration) &&
+      statement.declaration.id?.name === "SettingsScreen"
+    ) {
+      settings = statement.declaration;
+      break;
+    }
+  }
   if (!settings || !t.isBlockStatement(settings.body)) {
     throw new Error("Codex Relay no-OTA overlay could not find SettingsScreen.");
   }
