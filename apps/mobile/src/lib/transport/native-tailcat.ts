@@ -15,6 +15,12 @@ type CodexRelayTransportNativeModule = {
     lanTargetsJson: string,
     mode: "auto" | "local" | "remote",
   ): Promise<string>;
+  configureRelayProxySync(
+    serverAddr: string,
+    remotePort: number,
+    lanTargetsJson: string,
+    mode: "auto" | "local" | "remote",
+  ): string;
   discoverLocalRelay(timeoutMs: number): Promise<string | null>;
   refreshTailcatPath(): Promise<string>;
   startTailcatProxy(serverAddr: string, remotePort: number): Promise<string>;
@@ -49,6 +55,24 @@ export async function configureNativeRelayProxy(input: {
     throw new Error("Tailcat transport is not available in this build.");
   }
   return module.configureRelayProxy(
+    input.serverAddr,
+    input.remotePort,
+    JSON.stringify(input.lanTargets),
+    input.mode,
+  );
+}
+
+export function configureNativeRelayProxySync(input: {
+  lanTargets: string[];
+  mode: "auto" | "local" | "remote";
+  remotePort: number;
+  serverAddr: string;
+}) {
+  const module = nativeModule();
+  if (!module?.configureRelayProxySync) {
+    throw new Error("Tailcat transport is not available in this build.");
+  }
+  return module.configureRelayProxySync(
     input.serverAddr,
     input.remotePort,
     JSON.stringify(input.lanTargets),
