@@ -1,5 +1,11 @@
 # codex-relay
 
+## 1.5.1
+
+### Patch Changes
+
+- 7099915: Clarify the macOS Host pairing workflow and Tailcat diagnostics, including explicit enabled/disabled state, a single copy-pairing-link fallback, and clearer Relay/Tailcat labels.
+
 ## 1.5.0
 
 ### Minor Changes
