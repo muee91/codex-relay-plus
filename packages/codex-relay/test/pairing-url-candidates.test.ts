@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPairingQrPayload,
+  getConnectUrlCandidates,
   getConnectUrlGuidance,
   isTailscaleStatusRunning,
   normalizeUrl,
@@ -33,7 +34,7 @@ describe("pairing URL candidates", () => {
     expect(parsed.searchParams.has("serverUrls")).toBe(false);
   });
 
-  it("prioritizes LAN before Tailscale and public fallback addresses", () => {
+  it("prioritizes LAN before legacy Tailscale and public fallback addresses", () => {
     expect(
       prioritizeConnectUrlCandidates([
         candidate("tailscale", "Tailscale", "http://100.64.0.10:8787"),
@@ -49,7 +50,30 @@ describe("pairing URL candidates", () => {
     ]);
   });
 
-  it("only considers Tailscale usable when the backend is running", () => {
+  it("does not advertise Tailscale as the normal relay transport", () => {
+    const candidates = getConnectUrlCandidates(
+      { listenUrl: "http://0.0.0.0:8787", port: 8787 },
+      {
+        tailscale: {
+          checkedAt: Date.now(),
+          status: {
+            BackendState: "Running",
+            Self: {
+              DNSName: "relay.example.ts.net.",
+              Online: true,
+              TailscaleIPs: ["100.64.0.10"],
+            },
+          },
+        },
+      },
+    );
+
+    expect(candidates.some((entry) => entry.kind === "tailscale")).toBe(false);
+    expect(candidates.some((entry) => entry.url.includes("100.64.0.10"))).toBe(false);
+    expect(candidates.some((entry) => entry.url.includes(".ts.net"))).toBe(false);
+  });
+
+  it("retains the legacy Tailscale status parser for compatibility", () => {
     expect(isTailscaleStatusRunning(undefined)).toBe(false);
     expect(isTailscaleStatusRunning({ BackendState: "Stopped" })).toBe(false);
     expect(isTailscaleStatusRunning({ BackendState: "Running", Self: { Online: false } })).toBe(
@@ -102,9 +126,9 @@ describe("pairing URL candidates", () => {
     expect(getConnectUrlGuidance("http://10.0.0.10:8787")).toContain("local Wi-Fi/LAN");
   });
 
-  it("explains verified Tailscale addresses as a remote path", () => {
-    expect(getConnectUrlGuidance("http://100.103.76.81:8787")).toContain("Tailscale");
-    expect(getConnectUrlGuidance("http://relay.tailnet.ts.net:8787")).toContain("tailnet");
+  it("marks old Tailscale addresses as legacy Tailcat-replaced paths", () => {
+    expect(getConnectUrlGuidance("http://100.103.76.81:8787")).toContain("Tailcat");
+    expect(getConnectUrlGuidance("http://relay.tailnet.ts.net:8787")).toContain("legacy Tailscale");
   });
 
   it("warns when the mobile URL is only reachable locally", () => {
