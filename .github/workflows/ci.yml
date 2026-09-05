@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   checks:
-    name: Lint, format, and typecheck
+    name: Lint, format, typecheck, and tests
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -38,6 +38,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Test relay
+        run: pnpm test
 
       - name: Test release version policy
         run: pnpm test:release
