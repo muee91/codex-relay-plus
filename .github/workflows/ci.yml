@@ -42,3 +42,36 @@ jobs:
 
       - name: Test release version policy
         run: pnpm test:release
+
+  native-tailcat:
+    name: Tailcat native (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            os: ubuntu-latest
+          - platform: ios
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.27.1
+          cache-dependency-path: native/tailcat-bridge/go.sum
+
+      - name: Test Tailcat bridge
+        working-directory: native/tailcat-bridge
+        run: go test ./...
+
+      - name: Build Android binding
+        if: matrix.platform == 'android'
+        run: bash apps/mobile/scripts/build-tailcat-android.sh
+
+      - name: Build iOS binding
+        if: matrix.platform == 'ios'
+        run: bash apps/mobile/scripts/build-tailcat-ios.sh
