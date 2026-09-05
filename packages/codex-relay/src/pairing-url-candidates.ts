@@ -10,6 +10,8 @@ export type ConnectUrlCandidate = {
   url: string;
 };
 
+// Kept for compatibility with older callers and persisted diagnostics. Relay
+// connectivity no longer polls or advertises Tailscale automatically.
 export type TailscaleStatus = {
   BackendState?: string;
   Self?: {
@@ -35,10 +37,7 @@ export function getConnectUrlGuidance(url: string) {
     );
   }
   if (isTailscaleHost(host)) {
-    return (
-      "Using Tailscale. This address is offered only while Tailscale is running " +
-      "on this computer; the phone must also be able to reach the tailnet."
-    );
+    return "This is a legacy Tailscale address. New mobile pairings use Tailcat for remote connectivity.";
   }
   if (isPrivateIPv4Host(host) || isLocalIPv6Host(host) || host.endsWith(".local")) {
     return "Using a local Wi-Fi/LAN address. Keep the phone and computer on the same network.";
@@ -75,12 +74,9 @@ export function getConnectUrlCandidates(
   details: { listenUrl: string; port: number },
   options: { mode?: ConnectUrlMode; tailscale?: TailscaleSnapshot } = {},
 ) {
-  const status = options.tailscale?.status;
-  const tailscaleRunning = isTailscaleStatusRunning(status);
-  const serverCandidate = configuredServerCandidate(details.listenUrl, tailscaleRunning);
+  const serverCandidate = configuredServerCandidate(details.listenUrl);
   const candidates = dedupeCandidates([
     ...localNetworkConnectUrlCandidates(details.port),
-    ...tailscaleConnectUrlCandidates(details.port, status, options.tailscale?.serveHttpsUrl),
     ...(serverCandidate ? [serverCandidate] : []),
   ]);
   return filterCandidatesForMode(
@@ -172,45 +168,20 @@ function filterCandidatesForMode(candidates: ConnectUrlCandidate[], mode: Connec
   if (mode === "local") return candidates.filter((candidate) => candidate.kind === "lan");
   if (mode === "remote") {
     return candidates.filter(
-      (candidate) => candidate.kind === "tailscale" || isMobileReachableServer(candidate.url),
+      (candidate) => candidate.kind === "server" && isMobileReachableServer(candidate.url),
     );
   }
   return candidates;
 }
 
-function configuredServerCandidate(
-  listenUrl: string,
-  tailscaleRunning: boolean,
-): ConnectUrlCandidate | undefined {
+function configuredServerCandidate(listenUrl: string): ConnectUrlCandidate | undefined {
   const url = normalizeUrl(listenUrl);
   if (!url) return undefined;
   const host = parseUrlHost(url);
-  if (!host || isLocalhost(host) || isUnspecifiedHost(host)) return undefined;
-  if (isTailscaleHost(host) && !tailscaleRunning) return undefined;
+  if (!host || isLocalhost(host) || isUnspecifiedHost(host) || isTailscaleHost(host)) {
+    return undefined;
+  }
   return { kind: connectUrlCandidateKind(url), label: "Server", url };
-}
-
-function tailscaleConnectUrlCandidates(
-  port: number,
-  status: TailscaleStatus | undefined,
-  serveHttpsUrl?: string,
-) {
-  if (!isTailscaleStatusRunning(status)) return [];
-  const candidates: ConnectUrlCandidate[] = [];
-  for (const ip of status?.Self?.TailscaleIPs ?? []) {
-    if (isTailscaleIPv4Host(ip)) {
-      candidates.push({ kind: "tailscale", label: "Tailscale", url: `http://${ip}:${port}` });
-    }
-  }
-  const dnsName = status?.Self?.DNSName?.replace(/\.$/, "");
-  if (dnsName) {
-    candidates.push({
-      kind: "tailscale",
-      label: serveHttpsUrl ? "Tailscale Serve" : "Tailscale DNS",
-      url: serveHttpsUrl ?? `http://${dnsName}:${port}`,
-    });
-  }
-  return candidates;
 }
 
 function localNetworkConnectUrlCandidates(port: number) {
@@ -258,7 +229,7 @@ function connectUrlCandidateKind(url: string): ConnectUrlCandidateKind {
 
 function isMobileReachableServer(url: string) {
   const host = parseUrlHost(url);
-  return Boolean(host && !isLocalhost(host) && !isUnspecifiedHost(host));
+  return Boolean(host && !isLocalhost(host) && !isUnspecifiedHost(host) && !isTailscaleHost(host));
 }
 
 function dedupeCandidates(candidates: ConnectUrlCandidate[]) {
