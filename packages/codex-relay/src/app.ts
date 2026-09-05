@@ -1764,76 +1764,6 @@ export function createApp(options: AppOptions = {}) {
     return secureJson(c, options.pairing, secureSessionsByTokenHash, response);
   });
 
-  app.get("/v1/threads/archived", async (c) => {
-    if (!appServer) {
-      return secureJson(
-        c,
-        options.pairing,
-        secureSessionsByTokenHash,
-        ListThreadsResponseSchema.parse({ threads: [], source: "memory" }),
-      );
-    }
-
-    try {
-      const appServerThreads = await appServer.listThreads(80, { archived: true });
-      const response: ListThreadsResponse = ListThreadsResponseSchema.parse({
-        threads: appServerThreads
-          .filter((thread) => !isSubagentThread(thread))
-          .map((thread) => mapAppServerThread(thread)),
-        source: "app-server",
-      });
-      return secureJson(c, options.pairing, secureSessionsByTokenHash, response);
-    } catch (error) {
-      return secureJson(
-        c,
-        options.pairing,
-        secureSessionsByTokenHash,
-        apiError("archived_threads_unavailable", errorMessage(error)),
-        502,
-      );
-    }
-  });
-
-  app.post("/v1/threads/:threadId/unarchive", async (c) => {
-    const threadId = c.req.param("threadId");
-    if (!appServer) {
-      return secureJson(
-        c,
-        options.pairing,
-        secureSessionsByTokenHash,
-        apiError("unsupported", "Restoring archived threads requires the Codex app-server."),
-        409,
-      );
-    }
-
-    try {
-      await runAppServerMutation(threadId, () => appServer.unarchiveThread({ threadId }));
-      invalidateAppServerHistory(threadId);
-      activeAppServerTurnIdsByThreadId.delete(threadId);
-      queuedInputsByThreadId.delete(threadId);
-      steeringThreads.delete(threadId);
-
-      const appServerThreads = await appServer.listThreads();
-      const response: ListThreadsResponse = ListThreadsResponseSchema.parse({
-        threads: appServerThreads
-          .filter((thread) => !isSubagentThread(thread))
-          .map((thread) => rememberAppServerThread(threads, thread)),
-        source: "app-server",
-      });
-      return secureJson(c, options.pairing, secureSessionsByTokenHash, response);
-    } catch (error) {
-      const message = errorMessage(error);
-      const status = /not found|no rollout found/i.test(message) ? 404 : 502;
-      return secureJson(
-        c,
-        options.pairing,
-        secureSessionsByTokenHash,
-        apiError(status === 404 ? "not_found" : "unarchive_unavailable", message),
-        status,
-      );
-    }
-  });
-
   app.delete("/v1/threads/:threadId", async (c) => {
     const threadId = c.req.param("threadId");
     if (appServer) {
@@ -3311,7 +3241,7 @@ function externalRequestOrigin(requestUrl: string, header: (name: string) => str
   return request.origin;
 }
 
-async function createThreadRecord(input: {
+function createThreadRecord(input: {
   codex: CodexClient;
   liveThreads: Map<string, ReturnType<CodexClient["startThread"]>>;
   messagesByThreadId: Map<string, ChatMessage[]>;
