@@ -6,11 +6,12 @@ import {
   withMainApplication,
   type ConfigPlugin,
 } from "expo/config-plugins";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const gradleMarker = "// @generated codex-relay-plus: Tailcat AAR";
 const packageMarker = "// @generated codex-relay-plus: Tailcat transport package";
+const podMarker = "# @generated codex-relay-plus: Tailcat iOS pod";
 const kotlinPackage = "com.muee91.codexrelayplus";
 const kotlinRelativePath = join(
   "app",
@@ -26,6 +27,7 @@ const withTailcatTransport: ConfigPlugin = (config) => {
   config = withTailcatPackageRegistration(config);
   config = withTailcatNativeModule(config);
   config = withTailcatPermissions(config);
+  config = withTailcatIosPod(config);
   return config;
 };
 
@@ -89,6 +91,25 @@ const withTailcatPermissions: ConfigPlugin = (config) =>
     }
     return config;
   });
+
+const withTailcatIosPod: ConfigPlugin = (config) =>
+  withDangerousMod(config, [
+    "ios",
+    async (config) => {
+      const podfilePath = join(config.modRequest.platformProjectRoot, "Podfile");
+      const podfile = await readFile(podfilePath, "utf8");
+      if (podfile.includes(podMarker)) {
+        return config;
+      }
+      const expoModulesMarker = "use_expo_modules!";
+      if (!podfile.includes(expoModulesMarker)) {
+        throw new Error("Could not find use_expo_modules! in generated iOS Podfile.");
+      }
+      const insertion = `${expoModulesMarker}\n  ${podMarker}\n  pod 'CodexRelayTailcat', :path => '../native-tailcat-ios'`;
+      await writeFile(podfilePath, podfile.replace(expoModulesMarker, insertion), "utf8");
+      return config;
+    },
+  ]);
 
 const kotlinSource = `package ${kotlinPackage}
 
