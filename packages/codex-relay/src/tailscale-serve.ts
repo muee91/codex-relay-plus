@@ -61,9 +61,7 @@ export function parseTailscaleServePreviewUrl(url: string): TailscaleServePrevie
     throw new TailscaleServeInvalidUrlError("Preview URL must use HTTP.");
   }
   if (!isLegacyTailscaleHost(parsedUrl.hostname)) {
-    throw new TailscaleServeInvalidUrlError(
-      "Preview URL host must be a legacy Tailscale address.",
-    );
+    throw new TailscaleServeInvalidUrlError("Preview URL host must be a legacy Tailscale address.");
   }
   if (!parsedUrl.port) {
     throw new TailscaleServeInvalidUrlError("Preview URL must include an explicit port.");
