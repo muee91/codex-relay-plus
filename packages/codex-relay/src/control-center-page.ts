@@ -11,23 +11,21 @@ export function renderControlCenterPage(controlToken: string) {
     :root {
       color-scheme: dark;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
-      --bg: #0c0d0f;
-      --panel: #141518;
-      --panel-2: #18191d;
-      --panel-3: #101113;
-      --line: rgba(255,255,255,.08);
+      --bg: #0d0e10;
+      --panel: #151619;
+      --panel-soft: #111214;
+      --panel-raised: #1b1c20;
+      --line: rgba(255,255,255,.085);
       --line-strong: rgba(255,255,255,.14);
       --text: #f3f3f0;
-      --muted: #989a96;
-      --quiet: #676966;
+      --muted: #9b9d98;
+      --quiet: #6f716d;
       --good: #79c99a;
-      --good-soft: rgba(121,201,154,.1);
       --warn: #d6ad67;
-      --warn-soft: rgba(214,173,103,.1);
       --bad: #e27c82;
-      --bad-soft: rgba(226,124,130,.1);
-      --primary: #ecece8;
-      --primary-text: #151619;
+      --accent: #65aef8;
+      --accent-soft: rgba(101,174,248,.14);
+      --accent-line: rgba(101,174,248,.28);
     }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
@@ -42,55 +40,42 @@ export function renderControlCenterPage(controlToken: string) {
     button { cursor: pointer; }
     button:disabled { cursor: default; opacity: .38; }
     :where(button, select):focus-visible {
-      outline: 2px solid rgba(170, 221, 190, .92);
+      outline: 2px solid rgba(101,174,248,.9);
       outline-offset: 2px;
     }
     .app {
-      width: min(1100px, calc(100% - 28px));
+      width: min(1120px, calc(100% - 32px));
       height: 100vh;
       margin: 0 auto;
-      padding: 14px 0;
+      padding: 14px 0 16px;
       display: grid;
-      grid-template-rows: 42px auto minmax(0, 1fr);
-      gap: 10px;
+      grid-template-rows: 44px minmax(0, 1fr);
+      gap: 12px;
     }
     .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 18px;
       min-width: 0;
       padding: 0 2px;
     }
-    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .brand-mark {
-      width: 28px;
-      height: 28px;
-      display: grid;
-      place-items: center;
-      border: 1px solid var(--line-strong);
-      border-radius: 8px;
-      background: var(--panel-2);
-      color: #d8d9d5;
-      font-size: 12px;
-      font-weight: 760;
-      letter-spacing: -.04em;
-    }
-    .brand-copy { min-width: 0; }
-    .brand-title { margin: 0; font-size: 14px; line-height: 1.15; font-weight: 720; letter-spacing: -.02em; }
-    .brand-subtitle { margin-top: 2px; color: var(--quiet); font-size: 10.5px; line-height: 1.2; }
+    .brand { min-width: 0; }
+    .brand-title { margin: 0; font-size: 15px; line-height: 1.15; font-weight: 720; letter-spacing: -.025em; }
+    .brand-subtitle { margin-top: 3px; color: var(--quiet); font-size: 10.5px; line-height: 1.2; }
     .top-actions { display: flex; align-items: center; gap: 8px; }
     .host-pill {
+      min-height: 29px;
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      min-height: 28px;
       padding: 0 10px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255,255,255,.025);
+      background: rgba(255,255,255,.022);
       color: var(--muted);
       font-size: 10.5px;
-      font-weight: 640;
+      font-weight: 650;
       white-space: nowrap;
     }
     .dot {
@@ -105,60 +90,44 @@ export function renderControlCenterPage(controlToken: string) {
     .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px rgba(226,124,130,.08); }
     .toolbar-button,
     .language {
-      height: 28px;
+      height: 29px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: transparent;
       color: var(--muted);
       font-size: 10.5px;
     }
-    .toolbar-button { padding: 0 10px; font-weight: 620; }
-    .toolbar-button:hover { border-color: var(--line-strong); background: rgba(255,255,255,.035); color: #d7d8d4; }
-    .language { padding: 0 24px 0 8px; }
-    .error {
-      display: none;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      padding: 9px 11px;
-      border: 1px solid rgba(226,124,130,.24);
-      border-radius: 10px;
-      background: var(--bad-soft);
-      color: #efb3b7;
-      font-size: 10.5px;
-    }
-    .error.show { display: flex; }
+    .toolbar-button { padding: 0 10px; font-weight: 630; }
+    .toolbar-button:hover { border-color: var(--line-strong); background: rgba(255,255,255,.035); color: #d9dad6; }
+    .language { padding: 0 24px 0 9px; }
     .dashboard {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 332px;
+      grid-template-rows: 118px minmax(0, 1fr);
       gap: 12px;
       position: relative;
       overflow: hidden;
     }
-    .left-column {
-      min-width: 0;
-      min-height: 0;
-      display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr);
-      gap: 12px;
-    }
     .card {
       min-width: 0;
+      min-height: 0;
       border: 1px solid var(--line);
       border-radius: 14px;
       background: var(--panel);
       overflow: hidden;
     }
-    .overview-card { padding: 18px 20px 15px; }
-    .overview-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 18px;
-      margin-bottom: 15px;
+    .summary-card {
+      display: grid;
+      grid-template-columns: minmax(310px, 1.45fr) repeat(3, minmax(130px, .72fr));
+      align-items: stretch;
     }
-    .overview-state { min-width: 0; }
+    .host-summary {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 15px 20px;
+    }
     .eyebrow {
       color: var(--quiet);
       font-size: 9.5px;
@@ -166,63 +135,84 @@ export function renderControlCenterPage(controlToken: string) {
       letter-spacing: .08em;
       text-transform: uppercase;
     }
-    .overview-title-row { display: flex; align-items: center; gap: 9px; margin-top: 6px; }
-    .overview-title {
-      margin: 0;
-      font-size: 22px;
-      line-height: 1.15;
-      font-weight: 700;
-      letter-spacing: -.035em;
-    }
-    .overview-copy { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.35; }
-    .sync-block { text-align: right; flex: 0 0 auto; }
-    .sync-label { color: var(--quiet); font-size: 9px; }
-    .sync-value { margin-top: 3px; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .status-strip {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      border: 1px solid var(--line);
-      border-radius: 11px;
-      overflow: hidden;
-      background: var(--panel-3);
-    }
-    .status-item { min-width: 0; padding: 11px 12px; }
-    .status-item + .status-item { border-left: 1px solid var(--line); }
-    .status-label { color: var(--quiet); font-size: 9.5px; font-weight: 650; }
-    .status-value { margin-top: 4px; font-size: 12px; line-height: 1.25; font-weight: 660; }
-    .status-detail {
-      margin-top: 3px;
-      color: var(--muted);
-      font-size: 9.5px;
-      line-height: 1.25;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .workspace-row {
+    .host-title-row { display: flex; align-items: center; gap: 9px; margin-top: 5px; }
+    .host-title { margin: 0; font-size: 20px; line-height: 1.1; font-weight: 700; letter-spacing: -.035em; }
+    .host-copy { margin-top: 5px; color: var(--muted); font-size: 10.5px; line-height: 1.35; }
+    .host-meta {
+      min-width: 0;
       display: flex;
       align-items: center;
-      gap: 9px;
-      margin-top: 11px;
-      min-width: 0;
+      gap: 8px;
+      margin-top: 9px;
       color: var(--quiet);
-      font-size: 10px;
+      font-size: 9.5px;
     }
     .workspace-path {
       min-width: 0;
+      max-width: 320px;
       color: var(--muted);
-      font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 9.5px ui-monospace, SFMono-Regular, Menlo, monospace;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .pending-card { display: none; padding: 12px 14px; border-color: rgba(214,173,103,.24); background: var(--warn-soft); }
-    .pending-card.visible { display: block; }
-    .pending-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
-    .pending-title { margin: 0; font-size: 11px; font-weight: 690; }
-    .pending-count { color: var(--warn); font-size: 10px; font-variant-numeric: tabular-nums; }
-    .pending-desc { color: var(--muted); font-size: 9.5px; line-height: 1.3; }
-    .request-list { margin-top: 6px; max-height: 92px; overflow: auto; }
+    .metric {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 17px;
+      border-left: 1px solid var(--line);
+    }
+    .metric-label { color: var(--quiet); font-size: 9.5px; font-weight: 650; }
+    .metric-value { margin-top: 5px; font-size: 13px; line-height: 1.2; font-weight: 680; }
+    .metric-detail {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 9.5px;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .content-grid {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 12px;
+    }
+    .devices-card {
+      display: flex;
+      flex-direction: column;
+      background: var(--panel-soft);
+    }
+    .section-head {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 15px 17px 13px;
+      border-bottom: 1px solid var(--line);
+    }
+    .section-title { margin: 0; font-size: 12.5px; line-height: 1.2; font-weight: 690; }
+    .section-subtitle { margin-top: 3px; color: var(--quiet); font-size: 9.5px; line-height: 1.3; }
+    .section-count { color: var(--quiet); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .pending-section {
+      display: none;
+      flex: 0 0 auto;
+      margin: 10px 12px 0;
+      padding: 10px 11px;
+      border: 1px solid rgba(214,173,103,.24);
+      border-radius: 10px;
+      background: rgba(214,173,103,.08);
+    }
+    .pending-section.visible { display: block; }
+    .pending-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .pending-title { margin: 0; font-size: 10.5px; font-weight: 690; }
+    .pending-count { color: var(--warn); font-size: 9.5px; }
+    .pending-desc { margin-top: 2px; color: var(--muted); font-size: 9px; line-height: 1.3; }
+    .request-list { margin-top: 5px; max-height: 92px; overflow: auto; }
     .request {
       display: flex;
       align-items: center;
@@ -232,83 +222,82 @@ export function renderControlCenterPage(controlToken: string) {
       border-top: 1px solid rgba(255,255,255,.07);
     }
     .request-main { min-width: 0; }
-    .approval-code { font: 720 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .07em; }
-    .row-meta { margin-top: 2px; color: var(--muted); font-size: 9.5px; line-height: 1.3; overflow-wrap: anywhere; }
-    .devices-card { min-height: 0; display: flex; flex-direction: column; }
-    .card-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      padding: 14px 16px 11px;
-      border-bottom: 1px solid var(--line);
+    .approval-code { font: 720 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .07em; }
+    .device-list {
+      min-height: 0;
+      flex: 1 1 auto;
+      overflow: auto;
+      padding: 0 16px;
     }
-    .card-title { margin: 0; font-size: 12px; font-weight: 690; letter-spacing: -.01em; }
-    .card-subtitle { margin-top: 2px; color: var(--quiet); font-size: 9.5px; }
-    .device-count { color: var(--quiet); font-size: 10px; font-variant-numeric: tabular-nums; }
-    .device-list { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 0 16px; }
     .device {
-      min-height: 48px;
+      min-height: 58px;
       display: grid;
-      grid-template-columns: 28px minmax(0, 1fr) auto;
+      grid-template-columns: 30px minmax(0, 1fr) auto;
       align-items: center;
-      gap: 10px;
+      gap: 11px;
       border-bottom: 1px solid var(--line);
     }
     .device:last-child { border-bottom: 0; }
     .device-icon {
-      width: 26px;
-      height: 26px;
+      width: 28px;
+      height: 28px;
       display: grid;
       place-items: center;
-      border-radius: 8px;
-      background: var(--panel-2);
       border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel-raised);
       color: var(--muted);
       font-size: 10px;
       font-weight: 700;
     }
     .device-main { min-width: 0; padding: 8px 0; }
-    .row-title { font-size: 11px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .empty { padding: 17px 0; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
-    .pair-card {
-      min-height: 0;
+    .row-title { font-size: 11px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-meta { margin-top: 3px; color: var(--muted); font-size: 9.5px; line-height: 1.3; overflow-wrap: anywhere; }
+    .empty {
       height: 100%;
-      display: flex;
-      flex-direction: column;
-      padding: 18px;
-      background: var(--panel-3);
+      min-height: 120px;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 10.5px;
+      line-height: 1.45;
     }
-    .pair-head { flex: 0 0 auto; }
+    .pair-card {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      padding: 16px 18px 17px;
+      background: var(--panel-soft);
+    }
     .pair-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .pair-title { margin: 6px 0 0; font-size: 17px; line-height: 1.2; font-weight: 690; letter-spacing: -.025em; }
-    .pair-desc { margin-top: 5px; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+    .pair-title { margin: 5px 0 0; font-size: 17px; line-height: 1.2; font-weight: 700; letter-spacing: -.025em; }
+    .pair-desc { margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.35; }
     .qr-stage {
-      flex: 1 1 auto;
       min-height: 0;
       display: grid;
       place-items: center;
-      padding: 14px 0 10px;
+      padding: 9px 0 8px;
     }
     .qr-wrap {
-      width: min(100%, 248px);
+      width: min(100%, 226px);
       aspect-ratio: 1;
       display: grid;
       place-items: center;
-      padding: 12px;
-      border-radius: 14px;
+      padding: 11px;
+      border-radius: 13px;
       background: #f4f4ef;
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,.08), 0 10px 28px rgba(0,0,0,.16);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
     }
     #pairing-qr { display: none; width: 100%; height: auto; image-rendering: pixelated; }
     #pairing-qr.ready { display: block; }
     .qr-fallback { display: none; margin: 0; max-width: 100%; overflow: hidden; color: #111; font: 6px/.86 ui-monospace, monospace; white-space: pre; }
     .qr-fallback.show { display: block; }
     .qr-loading { max-width: 180px; color: #60615d; text-align: center; font-size: 10px; line-height: 1.4; }
-    .pair-actions { flex: 0 0 auto; }
-    .pair-note { margin-top: 7px; color: var(--quiet); font-size: 9.5px; line-height: 1.35; }
+    .pair-note { margin-top: 7px; color: var(--quiet); font-size: 9px; line-height: 1.35; }
     .btn {
-      min-height: 28px;
+      min-height: 29px;
       padding: 0 9px;
       border: 1px solid var(--line-strong);
       border-radius: 8px;
@@ -320,17 +309,43 @@ export function renderControlCenterPage(controlToken: string) {
     }
     .btn:hover:not(:disabled) { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.19); }
     .btn:active:not(:disabled) { transform: translateY(1px); }
-    .btn.primary { width: 100%; min-height: 34px; background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
-    .btn.primary:hover:not(:disabled) { background: #f7f7f3; border-color: #f7f7f3; }
+    .btn.primary {
+      width: 100%;
+      min-height: 34px;
+      border-color: var(--accent-line);
+      background: var(--accent-soft);
+      color: #d9ebff;
+    }
+    .btn.primary:hover:not(:disabled) { background: rgba(101,174,248,.2); border-color: rgba(101,174,248,.36); }
     .btn.quiet { border-color: transparent; color: var(--muted); padding-left: 6px; padding-right: 6px; }
     .btn.danger { color: #dca5a8; border-color: rgba(226,124,130,.2); }
     .actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .error {
+      display: none;
+      position: fixed;
+      left: 50%;
+      top: 58px;
+      z-index: 70;
+      width: min(620px, calc(100% - 36px));
+      transform: translateX(-50%);
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 9px 11px;
+      border: 1px solid rgba(226,124,130,.24);
+      border-radius: 10px;
+      background: #2a171a;
+      color: #efb3b7;
+      box-shadow: 0 16px 36px rgba(0,0,0,.35);
+      font-size: 10.5px;
+    }
+    .error.show { display: flex; }
     .drawer-backdrop {
       display: none;
       position: absolute;
       inset: 0;
       z-index: 30;
-      background: rgba(3,4,5,.5);
+      background: rgba(3,4,5,.52);
       backdrop-filter: blur(2px);
     }
     .drawer-backdrop.open { display: block; }
@@ -340,11 +355,11 @@ export function renderControlCenterPage(controlToken: string) {
       right: 0;
       bottom: 0;
       z-index: 31;
-      width: min(470px, 74%);
+      width: min(430px, 72%);
       display: flex;
       flex-direction: column;
       border-left: 1px solid var(--line-strong);
-      background: #18191c;
+      background: #191a1e;
       box-shadow: -22px 0 54px rgba(0,0,0,.34);
       transform: translateX(102%);
       transition: transform .16s ease;
@@ -394,7 +409,7 @@ export function renderControlCenterPage(controlToken: string) {
       position: fixed;
       right: 18px;
       bottom: 16px;
-      z-index: 60;
+      z-index: 80;
       max-width: 320px;
       padding: 9px 11px;
       border-radius: 9px;
@@ -413,19 +428,18 @@ export function renderControlCenterPage(controlToken: string) {
       html, body { height: auto; min-height: 100%; overflow: auto; }
       .app { width: min(700px, calc(100% - 24px)); height: auto; min-height: 100vh; display: block; padding: 12px 0 20px; }
       .topbar { margin-bottom: 10px; }
-      .dashboard { grid-template-columns: 1fr; overflow: visible; }
-      .left-column { display: grid; }
-      .pair-card { min-height: 500px; }
-      .drawer { position: fixed; width: min(470px, 92vw); }
+      .dashboard { display: block; overflow: visible; }
+      .summary-card { grid-template-columns: 1fr; margin-bottom: 12px; }
+      .metric { min-height: 70px; border-left: 0; border-top: 1px solid var(--line); }
+      .content-grid { grid-template-columns: 1fr; }
+      .devices-card { min-height: 320px; }
+      .pair-card { min-height: 430px; margin-top: 12px; }
+      .drawer { position: fixed; width: min(430px, 92vw); }
       .drawer-backdrop { position: fixed; }
       .device-list, .request-list { overflow: visible; max-height: none; }
     }
     @media (max-width: 560px) {
       .brand-subtitle, .host-pill { display: none; }
-      .status-strip { grid-template-columns: 1fr; }
-      .status-item + .status-item { border-left: 0; border-top: 1px solid var(--line); }
-      .overview-head { display: block; }
-      .sync-block { display: none; }
       .drawer { width: 100vw; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -437,11 +451,8 @@ export function renderControlCenterPage(controlToken: string) {
   <main class="app">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark">CR</div>
-        <div class="brand-copy">
-          <h1 class="brand-title">Codex Relay Plus</h1>
-          <div class="brand-subtitle" data-i18n="productNote">Mac Host · 保持运行即可</div>
-        </div>
+        <h1 class="brand-title">Codex Relay Plus</h1>
+        <div class="brand-subtitle" data-i18n="productNote">Mac Host · 保持运行即可</div>
       </div>
       <div class="top-actions">
         <div class="host-pill"><span class="dot" id="top-dot"></span><span id="top-state" data-i18n="connecting">正在连接</span></div>
@@ -453,71 +464,65 @@ export function renderControlCenterPage(controlToken: string) {
     <div class="error" id="error-banner"><span id="error-text"></span><button class="btn quiet" id="retry" data-i18n="retry">重试</button></div>
 
     <div class="dashboard">
-      <section class="left-column">
-        <section class="card overview-card">
-          <div class="overview-head">
-            <div class="overview-state">
-              <div class="eyebrow" data-i18n="hostStatus">Host 状态</div>
-              <div class="overview-title-row"><span class="dot" id="host-dot"></span><h2 class="overview-title" id="host-title" data-i18n="connectingHost">正在启动</h2></div>
-              <div class="overview-copy" id="host-copy" data-i18n="hostCopy">保持此 Mac 在线，手机会自动选择可用连接路径。</div>
-            </div>
-            <div class="sync-block"><div class="sync-label" data-i18n="lastSync">最近更新</div><div class="sync-value" id="last-sync">—</div></div>
-          </div>
-
-          <div class="status-strip" aria-label="Host summary">
-            <div class="status-item">
-              <div class="status-label" data-i18n="relay">Relay</div>
-              <div class="status-value" id="relay-value" data-i18n="loading">加载中…</div>
-              <div class="status-detail" id="relay-detail">—</div>
-            </div>
-            <div class="status-item">
-              <div class="status-label" data-i18n="remoteAccess">Tailcat</div>
-              <div class="status-value" id="remote-value" data-i18n="loading">加载中…</div>
-              <div class="status-detail" id="remote-detail">—</div>
-            </div>
-            <div class="status-item">
-              <div class="status-label" data-i18n="phones">已授权设备</div>
-              <div class="status-value" id="phone-count">—</div>
-              <div class="status-detail" id="phone-detail" data-i18n="phoneHint">手机</div>
-            </div>
-          </div>
-
-          <div class="workspace-row"><span data-i18n="workspace">默认工作目录</span><span class="workspace-path" id="workspace-value">—</span></div>
-        </section>
-
-        <section class="card pending-card" id="pending-section">
-          <div class="pending-head"><h3 class="pending-title" data-i18n="pending">等待你的确认</h3><span class="pending-count" id="pending-count">0</span></div>
-          <div class="pending-desc" data-i18n="pendingDesc">只允许你刚刚发起配对的手机。</div>
-          <div class="request-list" id="pending-list"></div>
-        </section>
-
-        <section class="card devices-card">
-          <div class="card-head">
-            <div><h3 class="card-title" data-i18n="pairedPhones">已配对设备</h3><div class="card-subtitle" data-i18n="pairedDesc">这些手机可以在 Mac 在线时使用 Relay。</div></div>
-            <span class="device-count" id="device-count">0</span>
-          </div>
-          <div class="device-list" id="session-list"><div class="empty" data-i18n="loading">加载中…</div></div>
-        </section>
+      <section class="card summary-card">
+        <div class="host-summary">
+          <div class="eyebrow" data-i18n="hostStatus">Host 状态</div>
+          <div class="host-title-row"><span class="dot" id="host-dot"></span><h2 class="host-title" id="host-title" data-i18n="connectingHost">正在启动</h2></div>
+          <div class="host-copy" id="host-copy" data-i18n="hostCopy">保持此 Mac 在线，手机会自动选择可用连接路径。</div>
+          <div class="host-meta"><span data-i18n="workspace">工作目录</span><span class="workspace-path" id="workspace-value">—</span><span>·</span><span id="last-sync">—</span></div>
+        </div>
+        <div class="metric">
+          <div class="metric-label" data-i18n="relay">Relay</div>
+          <div class="metric-value" id="relay-value" data-i18n="loading">加载中…</div>
+          <div class="metric-detail" id="relay-detail">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label" data-i18n="remoteAccess">远程访问</div>
+          <div class="metric-value" id="remote-value" data-i18n="loading">加载中…</div>
+          <div class="metric-detail" id="remote-detail">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label" data-i18n="phones">设备</div>
+          <div class="metric-value" id="phone-count">—</div>
+          <div class="metric-detail" id="phone-detail" data-i18n="phoneHint">已授权</div>
+        </div>
       </section>
 
-      <aside class="card pair-card">
-        <div class="pair-head">
-          <div class="pair-head-row"><span class="eyebrow" data-i18n="pairing">配对</span><button class="btn quiet" id="pair-refresh" data-i18n="refreshShort">刷新</button></div>
-          <h3 class="pair-title" data-i18n="pairPhone">添加手机</h3>
-          <div class="pair-desc" data-i18n="scanHint">在 Codex Relay mobile 中扫描二维码。首次连接会要求确认。</div>
-        </div>
-        <div class="qr-stage">
-          <div class="qr-wrap">
-            <canvas id="pairing-qr" aria-label="Pairing QR code"></canvas>
-            <pre class="qr-fallback" id="pairing-qr-fallback"></pre>
-            <div class="qr-loading" id="qr-loading" data-i18n="loadingQr">正在准备安全配对码…</div>
+      <div class="content-grid">
+        <section class="card devices-card">
+          <div class="section-head">
+            <div><h3 class="section-title" data-i18n="pairedPhones">已配对设备</h3><div class="section-subtitle" data-i18n="pairedDesc">管理可以连接这台 Mac 的手机。</div></div>
+            <span class="section-count" id="device-count">0</span>
           </div>
-        </div>
-        <div class="pair-actions">
-          <button class="btn primary" id="copy-pair" disabled data-i18n="copyPair">复制配对链接</button>
-          <div class="pair-note" data-i18n="pairNote">扫不了二维码时，把配对链接发到手机并用 Codex Relay mobile 打开。</div>
-        </div>
-      </aside>
+
+          <section class="pending-section" id="pending-section">
+            <div class="pending-head"><h4 class="pending-title" data-i18n="pending">等待你的确认</h4><span class="pending-count" id="pending-count">0</span></div>
+            <div class="pending-desc" data-i18n="pendingDesc">只允许你刚刚发起配对的手机。</div>
+            <div class="request-list" id="pending-list"></div>
+          </section>
+
+          <div class="device-list" id="session-list"><div class="empty" data-i18n="loading">加载中…</div></div>
+        </section>
+
+        <aside class="card pair-card">
+          <div>
+            <div class="pair-head-row"><span class="eyebrow" data-i18n="pairing">配对</span><button class="btn quiet" id="pair-refresh" data-i18n="refreshShort">刷新</button></div>
+            <h3 class="pair-title" data-i18n="pairPhone">添加手机</h3>
+            <div class="pair-desc" data-i18n="scanHint">在 Codex Relay mobile 中扫描二维码。首次连接会要求确认。</div>
+          </div>
+          <div class="qr-stage">
+            <div class="qr-wrap">
+              <canvas id="pairing-qr" aria-label="Pairing QR code"></canvas>
+              <pre class="qr-fallback" id="pairing-qr-fallback"></pre>
+              <div class="qr-loading" id="qr-loading" data-i18n="loadingQr">正在准备安全配对码…</div>
+            </div>
+          </div>
+          <div>
+            <button class="btn primary" id="copy-pair" disabled data-i18n="copyPair">复制配对链接</button>
+            <div class="pair-note" data-i18n="pairNote">无法扫码时，把配对链接发到手机后打开。</div>
+          </div>
+        </aside>
+      </div>
 
       <div class="drawer-backdrop" id="drawer-backdrop"></div>
       <aside class="drawer" id="diagnostics-drawer" aria-hidden="true">
@@ -561,27 +566,27 @@ export function renderControlCenterPage(controlToken: string) {
           retry: "重试",
           hostStatus: "HOST 状态",
           connectingHost: "正在启动",
-          hostReady: "Mac 已就绪",
+          hostReady: "Host 已就绪",
           hostCopy: "保持此 Mac 在线，手机会自动选择可用连接路径。",
-          hostReadyCopy: "Relay 和配对服务已准备好，可以从手机继续。",
-          lastSync: "最近更新",
+          hostReadyCopy: "Relay 与远程连接正常；无需保持此窗口打开。",
           relay: "Relay",
           relayReady: "运行中",
-          remoteAccess: "Tailcat",
-          remoteReady: "已就绪",
-          remoteStarting: "正在启动",
+          remoteAccess: "远程访问",
+          remoteReady: "Tailcat 已就绪",
+          remoteReadyDetail: "自动远程连接",
+          remoteStarting: "Tailcat 启动中",
           remoteDisabled: "已关闭",
-          remoteDisabledDetail: "仅局域网 · 菜单栏可重新开启",
+          remoteDisabledDetail: "仅局域网",
           remoteUnavailable: "未集成",
           lanStillAvailable: "局域网仍可用",
-          workspace: "默认工作目录",
-          phones: "已授权设备",
-          phoneHint: "手机",
+          workspace: "工作目录",
+          phones: "设备",
+          phoneHint: "已授权",
           phoneUnit: " 台",
           pending: "等待你的确认",
           pendingDesc: "只允许你刚刚发起配对的手机。",
           pairedPhones: "已配对设备",
-          pairedDesc: "这些手机可以在 Mac 在线时使用 Relay。",
+          pairedDesc: "管理可以连接这台 Mac 的手机。",
           diagnostics: "诊断",
           advanced: "高级与诊断",
           advancedHint: "连接地址和运行状态仅用于排查问题。",
@@ -604,9 +609,9 @@ export function renderControlCenterPage(controlToken: string) {
           loadingQr: "正在准备安全配对码…",
           qrUnavailable: "配对码暂不可用，请刷新后重试。",
           copyPair: "复制配对链接",
-          pairNote: "扫不了二维码时，把配对链接发到手机并用 Codex Relay mobile 打开。",
+          pairNote: "无法扫码时，把配对链接发到手机后打开。",
           loading: "加载中…",
-          noDevices: "还没有已配对设备。扫描右侧二维码即可添加手机。",
+          noDevices: "还没有已配对设备。使用右侧二维码添加手机。",
           unknownDevice: "未命名设备",
           approve: "允许",
           reject: "拒绝",
@@ -626,27 +631,27 @@ export function renderControlCenterPage(controlToken: string) {
           retry: "Retry",
           hostStatus: "HOST STATUS",
           connectingHost: "Starting",
-          hostReady: "Mac is ready",
+          hostReady: "Host is ready",
           hostCopy: "Keep this Mac online. The mobile app chooses an available connection path automatically.",
-          hostReadyCopy: "Relay and pairing are ready. Continue from your phone.",
-          lastSync: "Last update",
+          hostReadyCopy: "Relay and remote access are healthy; you do not need to keep this window open.",
           relay: "Relay",
           relayReady: "Running",
-          remoteAccess: "Tailcat",
-          remoteReady: "Ready",
-          remoteStarting: "Starting",
+          remoteAccess: "Remote access",
+          remoteReady: "Tailcat ready",
+          remoteReadyDetail: "Automatic remote connection",
+          remoteStarting: "Tailcat starting",
           remoteDisabled: "Off",
-          remoteDisabledDetail: "LAN only · re-enable from the menu bar",
+          remoteDisabledDetail: "LAN only",
           remoteUnavailable: "Not included",
           lanStillAvailable: "LAN remains available",
-          workspace: "Default workspace",
-          phones: "Authorized devices",
-          phoneHint: "Phones",
+          workspace: "Workspace",
+          phones: "Devices",
+          phoneHint: "Authorized",
           phoneUnit: "",
           pending: "Waiting for approval",
           pendingDesc: "Only approve the phone you just paired.",
           pairedPhones: "Paired devices",
-          pairedDesc: "These phones can use Relay while this Mac is online.",
+          pairedDesc: "Manage phones that can connect to this Mac.",
           diagnostics: "Diagnostics",
           advanced: "Advanced & diagnostics",
           advancedHint: "Connection addresses and runtime details are for troubleshooting only.",
@@ -669,9 +674,9 @@ export function renderControlCenterPage(controlToken: string) {
           loadingQr: "Preparing secure pairing code…",
           qrUnavailable: "Pairing code is unavailable. Refresh and try again.",
           copyPair: "Copy pairing link",
-          pairNote: "If you cannot scan the QR code, send the pairing link to your phone and open it with Codex Relay mobile.",
+          pairNote: "If scanning is unavailable, send the pairing link to your phone and open it there.",
           loading: "Loading…",
-          noDevices: "No paired devices yet. Scan the QR code to add a phone.",
+          noDevices: "No paired devices yet. Use the QR code to add a phone.",
           unknownDevice: "Unnamed device",
           approve: "Allow",
           reject: "Reject",
@@ -847,7 +852,7 @@ export function renderControlCenterPage(controlToken: string) {
         byId("host-title").textContent = t("hostReady");
         byId("host-copy").textContent = t("hostReadyCopy");
         byId("relay-value").textContent = t("relayReady");
-        byId("relay-detail").textContent = "PID " + state.relay.pid + " · :" + state.relay.port;
+        byId("relay-detail").textContent = ":" + state.relay.port;
         byId("workspace-value").textContent = state.relay.workspacePath || "—";
         byId("phone-count").textContent = String(state.sessions.length) + t("phoneUnit");
         byId("phone-detail").textContent = t("phoneHint");
@@ -856,7 +861,7 @@ export function renderControlCenterPage(controlToken: string) {
         var tailcat = state.tailcat || {};
         if (tailcat.ready) {
           byId("remote-value").textContent = t("remoteReady");
-          byId("remote-detail").textContent = (tailcat.address || "—") + (tailcat.port ? " · :" + tailcat.port : "");
+          byId("remote-detail").textContent = t("remoteReadyDetail");
         } else if (tailcat.configured && tailcat.enabled === false) {
           byId("remote-value").textContent = t("remoteDisabled");
           byId("remote-detail").textContent = t("remoteDisabledDetail");
@@ -884,7 +889,7 @@ export function renderControlCenterPage(controlToken: string) {
         pendingSection.classList.toggle("visible", state.pendingPairings.length > 0);
         byId("pending-count").textContent = String(state.pendingPairings.length);
         pendingList.innerHTML = state.pendingPairings.map(function (item) {
-          return '<div class="request"><div class="request-main"><div class="approval-code">' + escape(item.approvalCode) + '</div><div class="row-meta">' + escape(item.clientName || t("unknownDevice")) + ' · ' + t("expires") + ' ' + escape(new Date(item.expiresAt).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })) + '</div></div><div class="actions"><button class="btn" data-reject="' + escape(item.approvalCode) + '">' + t("reject") + '</button><button class="btn" data-approve="' + escape(item.approvalCode) + '">' + t("approve") + '</button></div></div>';
+          return '<div class="request"><div class="request-main"><div class="approval-code">' + escape(item.approvalCode) + '</div><div class="row-meta">' + escape(item.clientName || t("unknownDevice")) + ' · ' + t("expires") + ' ' + escape(new Date(item.expiresAt).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })) + '</div></div><div class="actions"><button class="btn" data-reject="' + escape(item.approvalCode) + '">' + t("reject") + '</button><button class="btn primary" data-approve="' + escape(item.approvalCode) + '">' + t("approve") + '</button></div></div>';
         }).join("");
 
         var sessions = byId("session-list");
