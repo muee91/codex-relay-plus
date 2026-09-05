@@ -39,6 +39,21 @@ import { chatStore$, resetChatSessionState } from "@/state/chat-store";
 
 import mobilePackage from "../../package.json";
 
+const isZhCn = process.env.CODEX_RELAY_LOCALE === "zh-CN";
+const archivedCopy = isZhCn
+  ? {
+      section: "会话",
+      title: "已归档会话",
+      subtitle: "查看并恢复已归档的会话",
+      accessibilityLabel: "打开已归档会话",
+    }
+  : {
+      section: "Chats",
+      title: "Archived chats",
+      subtitle: "View and restore chats you archived",
+      accessibilityLabel: "Open archived chats",
+    };
+
 const pushNotificationTrackColor = {
   false: "rgba(255, 255, 255, 0.16)",
   true: "#2CA36F",
@@ -115,6 +130,11 @@ export default function SettingsScreen() {
       return;
     }
     router.replace("/");
+  }
+
+  function openArchivedChats() {
+    hapticSelection();
+    router.push("/archived");
   }
 
   function signOut() {
@@ -223,6 +243,33 @@ export default function SettingsScreen() {
               )}
             </View>
           </View>
+
+          {hasPairedSession ? (
+            <View style={styles.section}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.sectionLabel}>
+                {archivedCopy.section}
+              </ThemedText>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={archivedCopy.accessibilityLabel}
+                onPress={openArchivedChats}
+                style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}
+              >
+                <View style={styles.actionIcon}>
+                  <Icon name="archive" size={17} tintColor={Colors.dark.textSecondary} />
+                </View>
+                <View style={styles.actionCopy}>
+                  <ThemedText type="smallBold" style={styles.actionTitle}>
+                    {archivedCopy.title}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary" style={styles.actionSubtitle}>
+                    {archivedCopy.subtitle}
+                  </ThemedText>
+                </View>
+                <Icon name="chevronRight" size={16} tintColor={Colors.dark.textSecondary} />
+              </Pressable>
+            </View>
+          ) : null}
 
           <View style={styles.section}>
             <ThemedText type="small" themeColor="textSecondary" style={styles.sectionLabel}>
@@ -708,6 +755,40 @@ const styles = StyleSheet.create({
   },
   infoLineValue: {
     color: Colors.dark.text,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  actionRow: {
+    alignItems: "center",
+    backgroundColor: Colors.dark.backgroundElement,
+    borderColor: "rgba(255, 255, 255, 0.09)",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 64,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 9,
+  },
+  actionIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderRadius: 15,
+    flexShrink: 0,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  actionCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  actionTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  actionSubtitle: {
     fontSize: 12,
     lineHeight: 16,
   },
