@@ -73,11 +73,7 @@ export default function ArchivedChatsScreen() {
       const response = await restoreArchivedThread(threadId);
       setThreadsState(queryClient, response.threads, response.source);
       replaceThreads(response.threads);
-      archivedQuery.setData((current) =>
-        current
-          ? { ...current, threads: current.threads.filter((thread) => thread.id !== threadId) }
-          : current,
-      );
+      await archivedQuery.refetch();
       void queryClient.invalidateQueries({ queryKey: ["codex-relay-server-state", serverUrl] });
     } catch (error) {
       hapticWarning();
