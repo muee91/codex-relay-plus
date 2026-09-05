@@ -1,6 +1,6 @@
 import { useSelector } from "@legendapp/state/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet } from "react-native-unistyles";
@@ -17,85 +17,62 @@ import {
 } from "@/lib/codex-relay-server-url-storage";
 import { hapticSelection, hapticWarning } from "@/lib/haptics";
 import { clearServerState, setStatusState } from "@/lib/server-state";
-import {
-  getNativeTailcatStatus,
-  isNativeTailcatAvailable,
-  type TailcatPathStatus,
-} from "@/lib/transport/native-tailcat";
+import { getNativeTailcatStatus, isNativeTailcatAvailable } from "@/lib/transport/native-tailcat";
 import { chatStore$, setConnection, setServerUrl } from "@/state/chat-store";
 
 const isZhCn = process.env.CODEX_RELAY_LOCALE === "zh-CN";
 const pathRefreshMs = 4_000;
 
-type ConnectionPathStatus =
-  | TailcatPathStatus
-  | {
-      endpoint?: string;
-      latencyMs?: number;
-      path: "remote";
-    };
+type UserConnectionPath = "idle" | "lan" | "remote" | "switching" | "offline";
+type UserConnectionMode = Extract<CodexRelayConnectionMode, "auto" | "local">;
 
 const copy = isZhCn
   ? {
       title: "连接",
-      modeTitle: "连接模式",
-      pathTitle: "连接路径",
-      description: "自动模式优先使用局域网；离开当前网络后自动切换到 Tailcat 或其他远程路径。",
+      pathTitle: "当前连接",
+      description: "自动模式会优先使用局域网，并在离开当前网络后自动切换到安全远程连接。",
       unavailableTitle: "连接方式不可用",
       unavailableFallback: "当前连接方式无法访问已配对的电脑。",
-      endpoint: "端点",
       modes: {
-        auto: { label: "自动", subtitle: "优先局域网，不可用时自动切换远程", shortLabel: "自动" },
-        local: { label: "仅局域网", subtitle: "只连接同一 Wi-Fi / LAN", shortLabel: "LAN" },
-        remote: { label: "仅远程", subtitle: "使用 Tailcat、Tailscale 或其他远程地址", shortLabel: "远程" },
+        auto: { label: "自动", subtitle: "优先局域网，需要时自动切换远程" },
+        local: { label: "仅局域网", subtitle: "只在同一 Wi‑Fi / LAN 下连接" },
       },
       paths: {
-        idle: { label: "等待连接", detail: "尚未建立可用传输", shortLabel: "AUTO" },
-        lan: { label: "局域网", detail: "正在使用本地 Wi-Fi / LAN", shortLabel: "LAN" },
-        connecting: { label: "正在切换", detail: "正在建立可用连接路径", shortLabel: "…" },
-        direct: { label: "Tailcat · 直连", detail: "正在使用端到端远程直连", shortLabel: "DIRECT" },
-        derp: { label: "Tailcat · DERP", detail: "直连不可用，正在通过 DERP 中继", shortLabel: "DERP" },
-        remote: { label: "远程地址", detail: "正在使用 Tailscale 或配置的远程 Relay", shortLabel: "REMOTE" },
-        offline: { label: "离线", detail: "正在等待可用网络", shortLabel: "OFFLINE" },
+        idle: { label: "等待连接", detail: "尚未建立可用连接", shortLabel: "等待" },
+        lan: { label: "局域网", detail: "正在使用本地 Wi‑Fi / LAN", shortLabel: "LAN" },
+        remote: { label: "远程", detail: "正在使用安全远程连接", shortLabel: "远程" },
+        switching: { label: "正在切换", detail: "正在寻找可用连接", shortLabel: "…" },
+        offline: { label: "离线", detail: "正在等待网络恢复", shortLabel: "离线" },
       },
+      active: "当前",
+      use: "使用",
+      checking: "检查中",
+      close: "关闭",
     }
   : {
       title: "Connection",
-      modeTitle: "Connection mode",
-      pathTitle: "Connection path",
-      description: "Automatic prefers LAN and switches to Tailcat or another remote path when needed.",
+      pathTitle: "Current connection",
+      description: "Automatic prefers LAN and switches to a secure remote connection when you leave the local network.",
       unavailableTitle: "Connection mode unavailable",
       unavailableFallback: "Could not reach the paired computer with this connection mode.",
-      endpoint: "Endpoint",
       modes: {
-        auto: {
-          label: "Automatic",
-          subtitle: "Prefer LAN, switch to a remote path when needed",
-          shortLabel: "AUTO",
-        },
-        local: {
-          label: "Local network only",
-          subtitle: "Use only the same Wi-Fi / LAN",
-          shortLabel: "LAN",
-        },
-        remote: {
-          label: "Remote only",
-          subtitle: "Use Tailcat, Tailscale, or another remote address",
-          shortLabel: "REMOTE",
-        },
+        auto: { label: "Automatic", subtitle: "Prefer LAN and switch remote when needed" },
+        local: { label: "Local network only", subtitle: "Connect only on the same Wi-Fi / LAN" },
       },
       paths: {
-        idle: { label: "Waiting", detail: "No usable transport is active yet", shortLabel: "AUTO" },
+        idle: { label: "Waiting", detail: "No usable connection is active yet", shortLabel: "WAIT" },
         lan: { label: "Local network", detail: "Using local Wi-Fi / LAN", shortLabel: "LAN" },
-        connecting: { label: "Switching", detail: "Finding an available connection path", shortLabel: "…" },
-        direct: { label: "Tailcat · Direct", detail: "Using a peer-to-peer remote path", shortLabel: "DIRECT" },
-        derp: { label: "Tailcat · DERP", detail: "Direct path unavailable; using a DERP relay", shortLabel: "DERP" },
-        remote: { label: "Remote address", detail: "Using Tailscale or a configured remote Relay", shortLabel: "REMOTE" },
-        offline: { label: "Offline", detail: "Waiting for an available network", shortLabel: "OFFLINE" },
+        remote: { label: "Remote", detail: "Using a secure remote connection", shortLabel: "REMOTE" },
+        switching: { label: "Switching", detail: "Finding an available connection", shortLabel: "…" },
+        offline: { label: "Offline", detail: "Waiting for the network to recover", shortLabel: "OFFLINE" },
       },
+      active: "ACTIVE",
+      use: "USE",
+      checking: "CHECKING",
+      close: "Close",
     };
 
-const connectionModes: CodexRelayConnectionMode[] = ["auto", "local", "remote"];
+const connectionModes: UserConnectionMode[] = ["auto", "local"];
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -104,32 +81,34 @@ export default function SettingsScreen() {
   const connectionError = useSelector(() => chatStore$.error.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
   const serverUrl = useSelector(() => chatStore$.serverUrl.get());
-  const [connectionMode, setConnectionMode] = useState(() => getCodexRelayConnectionMode());
-  const [pathStatus, setPathStatus] = useState<ConnectionPathStatus>(() =>
-    inferNonNativePath(connection, serverUrl, hasPairedSession),
+  const [connectionMode, setConnectionMode] = useState<CodexRelayConnectionMode>(() =>
+    getCodexRelayConnectionMode(),
+  );
+  const [path, setPath] = useState<UserConnectionPath>(() =>
+    inferConnectionPath(connection, serverUrl, hasPairedSession),
   );
   const [modalVisible, setModalVisible] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [switching, setSwitching] = useState(false);
-  const activeCopy = useMemo(() => copy.modes[connectionMode], [connectionMode]);
-  const activePath = copy.paths[pathStatus.path];
+  const activePath = copy.paths[path];
 
   useEffect(() => {
     let active = true;
 
     async function refreshPath() {
-      const fallback = inferNonNativePath(connection, serverUrl, hasPairedSession);
+      const fallback = inferConnectionPath(connection, serverUrl, hasPairedSession);
       if (!hasPairedSession || !isNativeTailcatAvailable() || connectionMode === "local") {
         if (active) {
-          setPathStatus(fallback);
+          setPath(fallback);
         }
         return;
       }
 
-      const next = await getNativeTailcatStatus().catch((): TailcatPathStatus => ({ path: "offline" }));
-      if (active) {
-        setPathStatus(next.path === "idle" && connection === "connected" ? fallback : next);
+      const nativeStatus = await getNativeTailcatStatus().catch(() => ({ path: "offline" as const }));
+      if (!active) {
+        return;
       }
+      setPath(userPathFromNative(nativeStatus.path, fallback));
     }
 
     void refreshPath();
@@ -140,8 +119,8 @@ export default function SettingsScreen() {
     };
   }, [connection, connectionMode, hasPairedSession, serverUrl]);
 
-  async function selectConnectionMode(mode: CodexRelayConnectionMode) {
-    if (switching || !hasPairedSession || (mode === connectionMode && mode !== "auto")) {
+  async function selectConnectionMode(mode: UserConnectionMode) {
+    if (switching || !hasPairedSession || mode === connectionMode) {
       return;
     }
 
@@ -161,18 +140,7 @@ export default function SettingsScreen() {
       setServerUrl(reconciled.serverUrl);
       setStatusState(queryClient, reconciled.status);
       setConnection("connected");
-      if (isNativeTailcatAvailable() && mode !== "local") {
-        const next = await getNativeTailcatStatus().catch(
-          (): TailcatPathStatus => ({ path: "offline" }),
-        );
-        setPathStatus(
-          next.path === "idle"
-            ? inferNonNativePath("connected", reconciled.serverUrl, true)
-            : next,
-        );
-      } else {
-        setPathStatus(inferNonNativePath("connected", reconciled.serverUrl, true));
-      }
+      setPath(inferConnectionPath("connected", reconciled.serverUrl, true));
       setRefreshKey((value) => value + 1);
       setModalVisible(false);
       void queryClient.invalidateQueries();
@@ -202,15 +170,15 @@ export default function SettingsScreen() {
           setModalVisible(true);
         }}
         style={({ pressed }) => [
-          styles.modeButton,
+          styles.pathButton,
           { top: insets.top + 6 },
-          !hasPairedSession && styles.modeButtonDisabled,
+          !hasPairedSession && styles.pathButtonDisabled,
           pressed && styles.pressed,
         ]}
       >
-        <View style={[styles.pathDot, pathDotStyle(pathStatus.path)]} />
-        <ThemedText type="code" style={styles.modeButtonText}>
-          {hasPairedSession ? activePath.shortLabel : activeCopy.shortLabel}
+        <View style={[styles.pathDot, pathDotStyle(path)]} />
+        <ThemedText type="code" style={styles.pathButtonText}>
+          {hasPairedSession ? activePath.shortLabel : copy.paths.idle.shortLabel}
         </ThemedText>
       </Pressable>
 
@@ -232,7 +200,7 @@ export default function SettingsScreen() {
                 </ThemedText>
               </View>
               <Pressable
-                accessibilityLabel={isZhCn ? "关闭" : "Close"}
+                accessibilityLabel={copy.close}
                 accessibilityRole="button"
                 onPress={() => setModalVisible(false)}
                 style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
@@ -243,12 +211,8 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
 
-            <View
-              accessible
-              accessibilityLabel={`${copy.pathTitle}: ${activePath.label}`}
-              style={styles.pathCard}
-            >
-              <View style={[styles.pathDotLarge, pathDotStyle(pathStatus.path)]} />
+            <View accessible accessibilityLabel={`${copy.pathTitle}: ${activePath.label}`} style={styles.pathCard}>
+              <View style={[styles.pathDotLarge, pathDotStyle(path)]} />
               <View style={styles.pathCopy}>
                 <ThemedText type="code" themeColor="textSecondary" style={styles.pathEyebrow}>
                   {copy.pathTitle}
@@ -257,48 +221,27 @@ export default function SettingsScreen() {
                   {activePath.label}
                 </ThemedText>
                 <ThemedText type="small" themeColor="textSecondary" style={styles.pathDetail}>
-                  {pathDetail(pathStatus, activePath.detail)}
+                  {activePath.detail}
                 </ThemedText>
-                {pathStatus.endpoint ? (
-                  <ThemedText
-                    type="code"
-                    themeColor="textSecondary"
-                    style={styles.pathMeta}
-                    numberOfLines={1}
-                  >
-                    {copy.endpoint}: {pathStatus.endpoint}
-                  </ThemedText>
-                ) : null}
               </View>
-              {typeof pathStatus.latencyMs === "number" ? (
-                <View style={styles.latencyBadge}>
-                  <ThemedText type="code" style={styles.latencyText}>
-                    {Math.round(pathStatus.latencyMs)} ms
-                  </ThemedText>
-                </View>
-              ) : null}
             </View>
 
-            <ThemedText type="code" themeColor="textSecondary" style={styles.sectionLabel}>
-              {copy.modeTitle}
-            </ThemedText>
             <View style={styles.modeList}>
               {connectionModes.map((mode) => {
                 const option = copy.modes[mode];
                 const selected = mode === connectionMode;
-                const disabled = switching || (selected && mode !== "auto");
                 return (
                   <Pressable
                     key={mode}
-                    accessibilityLabel={`${copy.modeTitle}: ${option.label}`}
+                    accessibilityLabel={`${copy.title}: ${option.label}`}
                     accessibilityRole="button"
-                    accessibilityState={{ selected, disabled }}
-                    disabled={disabled}
+                    accessibilityState={{ selected, disabled: switching || selected }}
+                    disabled={switching || selected}
                     onPress={() => void selectConnectionMode(mode)}
                     style={({ pressed }) => [
                       styles.modeRow,
                       selected && styles.modeRowSelected,
-                      disabled && styles.modeRowDisabled,
+                      switching && styles.modeRowDisabled,
                       pressed && styles.pressed,
                     ]}
                   >
@@ -315,17 +258,7 @@ export default function SettingsScreen() {
                         type="code"
                         style={[styles.modeBadgeText, selected && styles.modeBadgeTextSelected]}
                       >
-                        {switching && selected
-                          ? isZhCn
-                            ? "检查中"
-                            : "CHECKING"
-                          : selected
-                            ? isZhCn
-                              ? "当前"
-                              : "ACTIVE"
-                            : isZhCn
-                              ? "使用"
-                              : "USE"}
+                        {switching && selected ? copy.checking : selected ? copy.active : copy.use}
                       </ThemedText>
                     </View>
                   </Pressable>
@@ -339,48 +272,55 @@ export default function SettingsScreen() {
   );
 }
 
-function inferNonNativePath(
+function inferConnectionPath(
   connection: string,
   serverUrl: string,
   hasPairedSession: boolean,
-): ConnectionPathStatus {
+): UserConnectionPath {
   if (!hasPairedSession) {
-    return { path: "idle" };
+    return "idle";
   }
   if (connection === "offline") {
-    return { path: "offline" };
+    return "offline";
   }
   if (connection !== "connected") {
-    return { path: "connecting" };
+    return "switching";
   }
-  return isLocalServerUrl(serverUrl)
-    ? { endpoint: serverUrl, path: "lan" }
-    : { endpoint: serverUrl, path: "remote" };
+  return isLocalServerUrl(serverUrl) ? "lan" : "remote";
 }
 
-function pathDetail(status: ConnectionPathStatus, fallback: string) {
-  if (status.path === "derp" && status.derpRegion) {
-    return `${fallback} · ${status.derpRegion}`;
+function userPathFromNative(path: string, fallback: UserConnectionPath): UserConnectionPath {
+  switch (path) {
+    case "lan":
+      return "lan";
+    case "direct":
+    case "derp":
+      return "remote";
+    case "connecting":
+      return "switching";
+    case "offline":
+      return "offline";
+    case "idle":
+    default:
+      return fallback;
   }
-  if ("error" in status && status.error && status.path === "offline") {
-    return status.error;
-  }
-  return fallback;
 }
 
-function pathDotStyle(path: ConnectionPathStatus["path"]) {
-  if (path === "lan" || path === "direct" || path === "remote") {
+function pathDotStyle(path: UserConnectionPath) {
+  if (path === "lan" || path === "remote") {
     return styles.pathDotHealthy;
   }
-  if (path === "derp" || path === "connecting") {
+  if (path === "switching") {
     return styles.pathDotDegraded;
   }
   return styles.pathDotOffline;
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  modeButton: {
+  root: {
+    flex: 1,
+  },
+  pathButton: {
     alignItems: "center",
     backgroundColor: "rgba(255, 255, 255, 0.08)",
     borderColor: "rgba(255, 255, 255, 0.1)",
@@ -390,32 +330,51 @@ const styles = StyleSheet.create({
     gap: 5,
     height: 40,
     justifyContent: "center",
-    minWidth: 52,
-    paddingHorizontal: 9,
+    minWidth: 58,
+    paddingHorizontal: 10,
     position: "absolute",
     right: 18,
+    zIndex: 20,
   },
-  modeButtonDisabled: { opacity: 0.34 },
-  modeButtonText: {
-    color: Colors.dark.textSecondary,
+  pathButtonDisabled: {
+    opacity: 0.5,
+  },
+  pathButtonText: {
+    color: Colors.dark.text,
     fontFamily: Fonts.monoMedium,
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: 10,
+    lineHeight: 13,
   },
-  pathDot: { borderRadius: 4, height: 7, width: 7 },
-  pathDotLarge: { borderRadius: 5, height: 10, marginTop: 4, width: 10 },
-  pathDotHealthy: { backgroundColor: "#93E1B6" },
-  pathDotDegraded: { backgroundColor: "#F2C66D" },
-  pathDotOffline: { backgroundColor: "#8B8F8D" },
+  pathDot: {
+    borderRadius: 4,
+    height: 8,
+    width: 8,
+  },
+  pathDotLarge: {
+    borderRadius: 5,
+    flexShrink: 0,
+    height: 10,
+    marginTop: 5,
+    width: 10,
+  },
+  pathDotHealthy: {
+    backgroundColor: "#2CA36F",
+  },
+  pathDotDegraded: {
+    backgroundColor: "#F2B84B",
+  },
+  pathDotOffline: {
+    backgroundColor: "#D84F4F",
+  },
   modalBackdrop: {
     alignItems: "center",
     backgroundColor: "rgba(0, 0, 0, 0.62)",
     flex: 1,
     justifyContent: "center",
-    padding: Spacing.four,
+    padding: 18,
   },
   modalPanel: {
-    backgroundColor: Colors.dark.backgroundElement,
+    backgroundColor: Colors.dark.background,
     borderColor: "rgba(255, 255, 255, 0.12)",
     borderRadius: 12,
     borderWidth: 1,
@@ -424,13 +383,29 @@ const styles = StyleSheet.create({
     padding: Spacing.four,
     width: "100%",
   },
-  modalHeader: { alignItems: "flex-start", flexDirection: "row", gap: Spacing.three },
-  modalHeaderCopy: { flex: 1, gap: 4, minWidth: 0 },
-  modalTitle: { fontSize: 17, lineHeight: 22 },
-  modalSubtitle: { fontSize: 12, lineHeight: 17 },
+  modalHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: Spacing.three,
+  },
+  modalHeaderCopy: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  modalTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
   closeButton: {
     alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
     borderRadius: 16,
+    flexShrink: 0,
     height: 32,
     justifyContent: "center",
     width: 32,
@@ -438,81 +413,97 @@ const styles = StyleSheet.create({
   closeButtonText: {
     color: Colors.dark.textSecondary,
     fontFamily: Fonts.monoMedium,
-    fontSize: 20,
-    lineHeight: 24,
+    fontSize: 18,
+    lineHeight: 20,
   },
   pathCard: {
     alignItems: "flex-start",
-    backgroundColor: "rgba(255, 255, 255, 0.035)",
+    backgroundColor: Colors.dark.backgroundElement,
     borderColor: "rgba(255, 255, 255, 0.09)",
     borderRadius: 9,
     borderWidth: 1,
     flexDirection: "row",
     gap: 10,
-    padding: 12,
+    padding: Spacing.three,
   },
-  pathCopy: { flex: 1, gap: 2, minWidth: 0 },
-  pathEyebrow: { fontSize: 9, lineHeight: 12, textTransform: "uppercase" },
-  pathTitle: { fontSize: 15, lineHeight: 20 },
-  pathDetail: { fontSize: 12, lineHeight: 17 },
-  pathMeta: { fontSize: 9, lineHeight: 13, marginTop: 3 },
-  latencyBadge: {
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderRadius: 6,
-    flexShrink: 0,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
+  pathCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
   },
-  latencyText: {
-    color: Colors.dark.textSecondary,
-    fontFamily: Fonts.monoMedium,
+  pathEyebrow: {
     fontSize: 9,
     lineHeight: 12,
+    opacity: 0.72,
   },
-  sectionLabel: { fontSize: 9, lineHeight: 12, textTransform: "uppercase" },
-  modeList: { gap: 8 },
+  pathTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  pathDetail: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  modeList: {
+    gap: 8,
+  },
   modeRow: {
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    borderRadius: 8,
+    backgroundColor: Colors.dark.backgroundElement,
+    borderColor: "rgba(255, 255, 255, 0.09)",
+    borderRadius: 9,
     borderWidth: 1,
     flexDirection: "row",
     gap: Spacing.three,
-    minHeight: 66,
-    paddingHorizontal: 12,
+    minHeight: 68,
+    paddingHorizontal: Spacing.three,
     paddingVertical: 10,
   },
   modeRowSelected: {
-    backgroundColor: "rgba(44, 163, 111, 0.12)",
-    borderColor: "rgba(147, 225, 182, 0.24)",
+    backgroundColor: "rgba(44, 163, 111, 0.10)",
+    borderColor: "rgba(147, 225, 182, 0.22)",
   },
-  modeRowDisabled: { opacity: 0.78 },
-  modeCopy: { flex: 1, gap: 2, minWidth: 0 },
-  modeTitle: { fontSize: 14, lineHeight: 19 },
-  modeSubtitle: { fontSize: 12, lineHeight: 16 },
+  modeRowDisabled: {
+    opacity: 0.7,
+  },
+  modeCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  modeTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  modeSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
   modeBadge: {
-    alignItems: "center",
     backgroundColor: "rgba(255, 255, 255, 0.05)",
     borderColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 6,
     borderWidth: 1,
     flexShrink: 0,
-    justifyContent: "center",
-    minWidth: 62,
+    minWidth: 58,
     paddingHorizontal: 7,
     paddingVertical: 4,
   },
   modeBadgeSelected: {
-    backgroundColor: "rgba(44, 163, 111, 0.16)",
-    borderColor: "rgba(147, 225, 182, 0.28)",
+    backgroundColor: "rgba(44, 163, 111, 0.14)",
+    borderColor: "rgba(147, 225, 182, 0.25)",
   },
   modeBadgeText: {
     color: Colors.dark.textSecondary,
     fontFamily: Fonts.monoMedium,
     fontSize: 9,
     lineHeight: 12,
+    textAlign: "center",
   },
-  modeBadgeTextSelected: { color: "#93E1B6" },
-  pressed: { opacity: 0.7 },
+  modeBadgeTextSelected: {
+    color: "#93E1B6",
+  },
+  pressed: {
+    opacity: 0.7,
+  },
 });
