@@ -45,29 +45,29 @@ RCT_REMAP_METHOD(configureRelayProxy,
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
   NSError *error = nil;
-  NSString *localURL = nil;
-  BOOL ok = GoBridgeConfigureProxy(
-      serverAddr,
-      remotePort.longLongValue,
-      lanTargetsJson ?: @"[]",
-      mode ?: @"auto",
-      [self clientKeyPath],
-      &localURL,
-      &error);
-  if (!ok || error != nil || localURL.length == 0) {
+  NSString *localURL = [self configureAndPersist:serverAddr
+                                      remotePort:remotePort.longLongValue
+                                  lanTargetsJson:lanTargetsJson ?: @"[]"
+                                           mode:mode ?: @"auto"
+                                          error:&error];
+  if (error != nil || localURL.length == 0) {
     [self reject:reject code:@"TAILCAT_CONFIGURE_FAILED" error:error fallback:@"Tailcat proxy configuration failed."];
     return;
   }
-
-  [self.defaults setObject:serverAddr forKey:kServerAddrKey];
-  [self.defaults setObject:remotePort forKey:kRemotePortKey];
-  [self.defaults setObject:lanTargetsJson ?: @"[]" forKey:kLanTargetsKey];
-  [self.defaults setObject:mode ?: @"auto" forKey:kModeKey];
-  if (![self.defaults synchronize]) {
-    reject(@"TAILCAT_CONFIGURE_FAILED", @"Could not persist Tailcat transport configuration.", nil);
-    return;
-  }
   resolve(localURL);
+}
+
+RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(configureRelayProxySync:(NSString *)serverAddr
+                                      remotePort:(nonnull NSNumber *)remotePort
+                                      lanTargetsJson:(NSString *)lanTargetsJson
+                                      mode:(NSString *)mode) {
+  NSError *error = nil;
+  NSString *localURL = [self configureAndPersist:serverAddr
+                                      remotePort:remotePort.longLongValue
+                                  lanTargetsJson:lanTargetsJson ?: @"[]"
+                                           mode:mode ?: @"remote"
+                                          error:&error];
+  return error == nil && localURL.length > 0 ? localURL : @"";
 }
 
 RCT_REMAP_METHOD(startTailcatProxy,
@@ -76,24 +76,15 @@ RCT_REMAP_METHOD(startTailcatProxy,
                  startResolver:(RCTPromiseResolveBlock)resolve
                  startRejecter:(RCTPromiseRejectBlock)reject) {
   NSError *error = nil;
-  NSString *localURL = nil;
-  BOOL ok = GoBridgeConfigureProxy(
-      serverAddr,
-      remotePort.longLongValue,
-      @"[]",
-      @"remote",
-      [self clientKeyPath],
-      &localURL,
-      &error);
-  if (!ok || error != nil || localURL.length == 0) {
+  NSString *localURL = [self configureAndPersist:serverAddr
+                                      remotePort:remotePort.longLongValue
+                                  lanTargetsJson:@"[]"
+                                           mode:@"remote"
+                                          error:&error];
+  if (error != nil || localURL.length == 0) {
     [self reject:reject code:@"TAILCAT_CONFIGURE_FAILED" error:error fallback:@"Tailcat proxy configuration failed."];
     return;
   }
-  [self.defaults setObject:serverAddr forKey:kServerAddrKey];
-  [self.defaults setObject:remotePort forKey:kRemotePortKey];
-  [self.defaults setObject:@"[]" forKey:kLanTargetsKey];
-  [self.defaults setObject:@"remote" forKey:kModeKey];
-  [self.defaults synchronize];
   resolve(localURL);
 }
 
@@ -141,6 +132,32 @@ RCT_REMAP_METHOD(discoverLocalRelay,
   (void)timeoutMs;
   (void)reject;
   resolve(nil);
+}
+
+- (NSString *)configureAndPersist:(NSString *)serverAddr
+                       remotePort:(long long)remotePort
+                   lanTargetsJson:(NSString *)lanTargetsJson
+                            mode:(NSString *)mode
+                           error:(NSError **)error {
+  NSString *localURL = nil;
+  BOOL ok = GoBridgeConfigureProxy(
+      serverAddr,
+      remotePort,
+      lanTargetsJson,
+      mode,
+      [self clientKeyPath],
+      &localURL,
+      error);
+  if (!ok || (error != NULL && *error != nil) || localURL.length == 0) {
+    return nil;
+  }
+
+  [self.defaults setObject:serverAddr forKey:kServerAddrKey];
+  [self.defaults setObject:@(remotePort) forKey:kRemotePortKey];
+  [self.defaults setObject:lanTargetsJson forKey:kLanTargetsKey];
+  [self.defaults setObject:mode forKey:kModeKey];
+  [self.defaults synchronize];
+  return localURL;
 }
 
 - (void)restoreProxyIfConfigured {
