@@ -1,8 +1,10 @@
 import {
   createPairingQrPayload,
   getConnectUrlCandidates,
+  getTailcatSnapshot,
   networkInterfaceFingerprint,
   type ConnectUrlCandidate,
+  type TailcatSnapshot,
   type TailscaleSnapshot,
 } from "./pairing-url-candidates.js";
 
@@ -12,6 +14,7 @@ export type NetworkStateSnapshot = {
   connectUrl: string;
   connectUrlCandidates: ConnectUrlCandidate[];
   pairingPayload: string;
+  tailcat: TailcatSnapshot;
   /** @deprecated Kept in persisted state for compatibility. Relay transport no longer probes Tailscale. */
   tailscale: TailscaleSnapshot;
   updatedAt: number;
@@ -91,6 +94,7 @@ export class NetworkStateManager {
       connectUrl,
       connectUrlCandidates,
       pairingPayload,
+      tailcat: getTailcatSnapshot(),
       // Keep the old field shape so persisted server-state consumers remain
       // forward compatible while Tailcat replaces Tailscale for connectivity.
       tailscale: { checkedAt: 0 },
@@ -104,5 +108,6 @@ function networkStateKey(snapshot: NetworkStateSnapshot) {
     connectUrl: snapshot.connectUrl,
     connectUrlCandidates: snapshot.connectUrlCandidates,
     pairingPayload: snapshot.pairingPayload,
+    tailcat: snapshot.tailcat,
   });
 }
