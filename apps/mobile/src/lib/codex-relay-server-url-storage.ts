@@ -44,10 +44,15 @@ export function getCodexRelayServerUrl() {
 }
 
 export function getCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {
+  const tailcatAvailable = Boolean(getTailcatBootstrapCandidate());
   return routeServerUrlCandidates(
     getAllCodexRelayServerUrlCandidates(),
     getCodexRelayConnectionMode(),
-  ).filter((candidate) => !isTailcatBootstrapUrl(candidate.url));
+  ).filter(
+    (candidate) =>
+      !isTailcatBootstrapUrl(candidate.url) &&
+      !(tailcatAvailable && isLegacyTailscaleServerUrl(candidate.url)),
+  );
 }
 
 export function getAllCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {
@@ -262,10 +267,10 @@ function serverUrlCandidateLabel(url: string) {
       return "Local network";
     }
     if (host.endsWith(".ts.net") || host.endsWith(".beta.tailscale.net")) {
-      return "Tailscale DNS";
+      return "Legacy Tailscale DNS";
     }
     if (isCarrierGradePrivateIPv4Host(host)) {
-      return "Tailscale IP";
+      return "Legacy Tailscale IP";
     }
     if (isPrivateIPv4Host(host) || isLocalIPv6Host(host)) {
       return "LAN IP";
@@ -273,5 +278,18 @@ function serverUrlCandidateLabel(url: string) {
     return "Remote server";
   } catch {
     return "Remote server";
+  }
+}
+
+function isLegacyTailscaleServerUrl(url: string) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host.endsWith(".ts.net") ||
+      host.endsWith(".beta.tailscale.net") ||
+      isCarrierGradePrivateIPv4Host(host)
+    );
+  } catch {
+    return false;
   }
 }
