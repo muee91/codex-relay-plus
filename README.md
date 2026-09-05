@@ -138,6 +138,28 @@ After pairing, open **Settings > Notifications** in the mobile app and enable ei
 
 The relay sends only a generic alert plus opaque thread and turn identifiers needed to open the conversation. It does not send prompts, responses, commands, or approval text through the push service. Push support requires a native mobile build that includes `expo-notifications`; an OTA update alone cannot add that native module.
 
+## Local Builds and Artifacts
+
+Final delivery files are kept under the repository root in `artifacts/`:
+
+```text
+artifacts/
+├── macos/    # .app, .dmg, and the DMG SHA-256 file
+└── android/  # release .apk and its SHA-256 file
+```
+
+Build both targets with:
+
+```sh
+pnpm build:artifacts
+```
+
+The macOS build uses a temporary directory and removes it after publishing,
+while Expo/Gradle and the Tailcat AAR remain in their generated native
+directories. Those paths are implementation caches, not delivery locations.
+Set `ARTIFACTS_DIR` to use another root, or `ARTIFACT_DIR`/`OUTPUT_DIR` for a
+platform-specific override.
+
 ## Network Setup
 
 ### Codex Relay Plus desktop host

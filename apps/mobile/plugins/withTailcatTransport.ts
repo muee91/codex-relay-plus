@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const gradleMarker = "// @generated codex-relay-plus: Tailcat AAR";
+const brotliMarker = "// @generated codex-relay-plus: resolve Brotli dependency collision";
 const packageMarker = "// @generated codex-relay-plus: Tailcat transport package";
 const podMarker = "# @generated codex-relay-plus: Tailcat iOS pod";
 const kotlinPackage = "com.muee91.codexrelayplus";
@@ -38,18 +39,20 @@ const withTailcatAar: ConfigPlugin = (config) =>
         "Tailcat integration requires the generated Android app/build.gradle to use Groovy.",
       );
     }
-    if (config.modResults.contents.includes(gradleMarker)) {
-      return config;
+    if (!config.modResults.contents.includes(gradleMarker)) {
+      const dependencyBlock = "dependencies {";
+      const index = config.modResults.contents.indexOf(dependencyBlock);
+      if (index === -1) {
+        throw new Error("Could not find dependencies block in generated Android app/build.gradle.");
+      }
+      const insertion = `${dependencyBlock}\n    ${gradleMarker}\n    implementation files("../../native-libs/CodexRelayTailcat.aar")`;
+      config.modResults.contents =
+        config.modResults.contents.slice(0, index) +
+        config.modResults.contents.slice(index).replace(dependencyBlock, insertion);
     }
-    const dependencyBlock = "dependencies {";
-    const index = config.modResults.contents.indexOf(dependencyBlock);
-    if (index === -1) {
-      throw new Error("Could not find dependencies block in generated Android app/build.gradle.");
+    if (!config.modResults.contents.includes(brotliMarker)) {
+      config.modResults.contents += `\n\nconfigurations.configureEach {\n    ${brotliMarker}\n    exclude group: "org.brotli", module: "dec"\n}\n`;
     }
-    const insertion = `${dependencyBlock}\n    ${gradleMarker}\n    implementation files("../../native-libs/CodexRelayTailcat.aar")`;
-    config.modResults.contents =
-      config.modResults.contents.slice(0, index) +
-      config.modResults.contents.slice(index).replace(dependencyBlock, insertion);
     return config;
   });
 
@@ -124,7 +127,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.bridge.ReactPackage
+import com.facebook.react.ReactPackage
 import com.facebook.react.uimanager.ViewManager
 import java.io.File
 import java.util.concurrent.Executors

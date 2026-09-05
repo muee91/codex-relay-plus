@@ -8,6 +8,8 @@
   <string>Codex Relay Plus</string>
   <key>CFBundleExecutable</key>
   <string>CodexRelayPlus</string>
+  <key>CFBundleIconName</key>
+  <string>AppIcon</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleIdentifier</key>

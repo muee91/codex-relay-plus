@@ -5,6 +5,8 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "node scripts/relay-watchdog.mjs",
+    "build:artifacts": "./scripts/build-release-artifacts.sh",
+    "build:android:release": "./scripts/build-android-release.sh",
     "dev:mobile": "pnpm --filter @codex-relay/mobile start",
     "dev:mobile:android": "pnpm --filter @codex-relay/mobile android",
     "dev:mobile:ios": "pnpm --filter @codex-relay/mobile ios",

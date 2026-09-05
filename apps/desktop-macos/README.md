@@ -39,7 +39,7 @@ pnpm install --frozen-lockfile
 APP_VERSION=1.0.0 BUILD_NUMBER=1 ./apps/desktop-macos/build.sh
 ```
 
-The build script compiles the native AppKit launcher and Tailcat helper, bundles the architecture-matched Node runtime and production Relay dependencies, derives `AppIcon.icns` from the canonical mobile icon, signs the bundle, and creates a DMG.
+The build script compiles the native AppKit launcher and Tailcat helper, bundles the architecture-matched Node runtime and production Relay dependencies, derives `AppIcon.icns` from the canonical mobile icon, signs the bundle, and creates a DMG. Final files are published to `artifacts/macos/`; the default intermediate workspace is temporary and is removed after the build. Set `ARTIFACTS_DIR` or `ARTIFACT_DIR` to override the delivery location. `OUTPUT_DIR` remains available for overriding and retaining an internal build workspace.
 
 When Developer ID and notarization credentials are absent, the script creates an ad-hoc signed DMG for local testing. Release CI can use:
 

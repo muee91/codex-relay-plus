@@ -8,16 +8,22 @@ SOURCE_ICON="$ROOT_DIR/apps/mobile/assets/images/icon.png"
 APP_VERSION="${APP_VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 ARCH="${ARCH:-$(uname -m)}"
-OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/.desktop-macos-build/$ARCH}"
+BUILD_DIR="${OUTPUT_DIR:-${TMPDIR:-/tmp}/codex-relay-plus-macos-build.$ARCH}"
+REMOVE_BUILD_DIR="0"
+if [[ -z "${OUTPUT_DIR:-}" ]]; then
+  REMOVE_BUILD_DIR="1"
+fi
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-$ROOT_DIR/artifacts}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-$ARTIFACTS_DIR/macos}"
 APP_NAME="Codex Relay Plus"
-APP_DIR="$OUTPUT_DIR/$APP_NAME.app"
+APP_DIR="$BUILD_DIR/$APP_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 RESOURCES="$CONTENTS/Resources"
 MACOS="$CONTENTS/MacOS"
 STAGE_ROOT=""
 STAGE=""
-ICONSET="$OUTPUT_DIR/AppIcon.iconset"
-MASTER_ICON="$OUTPUT_DIR/AppIcon-master.png"
+ICONSET="$BUILD_DIR/AppIcon.iconset"
+MASTER_ICON="$BUILD_DIR/AppIcon-master.png"
 
 cleanup_stage() {
   if [[ -n "${STAGE_ROOT:-}" && -d "$STAGE_ROOT" ]]; then
@@ -30,7 +36,7 @@ case "$ARCH" in
   *) echo "Unsupported macOS architecture: $ARCH" >&2; exit 1 ;;
 esac
 
-rm -rf "$OUTPUT_DIR"
+rm -rf "$BUILD_DIR"
 STAGE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/codex-relay-plus-deploy.XXXXXX")"
 STAGE="$STAGE_ROOT/stage"
 trap cleanup_stage EXIT
@@ -126,12 +132,15 @@ cleanup_signing() {
   fi
   rm -f "${P12:-}"
   cleanup_stage
+  if [[ "$REMOVE_BUILD_DIR" == "1" ]]; then
+    rm -rf "$BUILD_DIR"
+  fi
 }
 trap cleanup_signing EXIT
 
 if [[ -n "${MACOS_CERTIFICATE_P12_BASE64:-}" && -n "${MACOS_CERTIFICATE_PASSWORD:-}" && -n "${MACOS_SIGNING_IDENTITY:-}" ]]; then
-  KEYCHAIN="$OUTPUT_DIR/signing.keychain-db"
-  P12="$OUTPUT_DIR/signing.p12"
+  KEYCHAIN="$BUILD_DIR/signing.keychain-db"
+  P12="$BUILD_DIR/signing.p12"
   KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
   printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$P12"
   security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
@@ -170,7 +179,7 @@ codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 has_notary_credentials=0
 if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" && "$SIGN_IDENTITY" != "-" ]]; then
   has_notary_credentials=1
-  APP_NOTARY_ZIP="$OUTPUT_DIR/Codex-Relay-Plus_${APP_VERSION}_${ARCH}.app.zip"
+  APP_NOTARY_ZIP="$BUILD_DIR/Codex-Relay-Plus_${APP_VERSION}_${ARCH}.app.zip"
   ditto -c -k --keepParent "$APP_DIR" "$APP_NOTARY_ZIP"
   xcrun notarytool submit "$APP_NOTARY_ZIP" \
     --apple-id "$APPLE_ID" \
@@ -183,13 +192,16 @@ if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_PASSWORD:
 fi
 
 if [[ "${MACOS_APP_ONLY:-0}" == "1" ]]; then
-  echo "Built: $APP_DIR"
+  mkdir -p "$ARTIFACT_DIR"
+  rm -rf "$ARTIFACT_DIR/$APP_NAME.app"
+  cp -R "$APP_DIR" "$ARTIFACT_DIR/"
+  echo "Built: $ARTIFACT_DIR/$APP_NAME.app"
   exit 0
 fi
 
 DMG_NAME="Codex-Relay-Plus_${APP_VERSION}_${ARCH}.dmg"
-DMG_PATH="$OUTPUT_DIR/$DMG_NAME"
-DMG_STAGE="$OUTPUT_DIR/dmg"
+DMG_PATH="$BUILD_DIR/$DMG_NAME"
+DMG_STAGE="$BUILD_DIR/dmg"
 mkdir -p "$DMG_STAGE"
 cp -R "$APP_DIR" "$DMG_STAGE/"
 ln -s /Applications "$DMG_STAGE/Applications"
@@ -212,4 +224,9 @@ else
 fi
 
 shasum -a 256 "$DMG_PATH" > "$DMG_PATH.sha256"
-echo "Built: $DMG_PATH"
+mkdir -p "$ARTIFACT_DIR"
+rm -rf "$ARTIFACT_DIR/$APP_NAME.app"
+cp -R "$APP_DIR" "$ARTIFACT_DIR/"
+cp "$DMG_PATH" "$ARTIFACT_DIR/$DMG_NAME"
+shasum -a 256 "$ARTIFACT_DIR/$DMG_NAME" > "$ARTIFACT_DIR/$DMG_NAME.sha256"
+echo "Built: $ARTIFACT_DIR/$DMG_NAME"
