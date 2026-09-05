@@ -289,7 +289,7 @@ export function renderControlCenterPage(controlToken: string) {
     .qr-fallback { display: none; margin: 0; max-width: 100%; overflow: hidden; color: #111; font: 6px/.86 ui-monospace, monospace; white-space: pre; }
     .qr-fallback.show { display: block; }
     .qr-loading { max-width: 180px; color: #63645f; text-align: center; font-size: 10.5px; line-height: 1.45; }
-    .pair-primary { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 13px; }
+    .pair-primary { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 13px; }
     .pair-primary .btn { min-height: 35px; }
     .pair-note { margin-top: 12px; color: var(--quiet); font-size: 9.5px; line-height: 1.5; }
     details.advanced { margin-top: 25px; border-top: 1px solid var(--line); }
@@ -420,7 +420,7 @@ export function renderControlCenterPage(controlToken: string) {
             <div class="fact-detail" id="relay-detail">—</div>
           </div>
           <div class="fact">
-            <div class="fact-label" data-i18n="remoteAccess">远程访问</div>
+            <div class="fact-label" data-i18n="remoteAccess">Tailcat 远程访问</div>
             <div class="fact-value" id="remote-value" data-i18n="loading">加载中…</div>
             <div class="fact-detail" id="remote-detail" data-i18n="automaticNetwork">手机端自动选择连接路径</div>
           </div>
@@ -454,11 +454,13 @@ export function renderControlCenterPage(controlToken: string) {
         <details class="advanced" id="advanced">
           <summary><span data-i18n="advanced">高级与诊断</span><span class="chevron">›</span></summary>
           <div class="advanced-body">
-            <div class="technical"><span class="technical-label" data-i18n="connectionAddress">连接地址</span><span class="technical-value mono" id="connect-url">—</span></div>
+            <div class="technical"><span class="technical-label" data-i18n="connectionAddress">Relay 连接地址</span><span class="technical-value mono" id="connect-url">—</span></div>
             <div class="technical"><span class="technical-label" data-i18n="relayPort">Relay 端口</span><span class="technical-value mono" id="relay-port">—</span></div>
+            <div class="technical"><span class="technical-label" data-i18n="tailcatNode">Tailcat 节点</span><span class="technical-value mono" id="tailcat-node">—</span></div>
+            <div class="technical"><span class="technical-label" data-i18n="tailcatPort">Tailcat 端口</span><span class="technical-value mono" id="tailcat-port">—</span></div>
             <div class="technical"><span class="technical-label" data-i18n="codexService">Codex 服务</span><span class="technical-value" id="codex-service">—</span></div>
             <div class="actions" style="padding: 7px 0 4px">
-              <button class="btn" id="copy-address" disabled data-i18n="copyAddress">复制连接地址</button>
+              <button class="btn" id="copy-address" disabled data-i18n="copyAddress">复制 Relay 地址</button>
               <button class="btn" id="refresh" data-i18n="refresh">刷新状态</button>
             </div>
             <div class="diag-list" id="diagnostics"></div>
@@ -482,10 +484,9 @@ export function renderControlCenterPage(controlToken: string) {
           <div class="qr-loading" id="qr-loading" data-i18n="loadingQr">正在准备安全配对码…</div>
         </div>
         <div class="pair-primary">
-          <button class="btn primary" id="copy-pair" disabled data-i18n="copyPair">复制配对信息</button>
-          <button class="btn" id="copy-mobile" disabled data-i18n="copyMobile">复制地址</button>
+          <button class="btn primary" id="copy-pair" disabled data-i18n="copyPair">复制配对链接</button>
         </div>
-        <div class="pair-note" data-i18n="pairNote">控制中心只在本机开放。二维码包含手机建立安全连接所需的信息。</div>
+        <div class="pair-note" data-i18n="pairNote">无法扫码时，复制配对链接发送到手机，并在 Codex Relay mobile 中打开。</div>
       </aside>
     </div>
 
@@ -513,12 +514,13 @@ export function renderControlCenterPage(controlToken: string) {
           hostReadyCopy: "Mac 端已准备好。接下来通常只需要使用手机。",
           relay: "Relay",
           relayReady: "正在运行",
-          remoteAccess: "远程访问",
-          remoteReady: "可用",
-          localReady: "局域网可用",
+          remoteAccess: "Tailcat 远程访问",
+          remoteReady: "已就绪",
+          remoteStarting: "正在启动",
+          remoteDisabled: "已关闭",
+          remoteUnavailable: "当前 Host 未集成",
           automaticNetwork: "手机端自动选择连接路径",
-          remoteReadyDetail: "离开局域网后可自动切换",
-          localReadyDetail: "远程路径尚未就绪",
+          lanStillAvailable: "局域网连接仍可用",
           workspace: "默认工作目录",
           workspaceHint: "仅用于新会话的默认起点",
           phones: "手机",
@@ -529,12 +531,14 @@ export function renderControlCenterPage(controlToken: string) {
           pairedPhones: "已配对手机",
           pairedDesc: "这些设备可以在 Mac 在线时使用 Relay。",
           advanced: "高级与诊断",
-          connectionAddress: "连接地址",
+          connectionAddress: "Relay 连接地址",
           relayPort: "Relay 端口",
+          tailcatNode: "Tailcat 节点",
+          tailcatPort: "Tailcat 端口",
           codexService: "Codex 服务",
           sharedCodex: "共享服务已就绪",
           privateCodex: "私有服务回退",
-          copyAddress: "复制连接地址",
+          copyAddress: "复制 Relay 地址",
           refresh: "刷新状态",
           refreshShort: "刷新",
           disconnectAllHint: "移除全部手机授权，不影响 Mac 上的 Codex 数据。",
@@ -544,9 +548,8 @@ export function renderControlCenterPage(controlToken: string) {
           scanHint: "用移动端扫描二维码。首次连接会在左侧出现确认请求。",
           loadingQr: "正在准备安全配对码…",
           qrUnavailable: "配对码暂不可用，请刷新后重试。",
-          copyPair: "复制配对信息",
-          copyMobile: "复制地址",
-          pairNote: "控制中心只在本机开放。二维码包含手机建立安全连接所需的信息。",
+          copyPair: "复制配对链接",
+          pairNote: "无法扫码时，复制配对链接发送到手机，并在 Codex Relay mobile 中打开。",
           footerNote: "正常使用时无需保持此窗口打开。",
           loading: "加载中…",
           noDevices: "还没有已配对手机。扫描右侧二维码即可添加。",
@@ -574,12 +577,13 @@ export function renderControlCenterPage(controlToken: string) {
           hostReadyCopy: "The Mac side is ready. You can normally continue from your phone.",
           relay: "Relay",
           relayReady: "Running",
-          remoteAccess: "Remote access",
-          remoteReady: "Available",
-          localReady: "Local network ready",
+          remoteAccess: "Tailcat remote access",
+          remoteReady: "Ready",
+          remoteStarting: "Starting",
+          remoteDisabled: "Off",
+          remoteUnavailable: "Not included in this Host",
           automaticNetwork: "The mobile app chooses the connection path automatically",
-          remoteReadyDetail: "Can switch automatically when you leave the LAN",
-          localReadyDetail: "Remote path is not ready yet",
+          lanStillAvailable: "LAN access remains available",
           workspace: "Default workspace",
           workspaceHint: "Used only as the starting point for new sessions",
           phones: "Phones",
@@ -590,12 +594,14 @@ export function renderControlCenterPage(controlToken: string) {
           pairedPhones: "Paired phones",
           pairedDesc: "These devices can use Relay while this Mac is online.",
           advanced: "Advanced & diagnostics",
-          connectionAddress: "Connection address",
+          connectionAddress: "Relay connection address",
           relayPort: "Relay port",
+          tailcatNode: "Tailcat node",
+          tailcatPort: "Tailcat port",
           codexService: "Codex service",
           sharedCodex: "Shared service ready",
           privateCodex: "Private service fallback",
-          copyAddress: "Copy connection address",
+          copyAddress: "Copy Relay address",
           refresh: "Refresh status",
           refreshShort: "Refresh",
           disconnectAllHint: "Remove all phone authorizations without touching Codex data on this Mac.",
@@ -605,9 +611,8 @@ export function renderControlCenterPage(controlToken: string) {
           scanHint: "Scan this QR code in the mobile app. The first connection will appear for approval on the left.",
           loadingQr: "Preparing secure pairing code…",
           qrUnavailable: "Pairing code is unavailable. Refresh and try again.",
-          copyPair: "Copy pairing info",
-          copyMobile: "Copy address",
-          pairNote: "The control center is local-only. The QR contains the information needed to establish a secure mobile connection.",
+          copyPair: "Copy pairing link",
+          pairNote: "If you cannot scan the QR code, copy the pairing link, send it to your phone, and open it with Codex Relay mobile.",
           footerNote: "You do not need to keep this window open during normal use.",
           loading: "Loading…",
           noDevices: "No paired phones yet. Scan the QR code to add one.",
@@ -714,12 +719,6 @@ export function renderControlCenterPage(controlToken: string) {
       function act(promise) {
         promise.then(function () { toast(t("actionDone")); return refresh(); }).catch(setError);
       }
-      function getPairingParam(payload, key) {
-        if (!payload) return "";
-        var question = payload.indexOf("?");
-        if (question < 0) return "";
-        try { return new URLSearchParams(payload.slice(question + 1)).get(key) || ""; } catch (_) { return ""; }
-      }
       function trimQrLines(text) {
         var lines = String(text || "").replace(/\\r/g, "").split("\\n");
         while (lines.length && !lines[0].trim()) lines.shift();
@@ -797,15 +796,27 @@ export function renderControlCenterPage(controlToken: string) {
         byId("phone-count").textContent = String(state.sessions.length) + t("phoneUnit");
         byId("phone-detail").textContent = t("phoneHint");
 
-        var tailcatAddress = getPairingParam(state.pairingPayload, "tailcatAddr");
-        byId("remote-value").textContent = tailcatAddress ? t("remoteReady") : t("localReady");
-        byId("remote-detail").textContent = tailcatAddress ? t("remoteReadyDetail") : t("localReadyDetail");
+        var tailcat = state.tailcat || {};
+        if (tailcat.ready) {
+          byId("remote-value").textContent = t("remoteReady");
+          byId("remote-detail").textContent = (tailcat.address || "—") + (tailcat.port ? " · :" + tailcat.port : "");
+        } else if (tailcat.configured && tailcat.enabled === false) {
+          byId("remote-value").textContent = t("remoteDisabled");
+          byId("remote-detail").textContent = t("lanStillAvailable");
+        } else if (tailcat.configured) {
+          byId("remote-value").textContent = t("remoteStarting");
+          byId("remote-detail").textContent = t("lanStillAvailable");
+        } else {
+          byId("remote-value").textContent = t("remoteUnavailable");
+          byId("remote-detail").textContent = t("lanStillAvailable");
+        }
 
         byId("connect-url").textContent = state.relay.connectUrl || "—";
         byId("relay-port").textContent = String(state.relay.port || "—");
+        byId("tailcat-node").textContent = tailcat.address || "—";
+        byId("tailcat-port").textContent = tailcat.port ? String(tailcat.port) : "—";
         byId("codex-service").textContent = state.relay.sharedAppServerRemoteAddress ? t("sharedCodex") : t("privateCodex");
         byId("copy-address").disabled = !state.relay.connectUrl;
-        byId("copy-mobile").disabled = !state.relay.connectUrl;
         byId("copy-pair").disabled = !state.pairingPayload;
         byId("clear-all").disabled = !state.sessions.length;
 
@@ -847,7 +858,6 @@ export function renderControlCenterPage(controlToken: string) {
         applyLanguage();
       };
       byId("copy-address").onclick = function () { copy(state && state.relay.connectUrl); };
-      byId("copy-mobile").onclick = function () { copy(state && state.relay.connectUrl); };
       byId("copy-pair").onclick = function () { copy(state && state.pairingPayload); };
       byId("refresh").onclick = refresh;
       byId("pair-refresh").onclick = refresh;
