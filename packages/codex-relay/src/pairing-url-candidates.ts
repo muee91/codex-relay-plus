@@ -31,6 +31,7 @@ export type TailcatSnapshot = {
   address?: string;
   checkedAt: number;
   configured: boolean;
+  enabled: boolean;
   port?: number;
   ready: boolean;
 };
@@ -94,14 +95,19 @@ export function getConnectUrlCandidates(
 }
 
 export function getTailcatSnapshot(): TailcatSnapshot {
-  const candidate = tailcatBootstrapCandidate();
+  const enabledSetting = process.env.CODEX_RELAY_TAILCAT_ENABLED?.trim();
+  const configured = Boolean(
+    enabledSetting ||
+    process.env.CODEX_RELAY_TAILCAT_ADDR?.trim() ||
+    process.env.CODEX_RELAY_TAILCAT_STATUS_FILE?.trim(),
+  );
+  const enabled = configured && enabledSetting !== "0";
+  const candidate = enabled ? tailcatBootstrapCandidate() : undefined;
   return {
     address: candidate?.address,
     checkedAt: Date.now(),
-    configured: Boolean(
-      process.env.CODEX_RELAY_TAILCAT_ADDR?.trim() ||
-      process.env.CODEX_RELAY_TAILCAT_STATUS_FILE?.trim(),
-    ),
+    configured,
+    enabled,
     port: candidate?.port,
     ready: Boolean(candidate),
   };
@@ -147,6 +153,8 @@ export function networkInterfaceFingerprint() {
 }
 
 function tailcatBootstrapCandidate() {
+  if (process.env.CODEX_RELAY_TAILCAT_ENABLED?.trim() === "0") return undefined;
+
   const directAddress = process.env.CODEX_RELAY_TAILCAT_ADDR?.trim();
   const directPort = Number(process.env.CODEX_RELAY_TAILCAT_PORT);
   const status = directAddress?.startsWith("tc")
