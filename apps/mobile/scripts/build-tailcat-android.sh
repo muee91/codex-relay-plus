@@ -25,8 +25,8 @@ gomobile init
 mkdir -p "$OUT_DIR"
 (
   cd "$BRIDGE_DIR"
+  go mod verify
   gomobile bind \
-    -mod=readonly \
     -trimpath \
     -target=android \
     -androidapi=24 \
