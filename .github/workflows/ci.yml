@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/tailcat-complete
   pull_request:
 
 permissions:
