@@ -126,7 +126,12 @@ function stripSettingsOta(t, path) {
       const names = statement.declarations.flatMap((declarator) => declaredNames(declarator.id));
       if (names.includes("appVersion")) {
         const expoConfig = member(t, "Constants", "expoConfig");
-        const version = t.optionalMemberExpression(expoConfig, t.identifier("version"), false, true);
+        const version = t.optionalMemberExpression(
+          expoConfig,
+          t.identifier("version"),
+          false,
+          true,
+        );
         nextBody.push(
           t.variableDeclaration("const", [
             t.variableDeclarator(

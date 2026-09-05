@@ -124,10 +124,10 @@ async function reconcileCodexRelayConnectionOnce(): Promise<CodexRelayConnection
 function shouldUseNativeRelayTransport() {
   return Boolean(
     isMobileNativePlatform() &&
-      getCodexRelayConnectionMode() !== "local" &&
-      hasCodexRelaySession() &&
-      isNativeTailcatAvailable() &&
-      getTailcatBootstrapCandidate(),
+    getCodexRelayConnectionMode() !== "local" &&
+    hasCodexRelaySession() &&
+    isNativeTailcatAvailable() &&
+    getTailcatBootstrapCandidate(),
   );
 }
 
@@ -201,9 +201,9 @@ function isNativeSyncCurrent(
 ) {
   return Boolean(
     generation === nativeSyncGeneration &&
-      getCodexRelayConnectionMode() === mode &&
-      hasCodexRelaySession() &&
-      shouldUseNativeRelayTransport(),
+    getCodexRelayConnectionMode() === mode &&
+    hasCodexRelaySession() &&
+    shouldUseNativeRelayTransport(),
   );
 }
 

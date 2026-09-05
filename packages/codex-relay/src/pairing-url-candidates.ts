@@ -58,7 +58,9 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
   if (!primaryServerUrl) throw new Error("Pairing QR requires at least one server URL.");
 
   const tailcat = tailcatBootstrapCandidate();
-  const candidateUrls = tailcat ? [...details.serverUrls, tailcat.candidateUrl] : details.serverUrls;
+  const candidateUrls = tailcat
+    ? [...details.serverUrls, tailcat.candidateUrl]
+    : details.serverUrls;
 
   const url = new URL("codex-relay://pair");
   url.searchParams.set("serverUrl", primaryServerUrl);
@@ -98,7 +100,7 @@ export function getTailcatSnapshot(): TailcatSnapshot {
     checkedAt: Date.now(),
     configured: Boolean(
       process.env.CODEX_RELAY_TAILCAT_ADDR?.trim() ||
-        process.env.CODEX_RELAY_TAILCAT_STATUS_FILE?.trim(),
+      process.env.CODEX_RELAY_TAILCAT_STATUS_FILE?.trim(),
     ),
     port: candidate?.port,
     ready: Boolean(candidate),

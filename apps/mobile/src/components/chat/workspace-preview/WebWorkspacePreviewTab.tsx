@@ -201,7 +201,11 @@ export const WebWorkspacePreviewTab = memo(function WebWorkspacePreviewTab({
               style={({ pressed }) => [styles.webErrorRetry, pressed && styles.pressed]}
             >
               <Icon name="refresh" size={14} tintColor={Colors.dark.text} />
-              <UiText className="text-foreground" numberOfLines={1} style={styles.webErrorRetryText}>
+              <UiText
+                className="text-foreground"
+                numberOfLines={1}
+                style={styles.webErrorRetryText}
+              >
                 Retry
               </UiText>
             </Button>
