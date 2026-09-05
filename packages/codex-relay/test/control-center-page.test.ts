@@ -36,21 +36,37 @@ describe("control center page", () => {
     expect(html).not.toContain('data-i18n="copyMobile"');
   });
 
-  it("keeps the normal desktop dashboard within one viewport", () => {
+  it("uses a compact two-column desktop dashboard instead of the old hero and fact grid", () => {
+    const html = renderControlCenterPage("test-token");
+
+    expect(html).toContain('class="dashboard"');
+    expect(html).toContain('class="card overview-card"');
+    expect(html).toContain('class="card devices-card"');
+    expect(html).toContain('class="card pair-card"');
+    expect(html).toContain("grid-template-columns: minmax(0, 1fr) 332px;");
+    expect(html).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
+    expect(html).not.toContain('class="hero"');
+    expect(html).not.toContain('class="facts"');
+  });
+
+  it("keeps the desktop dashboard inside one viewport and diagnostics out of document flow", () => {
     const html = renderControlCenterPage("test-token");
 
     expect(html).toContain("html, body { width: 100%; height: 100%; overflow: hidden; }");
     expect(html).toContain("height: 100vh;");
-    expect(html).toContain("grid-template-rows: auto auto minmax(0, 1fr) auto;");
-    expect(html).toContain('class="section session-section"');
-    expect(html).toContain("bottom: 48px;");
-    expect(html).toContain("max-height: calc(100% - 66px);");
+    expect(html).toContain('id="diagnostics-drawer"');
+    expect(html).toContain("position: absolute;");
+    expect(html).toContain("transform: translateX(102%);");
+    expect(html).not.toContain("details.advanced");
   });
 
-  it("keeps the Tailcat toggle in the menu bar instead of a top window strip", () => {
+  it("keeps the Tailcat toggle in the menu bar instead of the dashboard", () => {
+    const html = renderControlCenterPage("test-token");
+
     expect(desktopSource).toContain('title: "Tailcat 远程访问"');
     expect(desktopSource).not.toContain("NSSwitch()");
     expect(desktopSource).not.toContain("tailcatBar");
     expect(desktopSource).toContain("nextWebView.topAnchor.constraint(equalTo: content.topAnchor)");
+    expect(html).not.toContain('type="checkbox"');
   });
 });
