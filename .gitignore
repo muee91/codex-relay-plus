@@ -25,6 +25,7 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 apps/mobile/native-libs/*.aar
+apps/mobile/native-tailcat-ios/Bridge.xcframework/
 
 # Metro
 .metro-health-check*
