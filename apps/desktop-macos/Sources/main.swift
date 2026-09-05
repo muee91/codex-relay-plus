@@ -162,6 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       defer: false
     )
     nextWindow.title = C.name
+    nextWindow.appearance = NSAppearance(named: .darkAqua)
+    nextWindow.backgroundColor = NSColor(calibratedWhite: 0.055, alpha: 1)
     nextWindow.titlebarAppearsTransparent = true
     nextWindow.titleVisibility = .hidden
     nextWindow.isMovableByWindowBackground = true
