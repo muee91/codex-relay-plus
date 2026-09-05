@@ -146,21 +146,16 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
   fun configureRelayProxy(serverAddr: String, remotePort: Double, lanTargetsJson: String, mode: String, promise: Promise) {
     executor.execute {
       try {
-        val localUrl = configureProxy(serverAddr, remotePort.toLong(), lanTargetsJson, mode)
-        val persisted = preferences.edit()
-          .putString("serverAddr", serverAddr)
-          .putLong("remotePort", remotePort.toLong())
-          .putString("lanTargetsJson", lanTargetsJson)
-          .putString("mode", mode)
-          .commit()
-        if (!persisted) {
-          throw IllegalStateException("Could not persist Tailcat transport configuration")
-        }
-        promise.resolve(localUrl)
+        promise.resolve(configureAndPersist(serverAddr, remotePort.toLong(), lanTargetsJson, mode))
       } catch (error: Throwable) {
         promise.reject("TAILCAT_CONFIGURE_FAILED", error.message, error)
       }
     }
+  }
+
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun configureRelayProxySync(serverAddr: String, remotePort: Double, lanTargetsJson: String, mode: String): String {
+    return configureAndPersist(serverAddr, remotePort.toLong(), lanTargetsJson, mode)
   }
 
   @ReactMethod
@@ -255,6 +250,20 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
         promise.resolve(null)
       }
     }, timeoutMs.toLong().coerceAtLeast(250L))
+  }
+
+  private fun configureAndPersist(serverAddr: String, remotePort: Long, lanTargetsJson: String, mode: String): String {
+    val localUrl = configureProxy(serverAddr, remotePort, lanTargetsJson, mode)
+    val persisted = preferences.edit()
+      .putString("serverAddr", serverAddr)
+      .putLong("remotePort", remotePort)
+      .putString("lanTargetsJson", lanTargetsJson)
+      .putString("mode", mode)
+      .commit()
+    if (!persisted) {
+      throw IllegalStateException("Could not persist Tailcat transport configuration")
+    }
+    return localUrl
   }
 
   private fun configureProxy(serverAddr: String, remotePort: Long, lanTargetsJson: String, mode: String): String {
