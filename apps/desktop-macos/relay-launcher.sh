@@ -8,6 +8,7 @@ RELAY_PORT="${PORT:-8787}"
 SUPPORT_DIR="${CODEX_RELAY_HOME:-$HOME/Library/Application Support/Codex Relay Plus}"
 TAILCAT_KEY="$SUPPORT_DIR/tailcat-server.json"
 TAILCAT_STATUS_FILE="$SUPPORT_DIR/tailcat-status.$$"
+TAILCAT_INITIAL_READY_WAIT_MS=3000
 
 node_pid=""
 tailcat_pid=""
@@ -35,17 +36,33 @@ if command -v dns-sd >/dev/null 2>&1; then
   bonjour_pid=$!
 fi
 
-# Tailcat is deliberately asynchronous. The local Relay must never wait for
-# DERP/DNS/TLS startup, but a slow Tailcat bootstrap may still become available
-# later in the same desktop session. The Node process polls this readiness file
-# while rebuilding its network snapshot and adds the Tailcat bootstrap to new
-# pairing payloads as soon as the helper reaches server.Start().
+# Tailcat is the normal remote transport. Give the helper a short bounded window
+# to publish its startup record before Relay creates the first pairing QR, so an
+# immediate scan usually includes Tailcat. Never make Relay availability depend
+# on DERP/DNS/TLS readiness: after the bound expires, start LAN Relay normally
+# and let NetworkStateManager pick up late Tailcat readiness from the same file.
 if [[ -x "$TAILCAT_BIN" ]]; then
   export CODEX_RELAY_TAILCAT_STATUS_FILE="$TAILCAT_STATUS_FILE"
   export CODEX_RELAY_TAILCAT_PORT="$RELAY_PORT"
   "$TAILCAT_BIN" --key "$TAILCAT_KEY" --port "$RELAY_PORT" >"$TAILCAT_STATUS_FILE" 2>>"$SUPPORT_DIR/tailcat.log" &
   tailcat_pid=$!
-  echo "Tailcat remote transport starting asynchronously." >&2
+
+  wait_steps=$((TAILCAT_INITIAL_READY_WAIT_MS / 100))
+  for ((step = 0; step < wait_steps; step += 1)); do
+    if [[ -s "$TAILCAT_STATUS_FILE" ]]; then
+      echo "Tailcat remote transport ready for initial pairing." >&2
+      break
+    fi
+    if ! kill -0 "$tailcat_pid" >/dev/null 2>&1; then
+      echo "Tailcat remote transport exited before readiness; continuing with LAN Relay." >&2
+      break
+    fi
+    sleep 0.1
+  done
+
+  if [[ ! -s "$TAILCAT_STATUS_FILE" ]] && kill -0 "$tailcat_pid" >/dev/null 2>&1; then
+    echo "Tailcat remote transport is still starting; continuing with LAN Relay." >&2
+  fi
 fi
 
 "$NODE_BIN" "$@" &
