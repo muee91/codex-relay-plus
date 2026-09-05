@@ -55,7 +55,7 @@ describe("pairing URL candidates", () => {
     expect(parsed.searchParams.has("h")).toBe(false);
   });
 
-  it("does not compact candidates with a different protocol or port", () => {
+  it("keeps candidates with a different protocol or port as full URL fallbacks", () => {
     const payload = createPairingQrPayload({
       serverPublicKey: "server-public-key",
       serverUrls: [
@@ -67,7 +67,10 @@ describe("pairing URL candidates", () => {
 
     const parsed = new URL(payload);
     expect(parsed.searchParams.has("h")).toBe(false);
-    expect(parsed.searchParams.has("serverUrls")).toBe(false);
+    expect(JSON.parse(parsed.searchParams.get("serverUrls") ?? "[]")).toEqual([
+      "https://relay.example.com",
+      "http://192.168.1.10:8788",
+    ]);
   });
 
   it("normalizes only http and https URLs", () => {
