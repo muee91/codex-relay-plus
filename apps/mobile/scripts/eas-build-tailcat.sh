@@ -24,9 +24,8 @@ ensure_go_toolchain() {
   esac
 
   mkdir -p "$GO_ROOT"
-  metadata="$(mktemp)"
-  archive="$(mktemp -t codex-relay-go.XXXXXX).tar.gz"
-  trap 'rm -f "$metadata" "$archive"' RETURN
+  metadata="$(mktemp -t codex-relay-go-metadata.XXXXXX)"
+  archive="$(mktemp -t codex-relay-go-archive.XXXXXX)"
 
   curl --fail --silent --show-error --location \
     'https://go.dev/dl/?mode=json&include=all' > "$metadata"
@@ -44,6 +43,7 @@ process.stdout.write(`${file.filename} ${file.sha256}\n`);
 NODE
   )
   if [[ -z "${filename:-}" || -z "${expected:-}" ]]; then
+    rm -f "$metadata" "$archive"
     echo "Could not resolve Go ${GO_VERSION} archive metadata for ${os}/${arch}" >&2
     exit 1
   fi
@@ -56,12 +56,14 @@ NODE
     actual="$(sha256sum "$archive" | awk '{print $1}')"
   fi
   if [[ "$actual" != "$expected" ]]; then
+    rm -f "$metadata" "$archive"
     echo "Go ${GO_VERSION} archive checksum mismatch" >&2
     exit 1
   fi
 
   rm -rf "$GO_ROOT/go"
   tar -C "$GO_ROOT" -xzf "$archive"
+  rm -f "$metadata" "$archive"
   export PATH="$GO_ROOT/go/bin:$PATH"
   go version
 }
