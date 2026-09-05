@@ -37,8 +37,8 @@ mkdir -p "$OUT_DIR"
 rm -rf "$FRAMEWORK"
 (
   cd "$BRIDGE_DIR"
+  go mod verify
   gomobile bind \
-    -mod=readonly \
     -trimpath \
     -target=ios \
     -iosversion=16.4 \
