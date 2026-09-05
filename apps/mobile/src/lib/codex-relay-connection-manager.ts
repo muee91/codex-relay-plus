@@ -10,7 +10,6 @@ import {
   getCodexRelayConnectionMode,
   getCodexRelayServerUrlCandidates,
   getTailcatBootstrapCandidate,
-  isCarrierGradePrivateIPv4Host,
   isLocalIPv6Host,
   isLocalServerUrl,
   isPrivateIPv4Host,
@@ -47,7 +46,7 @@ let lastDiscoveredLocalUrl: string | undefined;
 // the storage layer so native Tailcat teardown is not dependent on a Settings
 // screen or a later React render. The root layout still performs the same
 // teardown defensively when hydrated pairing state becomes false.
-if (Platform.OS === "android") {
+if (isMobileNativePlatform()) {
   void storage.addOnValueChangedListener((changedKey) => {
     if (changedKey === clientTokenStorageKey && !storage.getString(clientTokenStorageKey)) {
       void stopNativeTransport();
@@ -124,11 +123,11 @@ async function reconcileCodexRelayConnectionOnce(): Promise<CodexRelayConnection
 
 function shouldUseNativeRelayTransport() {
   return Boolean(
-    Platform.OS === "android" &&
-    getCodexRelayConnectionMode() !== "local" &&
-    hasCodexRelaySession() &&
-    isNativeTailcatAvailable() &&
-    getTailcatBootstrapCandidate(),
+    isMobileNativePlatform() &&
+      getCodexRelayConnectionMode() !== "local" &&
+      hasCodexRelaySession() &&
+      isNativeTailcatAvailable() &&
+      getTailcatBootstrapCandidate(),
   );
 }
 
@@ -202,9 +201,9 @@ function isNativeSyncCurrent(
 ) {
   return Boolean(
     generation === nativeSyncGeneration &&
-    getCodexRelayConnectionMode() === mode &&
-    hasCodexRelaySession() &&
-    shouldUseNativeRelayTransport(),
+      getCodexRelayConnectionMode() === mode &&
+      hasCodexRelaySession() &&
+      shouldUseNativeRelayTransport(),
   );
 }
 
@@ -226,7 +225,7 @@ async function verifiedLanTcpTargets(urls: string[]) {
 }
 
 function ensureBackgroundNativeDiscovery() {
-  if (nativeRefreshTimer || Platform.OS !== "android") {
+  if (nativeRefreshTimer || !isMobileNativePlatform()) {
     return;
   }
   nativeRefreshTimer = setInterval(() => {
@@ -320,6 +319,10 @@ function isNativeLoopbackUrl(url: string) {
   }
 }
 
+function isMobileNativePlatform() {
+  return Platform.OS === "android" || Platform.OS === "ios";
+}
+
 function shouldUseDirectFetch(url: string) {
   if (Platform.OS !== "ios") {
     return false;
@@ -327,14 +330,7 @@ function shouldUseDirectFetch(url: string) {
 
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return (
-      host.endsWith(".local") ||
-      host.endsWith(".ts.net") ||
-      host.endsWith(".beta.tailscale.net") ||
-      isPrivateIPv4Host(host) ||
-      isCarrierGradePrivateIPv4Host(host) ||
-      isLocalIPv6Host(host)
-    );
+    return host.endsWith(".local") || isPrivateIPv4Host(host) || isLocalIPv6Host(host);
   } catch {
     return false;
   }
