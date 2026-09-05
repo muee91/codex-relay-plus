@@ -34,6 +34,42 @@ describe("mobile Codex Relay API session storage", () => {
     ]);
   });
 
+  it("filters legacy Tailscale fallback candidates once Tailcat is paired", () => {
+    setCodexRelayServerUrl("http://192.168.1.20:8787");
+    saveCodexRelayServerUrlCandidates([
+      "http://192.168.1.20:8787",
+      "http://100.103.76.81:8787",
+      "http://relay.example.ts.net:8787",
+      "http://tailcat.invalid/?addr=tc-server-address&port=8787&v=1",
+    ]);
+
+    expect(getCodexRelayServerUrlCandidates()).toEqual([
+      {
+        label: "LAN IP",
+        url: "http://192.168.1.20:8787",
+      },
+    ]);
+  });
+
+  it("keeps legacy remote candidates when no Tailcat bootstrap exists", () => {
+    setCodexRelayServerUrl("http://192.168.1.20:8787");
+    saveCodexRelayServerUrlCandidates([
+      "http://192.168.1.20:8787",
+      "http://100.103.76.81:8787",
+    ]);
+
+    expect(getCodexRelayServerUrlCandidates()).toEqual([
+      {
+        label: "LAN IP",
+        url: "http://192.168.1.20:8787",
+      },
+      {
+        label: "Legacy Tailscale IP",
+        url: "http://100.103.76.81:8787",
+      },
+    ]);
+  });
+
   it("rejects bootstrap requests when the network hangs", async () => {
     vi.useFakeTimers();
 
