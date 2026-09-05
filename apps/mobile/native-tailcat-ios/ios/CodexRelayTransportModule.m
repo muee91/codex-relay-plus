@@ -139,16 +139,14 @@ RCT_REMAP_METHOD(discoverLocalRelay,
                    lanTargetsJson:(NSString *)lanTargetsJson
                             mode:(NSString *)mode
                            error:(NSError **)error {
-  NSString *localURL = nil;
-  BOOL ok = GoBridgeConfigureProxy(
+  NSString *localURL = GoBridgeConfigureProxy(
       serverAddr,
       remotePort,
       lanTargetsJson,
       mode,
       [self clientKeyPath],
-      &localURL,
       error);
-  if (!ok || (error != NULL && *error != nil) || localURL.length == 0) {
+  if ((error != NULL && *error != nil) || localURL.length == 0) {
     return nil;
   }
 
@@ -169,14 +167,12 @@ RCT_REMAP_METHOD(discoverLocalRelay,
   NSString *lanTargets = [self.defaults stringForKey:kLanTargetsKey] ?: @"[]";
   NSString *mode = [self.defaults stringForKey:kModeKey] ?: @"auto";
   NSError *error = nil;
-  NSString *localURL = nil;
-  GoBridgeConfigureProxy(
+  (void)GoBridgeConfigureProxy(
       serverAddr,
       remotePort.longLongValue,
       lanTargets,
       mode,
       [self clientKeyPath],
-      &localURL,
       &error);
 }
 
