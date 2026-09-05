@@ -3,7 +3,6 @@ import "expo-dev-client";
 import "react-native-gesture-handler";
 
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
-import { HotUpdater } from "@hot-updater/react-native";
 import { useSelector } from "@legendapp/state/react";
 import { PortalHost } from "@rn-primitives/portal";
 import { QueryClient } from "@tanstack/react-query";
@@ -24,7 +23,6 @@ import {
   reconcileCodexRelayConnection,
   teardownCodexRelayNativeTransport,
 } from "@/lib/codex-relay-connection-manager";
-import { addHotUpdaterLog, formatHotUpdaterProgress } from "@/lib/hot-updater-logs";
 import {
   configurePushNotificationPresentation,
   notificationResponseThreadId,
@@ -83,52 +81,6 @@ TextInputWithDefaults.defaultProps = {
   maxFontSizeMultiplier: 1,
 };
 
-async function checkForLaunchUpdate() {
-  addHotUpdaterLog(
-    "info",
-    "OTA launch check started",
-    [
-      `App version: ${HotUpdater.getAppVersion()}`,
-      `Channel: ${HotUpdater.getChannel()}`,
-      `Default channel: ${HotUpdater.getDefaultChannel()}`,
-      `Cohort: ${HotUpdater.getCohort()}`,
-      `Bundle: ${HotUpdater.getBundleId()}`,
-      `Min bundle: ${HotUpdater.getMinBundleId()}`,
-    ].join("\n"),
-  );
-
-  const updateInfo = await HotUpdater.checkForUpdate({
-    updateStrategy: "appVersion",
-    onError: (error) => {
-      addHotUpdaterLog(
-        "warning",
-        "OTA launch check reported error",
-        [`Name: ${error.name}`, `Message: ${error.message}`].join("\n"),
-      );
-    },
-  });
-
-  if (!updateInfo) {
-    addHotUpdaterLog("info", "OTA launch check found no update");
-    return;
-  }
-
-  addHotUpdaterLog(
-    "info",
-    "OTA launch check found update",
-    [`ID: ${updateInfo.id}`, `Status: ${updateInfo.status}`, `Message: ${updateInfo.message}`].join(
-      "\n",
-    ),
-  );
-
-  const didDownload = await updateInfo.updateBundle();
-  addHotUpdaterLog(
-    didDownload ? "info" : "warning",
-    "OTA launch update bundle finished",
-    `Downloaded: ${didDownload ? "yes" : "no"}`,
-  );
-}
-
 function TabLayout() {
   useInitialPushNotificationRegistration();
   const connection = useSelector(() => chatStore$.connection.get());
@@ -144,16 +96,6 @@ function TabLayout() {
       void SplashScreen.hideAsync();
     }
   }, [fontsLoaded]);
-
-  useEffect(() => {
-    const unsubscribeProgress = HotUpdater.addListener("onProgress", (event) => {
-      addHotUpdaterLog("info", "OTA download progress", formatHotUpdaterProgress(event));
-    });
-
-    void checkForLaunchUpdate().catch(() => undefined);
-
-    return unsubscribeProgress;
-  }, []);
 
   useEffect(() => {
     if (!hasPairedSession) {
@@ -314,14 +256,6 @@ function TabLayout() {
       </ThemeProvider>
     </PersistQueryClientProvider>
   );
-}
-
-const hotUpdaterBaseUrl = process.env.EXPO_PUBLIC_HOT_UPDATER_BASE_URL?.trim();
-
-if (hotUpdaterBaseUrl) {
-  HotUpdater.init({
-    baseURL: hotUpdaterBaseUrl,
-  });
 }
 
 export default TabLayout;
