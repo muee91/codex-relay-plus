@@ -13,8 +13,6 @@ private enum C {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
   private var window: NSWindow?
   private var webView: WKWebView?
-  private var tailcatSwitch: NSSwitch?
-  private var tailcatStatusLabel: NSTextField?
   private var statusItem: NSStatusItem!
   private var relayStatusMenuItem: NSMenuItem!
   private var tailcatStatusMenuItem: NSMenuItem!
@@ -149,61 +147,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     nextWebView.underPageBackgroundColor = .clear
     nextWebView.translatesAutoresizingMaskIntoConstraints = false
 
-    let tailcatBar = NSVisualEffectView()
-    tailcatBar.material = .headerView
-    tailcatBar.blendingMode = .withinWindow
-    tailcatBar.state = .active
-    tailcatBar.translatesAutoresizingMaskIntoConstraints = false
-
-    let tailcatTitle = NSTextField(labelWithString: "Tailcat 远程访问")
-    tailcatTitle.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-    tailcatTitle.textColor = .labelColor
-
-    let nextTailcatStatusLabel = NSTextField(labelWithString: "正在读取状态…")
-    nextTailcatStatusLabel.font = NSFont.systemFont(ofSize: 11)
-    nextTailcatStatusLabel.textColor = .secondaryLabelColor
-    nextTailcatStatusLabel.lineBreakMode = .byTruncatingMiddle
-
-    let labels = NSStackView(views: [tailcatTitle, nextTailcatStatusLabel])
-    labels.orientation = .vertical
-    labels.alignment = .leading
-    labels.spacing = 2
-    labels.translatesAutoresizingMaskIntoConstraints = false
-
-    let nextTailcatSwitch = NSSwitch()
-    nextTailcatSwitch.state = tailcatEnabled ? .on : .off
-    nextTailcatSwitch.target = self
-    nextTailcatSwitch.action = #selector(toggleTailcatSwitch(_:))
-    nextTailcatSwitch.translatesAutoresizingMaskIntoConstraints = false
-
-    tailcatBar.addSubview(labels)
-    tailcatBar.addSubview(nextTailcatSwitch)
-
     let content = NSView()
-    content.addSubview(tailcatBar)
     content.addSubview(nextWebView)
 
     NSLayoutConstraint.activate([
-      tailcatBar.topAnchor.constraint(equalTo: content.topAnchor),
-      tailcatBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-      tailcatBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-      tailcatBar.heightAnchor.constraint(equalToConstant: 56),
-
-      labels.leadingAnchor.constraint(equalTo: tailcatBar.leadingAnchor, constant: 16),
-      labels.centerYAnchor.constraint(equalTo: tailcatBar.centerYAnchor),
-      labels.trailingAnchor.constraint(lessThanOrEqualTo: nextTailcatSwitch.leadingAnchor, constant: -16),
-
-      nextTailcatSwitch.trailingAnchor.constraint(equalTo: tailcatBar.trailingAnchor, constant: -16),
-      nextTailcatSwitch.centerYAnchor.constraint(equalTo: tailcatBar.centerYAnchor),
-
-      nextWebView.topAnchor.constraint(equalTo: tailcatBar.bottomAnchor),
+      nextWebView.topAnchor.constraint(equalTo: content.topAnchor),
       nextWebView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
       nextWebView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
       nextWebView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
     ])
 
     let nextWindow = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 1040, height: 700),
+      contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680),
       styleMask: [.titled, .closable, .miniaturizable, .resizable],
       backing: .buffered,
       defer: false
@@ -212,13 +167,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     nextWindow.titlebarAppearsTransparent = true
     nextWindow.titleVisibility = .hidden
     nextWindow.isMovableByWindowBackground = true
-    nextWindow.minSize = NSSize(width: 820, height: 580)
+    nextWindow.minSize = NSSize(width: 900, height: 620)
     nextWindow.center()
     nextWindow.contentView = content
     nextWindow.delegate = self
 
-    tailcatSwitch = nextTailcatSwitch
-    tailcatStatusLabel = nextTailcatStatusLabel
     webView = nextWebView
     window = nextWindow
     refreshTailcatMenu()
@@ -256,10 +209,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
   @objc private func toggleTailcat(_ sender: NSMenuItem) {
     setTailcatEnabled(!tailcatEnabled)
-  }
-
-  @objc private func toggleTailcatSwitch(_ sender: NSSwitch) {
-    setTailcatEnabled(sender.state == .on)
   }
 
   private func setTailcatEnabled(_ enabled: Bool) {
@@ -400,15 +349,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   ) {
     tailcatStatusMenuItem?.title = "Tailcat：\(status)"
     tailcatAddressMenuItem?.title = "Tailcat 节点：\(menuAddress ?? "—")"
-    tailcatStatusLabel?.stringValue = detail.isEmpty ? status : "\(status) · \(detail)"
     tailcatToggleMenuItem?.state = tailcatEnabled ? .on : .off
-    tailcatSwitch?.state = tailcatEnabled ? .on : .off
     copyTailcatAddressMenuItem?.isEnabled = copyEnabled
   }
 
   private func refreshTailcatMenu() {
     tailcatToggleMenuItem?.state = tailcatEnabled ? .on : .off
-    tailcatSwitch?.state = tailcatEnabled ? .on : .off
 
     guard tailcatEnabled else {
       currentTailcatAddress = nil
