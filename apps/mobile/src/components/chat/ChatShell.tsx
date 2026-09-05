@@ -18,7 +18,6 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { ThemedView } from "@/components/themed-view";
 import { Spacing } from "@/constants/theme";
-import { workspaceName } from "@/lib/workspace-name";
 import type { QueuedComposerPrompt } from "@/state/chat-store";
 
 import { ChatComposer } from "./ChatComposer";
@@ -28,8 +27,6 @@ import { implementablePlanId, MessageTimeline } from "./MessageTimeline";
 import { PlanProgressBanner } from "./PlanProgressBanner";
 import { splitTimelinePlanProgress } from "./plan-progress";
 import type { WorkspaceMarkdownPreviewTarget } from "./workspace-preview/markdown-target";
-
-const isZhCn = process.env.CODEX_RELAY_LOCALE === "zh-CN";
 
 export function ChatShell({
   banner,
@@ -142,19 +139,6 @@ export function ChatShell({
     Keyboard.dismiss();
     void KeyboardController.dismiss().catch(() => undefined);
   }, []);
-  const headerWorkspace = workspaceName(subtitle) ?? subtitle;
-  const headerActivity = pendingInputRequest
-    ? {
-        label: isZhCn ? "等待你的确认" : "Waiting for you",
-        tone: "attention" as const,
-      }
-    : isRunning
-      ? { label: isZhCn ? "正在执行" : "Working", tone: "active" as const }
-      : isLoadingMessages
-        ? { label: isZhCn ? "正在载入" : "Loading", tone: "attention" as const }
-        : threadId
-          ? { label: isZhCn ? "就绪" : "Ready", tone: "idle" as const }
-          : { label: isZhCn ? "新会话" : "New chat", tone: "idle" as const };
 
   return (
     <ThemedView style={styles.container}>
@@ -167,10 +151,8 @@ export function ChatShell({
       >
         <View style={styles.shell}>
           <ChatShellHeader
-            activityLabel={headerActivity.label}
-            activityTone={headerActivity.tone}
             leadingAction={leadingAction}
-            subtitle={headerWorkspace}
+            subtitle={subtitle}
             title={title}
             trailingActions={trailingActions}
           />

@@ -35,11 +35,9 @@ export function buildDrawerRows(
   pinnedThreadIds: string[] = [],
   forceExpanded = false,
 ): DrawerRow[] {
-  const uniqueThreads = sortThreadsForDrawer(threadsWithUniqueIds(threads), activeThreadId);
+  const uniqueThreads = threadsWithUniqueIds(threads);
   const threadsById = new Map(uniqueThreads.map((thread) => [thread.id, thread]));
-  const pinnedThreads = forceExpanded
-    ? []
-    : sortThreadsForDrawer(pinnedThreadsForIds(pinnedThreadIds, threadsById), activeThreadId);
+  const pinnedThreads = forceExpanded ? [] : pinnedThreadsForIds(pinnedThreadIds, threadsById);
   const pinnedThreadIdsSet = new Set(pinnedThreads.map((thread) => thread.id));
   const groups = new Map<string, ThreadGroup>();
 
@@ -64,7 +62,7 @@ export function buildDrawerRows(
     );
   }
 
-  for (const [projectKey, group] of sortedThreadGroups(groups, activeThreadId)) {
+  for (const [projectKey, group] of groups) {
     const unpinnedThreads = forceExpanded
       ? group.threads
       : group.threads.filter((thread) => !pinnedThreadIdsSet.has(thread.id));
@@ -80,10 +78,6 @@ export function buildDrawerRows(
           : collapsedThreads
         : [...collapsedThreads.slice(0, collapsedProjectThreadCount - 1), activeThread];
     const hiddenCount = unpinnedThreads.length - visibleThreads.length;
-
-    if (unpinnedThreads.length === 0) {
-      continue;
-    }
 
     rows.push({
       id: `project:${projectKey}`,
@@ -132,48 +126,6 @@ function pinnedThreadsForIds(pinnedThreadIds: string[], threadsById: Map<string,
     }
   }
   return pinnedThreads;
-}
-
-function sortedThreadGroups(groups: Map<string, ThreadGroup>, activeThreadId: string | undefined) {
-  return [...groups.entries()].sort((left, right) => {
-    const leftActive = left[1].threads.some((thread) => thread.id === activeThreadId);
-    const rightActive = right[1].threads.some((thread) => thread.id === activeThreadId);
-    if (leftActive !== rightActive) {
-      return leftActive ? -1 : 1;
-    }
-
-    const leftRunning = left[1].threads.some((thread) => thread.state === "running");
-    const rightRunning = right[1].threads.some((thread) => thread.state === "running");
-    if (leftRunning !== rightRunning) {
-      return leftRunning ? -1 : 1;
-    }
-
-    return mostRecentThreadActivity(right[1].threads) - mostRecentThreadActivity(left[1].threads);
-  });
-}
-
-function sortThreadsForDrawer(threads: ThreadSummary[], activeThreadId: string | undefined) {
-  return [...threads].sort((left, right) => {
-    if (left.id === activeThreadId || right.id === activeThreadId) {
-      return left.id === activeThreadId ? -1 : 1;
-    }
-    if (left.state !== right.state && (left.state === "running" || right.state === "running")) {
-      return left.state === "running" ? -1 : 1;
-    }
-    return threadActivityTimestamp(right) - threadActivityTimestamp(left);
-  });
-}
-
-function mostRecentThreadActivity(threads: ThreadSummary[]) {
-  return threads.reduce(
-    (latest, thread) => Math.max(latest, threadActivityTimestamp(thread)),
-    Number.NEGATIVE_INFINITY,
-  );
-}
-
-function threadActivityTimestamp(thread: ThreadSummary) {
-  const timestamp = new Date(thread.lastActivityAt ?? thread.updatedAt).getTime();
-  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function projectKeyForThread(thread: ThreadSummary) {
