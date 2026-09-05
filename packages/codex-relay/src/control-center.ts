@@ -138,6 +138,7 @@ export function startControlCenter(options: ControlCenterOptions) {
       },
       sessions: deviceSnapshot.sessions,
       snapshotUpdatedAt: Math.max(deviceSnapshot.updatedAt, network.updatedAt),
+      tailcat: network.tailcat,
     });
   });
 
@@ -244,6 +245,11 @@ function collectCoreDiagnostics(options: ControlCenterOptions, network: NetworkS
   const nodeSupported =
     nodeParts[0] > 22 ||
     (nodeParts[0] === 22 && (nodeParts[1] > 14 || (nodeParts[1] === 14 && nodeParts[2] >= 0)));
+  const tailcatValue = network.tailcat.ready
+    ? `${network.tailcat.address} · :${network.tailcat.port} · encrypted remote transport`
+    : network.tailcat.configured
+      ? "starting or unavailable · LAN remains available"
+      : "not configured in this host build";
 
   return [
     {
@@ -252,12 +258,17 @@ function collectCoreDiagnostics(options: ControlCenterOptions, network: NetworkS
       value: `127.0.0.1:${options.relayPort} · PID ${process.pid}`,
     },
     {
+      label: "Tailcat",
+      status: network.tailcat.ready ? "ok" : network.tailcat.configured ? "warn" : "bad",
+      value: tailcatValue,
+    },
+    {
       label: "Node.js",
       status: nodeSupported ? "ok" : "bad",
       value: `v${nodeVersion}${nodeSupported ? "" : " · requires >= 22.14"}`,
     },
     {
-      label: "Network",
+      label: "LAN",
       status: network.connectUrlCandidates.length > 0 ? "ok" : "warn",
       value: `${network.connectUrlCandidates.length || 1} address candidate${
         network.connectUrlCandidates.length === 1 ? "" : "s"
