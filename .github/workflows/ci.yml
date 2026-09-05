@@ -8,15 +8,82 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  normalize-staging:
+    name: Normalize staging inputs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat/tailcat-complete'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.27.1
+          cache: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format known baseline and Tailcat files
+        run: |
+          pnpm exec oxfmt \
+            apps/mobile/babel-plugin-product-overrides.cjs \
+            apps/mobile/babel-plugin-zh-cn.cjs \
+            apps/mobile/src/components/chat/workspace-preview/WebWorkspacePreviewTab.tsx \
+            apps/mobile/src/lib/codex-relay-connection-manager.ts \
+            packages/codex-relay/src/pairing-url-candidates.ts \
+            --write
+
+      - name: Resolve Go module checksums
+        working-directory: native/tailcat-bridge
+        run: go mod tidy
+
+      - name: Commit normalization when needed
+        run: |
+          if git diff --quiet -- \
+            apps/mobile/babel-plugin-product-overrides.cjs \
+            apps/mobile/babel-plugin-zh-cn.cjs \
+            apps/mobile/src/components/chat/workspace-preview/WebWorkspacePreviewTab.tsx \
+            apps/mobile/src/lib/codex-relay-connection-manager.ts \
+            packages/codex-relay/src/pairing-url-candidates.ts \
+            native/tailcat-bridge/go.mod \
+            native/tailcat-bridge/go.sum; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            apps/mobile/babel-plugin-product-overrides.cjs \
+            apps/mobile/babel-plugin-zh-cn.cjs \
+            apps/mobile/src/components/chat/workspace-preview/WebWorkspacePreviewTab.tsx \
+            apps/mobile/src/lib/codex-relay-connection-manager.ts \
+            packages/codex-relay/src/pairing-url-candidates.ts \
+            native/tailcat-bridge/go.mod \
+            native/tailcat-bridge/go.sum
+          git commit -m "chore: normalize Tailcat build inputs"
+          git push origin HEAD:feat/tailcat-complete
+
   checks:
     name: Lint, format, and typecheck
+    needs: normalize-staging
+    if: always() && (needs.normalize-staging.result == 'success' || needs.normalize-staging.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -45,6 +112,8 @@ jobs:
 
   native-tailcat:
     name: Tailcat native (${{ matrix.platform }})
+    needs: normalize-staging
+    if: always() && (needs.normalize-staging.result == 'success' || needs.normalize-staging.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
