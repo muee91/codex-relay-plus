@@ -11,26 +11,28 @@ export function renderControlCenterPage(controlToken: string) {
     :root {
       color-scheme: dark;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
-      --bg: #101113;
-      --surface: #17181b;
-      --surface-raised: #1c1d20;
-      --surface-soft: #141517;
-      --line: rgba(255,255,255,.075);
-      --line-strong: rgba(255,255,255,.13);
-      --text: #f0f0ed;
-      --muted: #969793;
-      --quiet: #666864;
-      --good: #7bc99b;
-      --warn: #d7b16c;
-      --bad: #e77d82;
-      --button: #e8e8e3;
-      --button-text: #18191b;
+      --bg: #0c0d0f;
+      --panel: #141518;
+      --panel-2: #18191d;
+      --panel-3: #101113;
+      --line: rgba(255,255,255,.08);
+      --line-strong: rgba(255,255,255,.14);
+      --text: #f3f3f0;
+      --muted: #989a96;
+      --quiet: #676966;
+      --good: #79c99a;
+      --good-soft: rgba(121,201,154,.1);
+      --warn: #d6ad67;
+      --warn-soft: rgba(214,173,103,.1);
+      --bad: #e27c82;
+      --bad-soft: rgba(226,124,130,.1);
+      --primary: #ecece8;
+      --primary-text: #151619;
     }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
     body {
       margin: 0;
-      min-height: 0;
       background: var(--bg);
       color: var(--text);
       -webkit-font-smoothing: antialiased;
@@ -38,365 +40,365 @@ export function renderControlCenterPage(controlToken: string) {
     }
     button, select { font: inherit; }
     button { cursor: pointer; }
-    button:disabled { cursor: default; opacity: .4; }
-    :where(button, select, summary):focus-visible {
-      outline: 2px solid rgba(188, 225, 201, .9);
-      outline-offset: 3px;
+    button:disabled { cursor: default; opacity: .38; }
+    :where(button, select):focus-visible {
+      outline: 2px solid rgba(170, 221, 190, .92);
+      outline-offset: 2px;
     }
-    .shell {
-      width: min(1060px, calc(100% - 32px));
+    .app {
+      width: min(1100px, calc(100% - 28px));
       height: 100vh;
       margin: 0 auto;
-      padding: 16px 0 12px;
+      padding: 14px 0;
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      grid-template-rows: 42px auto minmax(0, 1fr);
+      gap: 10px;
     }
-    .masthead {
+    .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 18px;
-      padding: 0 2px 10px;
+      min-width: 0;
+      padding: 0 2px;
     }
-    .identity { min-width: 0; }
-    .product {
-      margin: 0;
-      font-size: 17px;
-      line-height: 1.1;
-      font-weight: 710;
-      letter-spacing: -.025em;
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: var(--panel-2);
+      color: #d8d9d5;
+      font-size: 12px;
+      font-weight: 760;
+      letter-spacing: -.04em;
     }
-    .product-note {
-      margin-top: 3px;
-      color: var(--muted);
-      font-size: 10.5px;
-      line-height: 1.3;
-    }
-    .mast-actions { display: flex; align-items: center; gap: 10px; }
-    .live-state {
+    .brand-copy { min-width: 0; }
+    .brand-title { margin: 0; font-size: 14px; line-height: 1.15; font-weight: 720; letter-spacing: -.02em; }
+    .brand-subtitle { margin-top: 2px; color: var(--quiet); font-size: 10.5px; line-height: 1.2; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .host-pill {
       display: inline-flex;
       align-items: center;
       gap: 7px;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,.025);
       color: var(--muted);
       font-size: 10.5px;
-      font-weight: 620;
+      font-weight: 640;
       white-space: nowrap;
     }
-    .state-dot {
+    .dot {
       width: 7px;
       height: 7px;
+      flex: 0 0 auto;
       border-radius: 50%;
       background: var(--warn);
-      box-shadow: 0 0 0 3px rgba(215,177,108,.09);
-      flex: 0 0 auto;
+      box-shadow: 0 0 0 3px rgba(214,173,103,.08);
     }
-    .state-dot.good { background: var(--good); box-shadow: 0 0 0 3px rgba(123,201,155,.09); }
-    .state-dot.bad { background: var(--bad); box-shadow: 0 0 0 3px rgba(231,125,130,.09); }
+    .dot.good { background: var(--good); box-shadow: 0 0 0 3px rgba(121,201,154,.08); }
+    .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px rgba(226,124,130,.08); }
+    .toolbar-button,
     .language {
       height: 28px;
-      padding: 0 24px 0 8px;
       border: 1px solid var(--line);
-      border-radius: 7px;
+      border-radius: 8px;
       background: transparent;
       color: var(--muted);
       font-size: 10.5px;
     }
+    .toolbar-button { padding: 0 10px; font-weight: 620; }
+    .toolbar-button:hover { border-color: var(--line-strong); background: rgba(255,255,255,.035); color: #d7d8d4; }
+    .language { padding: 0 24px 0 8px; }
     .error {
       display: none;
       align-items: center;
       justify-content: space-between;
       gap: 14px;
-      margin-bottom: 8px;
-      padding: 8px 11px;
-      border: 1px solid rgba(231,125,130,.25);
-      border-radius: 9px;
-      background: rgba(231,125,130,.065);
-      color: #efb5b8;
+      padding: 9px 11px;
+      border: 1px solid rgba(226,124,130,.24);
+      border-radius: 10px;
+      background: var(--bad-soft);
+      color: #efb3b7;
       font-size: 10.5px;
-      line-height: 1.35;
     }
     .error.show { display: flex; }
-    .workspace {
+    .dashboard {
+      min-height: 0;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 316px;
-      min-height: 0;
-      height: 100%;
+      grid-template-columns: minmax(0, 1fr) 332px;
+      gap: 12px;
       position: relative;
       overflow: hidden;
+    }
+    .left-column {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 12px;
+    }
+    .card {
+      min-width: 0;
       border: 1px solid var(--line);
-      border-radius: 16px;
-      background: var(--surface);
-      box-shadow: 0 20px 58px rgba(0,0,0,.18);
-    }
-    .main-pane {
-      min-width: 0;
-      min-height: 0;
-      padding: 18px 22px 14px;
-      display: flex;
-      flex-direction: column;
-      position: relative;
+      border-radius: 14px;
+      background: var(--panel);
       overflow: hidden;
     }
-    .pair-pane {
-      min-width: 0;
-      min-height: 0;
-      padding: 18px;
+    .overview-card { padding: 18px 20px 15px; }
+    .overview-head {
       display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      border-left: 1px solid var(--line);
-      background: var(--surface-soft);
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 15px;
     }
-    .hero { flex: 0 0 auto; padding-bottom: 14px; }
-    .hero-kicker {
+    .overview-state { min-width: 0; }
+    .eyebrow {
       color: var(--quiet);
-      font-size: 9px;
+      font-size: 9.5px;
       font-weight: 700;
-      letter-spacing: .105em;
+      letter-spacing: .08em;
       text-transform: uppercase;
     }
-    .hero-title-row {
+    .overview-title-row { display: flex; align-items: center; gap: 9px; margin-top: 6px; }
+    .overview-title {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.15;
+      font-weight: 700;
+      letter-spacing: -.035em;
+    }
+    .overview-copy { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .sync-block { text-align: right; flex: 0 0 auto; }
+    .sync-label { color: var(--quiet); font-size: 9px; }
+    .sync-value { margin-top: 3px; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      overflow: hidden;
+      background: var(--panel-3);
+    }
+    .status-item { min-width: 0; padding: 11px 12px; }
+    .status-item + .status-item { border-left: 1px solid var(--line); }
+    .status-label { color: var(--quiet); font-size: 9.5px; font-weight: 650; }
+    .status-value { margin-top: 4px; font-size: 12px; line-height: 1.25; font-weight: 660; }
+    .status-detail {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 9.5px;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .workspace-row {
       display: flex;
       align-items: center;
       gap: 9px;
-      margin-top: 7px;
-    }
-    .hero-dot { width: 8px; height: 8px; }
-    .hero-title {
-      margin: 0;
-      font-size: clamp(22px, 2.5vw, 30px);
-      line-height: 1.04;
-      font-weight: 690;
-      letter-spacing: -.04em;
-    }
-    .hero-copy {
-      max-width: 590px;
-      margin: 7px 0 0 17px;
-      color: var(--muted);
-      font-size: 11.5px;
-      line-height: 1.4;
-    }
-    .facts {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      flex: 0 0 auto;
-      border-top: 1px solid var(--line);
-      border-bottom: 1px solid var(--line);
-    }
-    .fact {
+      margin-top: 11px;
       min-width: 0;
-      min-height: 70px;
-      padding: 10px 12px 9px 0;
-    }
-    .fact:nth-child(even) { padding-left: 14px; border-left: 1px solid var(--line); }
-    .fact:nth-child(n+3) { border-top: 1px solid var(--line); }
-    .fact-label {
       color: var(--quiet);
-      font-size: 9.5px;
-      font-weight: 680;
-      letter-spacing: .04em;
+      font-size: 10px;
     }
-    .fact-value {
-      margin-top: 5px;
-      color: var(--text);
-      font-size: 12.5px;
-      font-weight: 650;
-      line-height: 1.25;
-      overflow-wrap: anywhere;
-    }
-    .fact-detail {
-      margin-top: 2px;
+    .workspace-path {
+      min-width: 0;
       color: var(--muted);
-      font-size: 9.5px;
-      line-height: 1.3;
-      overflow-wrap: anywhere;
+      font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .section { flex: 0 0 auto; padding: 13px 0 0; }
-    .section + .section { margin-top: 10px; border-top: 1px solid var(--line); }
-    .section-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      margin-bottom: 6px;
-    }
-    .section-title { margin: 0; font-size: 11.5px; font-weight: 690; letter-spacing: -.01em; }
-    .section-desc { margin-top: 2px; color: var(--muted); font-size: 9.5px; line-height: 1.3; }
-    .count { color: var(--quiet); font-size: 9.5px; font-variant-numeric: tabular-nums; }
-    .pending-section { display: none; }
-    .pending-section.visible { display: block; max-height: 110px; overflow: auto; }
+    .pending-card { display: none; padding: 12px 14px; border-color: rgba(214,173,103,.24); background: var(--warn-soft); }
+    .pending-card.visible { display: block; }
+    .pending-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+    .pending-title { margin: 0; font-size: 11px; font-weight: 690; }
+    .pending-count { color: var(--warn); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .pending-desc { color: var(--muted); font-size: 9.5px; line-height: 1.3; }
+    .request-list { margin-top: 6px; max-height: 92px; overflow: auto; }
     .request {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
       padding: 7px 0;
-      border-top: 1px solid var(--line);
+      border-top: 1px solid rgba(255,255,255,.07);
     }
-    .request:first-child { border-top: 0; }
     .request-main { min-width: 0; }
-    .approval-code {
-      font: 720 13px/1.05 ui-monospace, SFMono-Regular, Menlo, monospace;
-      letter-spacing: .08em;
-    }
-    .row-title { font-size: 11px; font-weight: 640; overflow-wrap: anywhere; }
-    .row-meta { margin-top: 2px; color: var(--muted); font-size: 9px; line-height: 1.3; overflow-wrap: anywhere; }
-    .session-section {
-      min-height: 0;
-      flex: 1 1 auto;
+    .approval-code { font: 720 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .07em; }
+    .row-meta { margin-top: 2px; color: var(--muted); font-size: 9.5px; line-height: 1.3; overflow-wrap: anywhere; }
+    .devices-card { min-height: 0; display: flex; flex-direction: column; }
+    .card-head {
       display: flex;
-      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 16px 11px;
+      border-bottom: 1px solid var(--line);
     }
-    .device-list {
-      display: grid;
-      min-height: 0;
-      overflow: auto;
-    }
+    .card-title { margin: 0; font-size: 12px; font-weight: 690; letter-spacing: -.01em; }
+    .card-subtitle { margin-top: 2px; color: var(--quiet); font-size: 9.5px; }
+    .device-count { color: var(--quiet); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .device-list { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 0 16px; }
     .device {
-      display: flex;
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) auto;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      min-height: 38px;
-      border-top: 1px solid var(--line);
-    }
-    .device:first-child { border-top: 0; }
-    .device-main { min-width: 0; padding: 7px 0; }
-    .empty {
-      padding: 9px 0 1px;
-      color: var(--muted);
-      font-size: 10px;
-      line-height: 1.4;
-    }
-    .actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .btn {
-      min-height: 28px;
-      padding: 0 9px;
-      border: 1px solid var(--line-strong);
-      border-radius: 7px;
-      background: transparent;
-      color: #d8d8d5;
-      font-size: 10px;
-      font-weight: 650;
-      transition: background .12s ease, border-color .12s ease, transform .12s ease;
-    }
-    .btn:hover:not(:disabled) { background: rgba(255,255,255,.055); border-color: rgba(255,255,255,.18); }
-    .btn:active:not(:disabled) { transform: translateY(1px); }
-    .btn.primary { background: var(--button); border-color: var(--button); color: var(--button-text); }
-    .btn.primary:hover:not(:disabled) { background: #f4f4ef; border-color: #f4f4ef; }
-    .btn.danger { color: #dca5a8; border-color: rgba(231,125,130,.18); }
-    .btn.quiet { border-color: transparent; color: var(--muted); padding-left: 5px; padding-right: 5px; }
-    .pair-head { flex: 0 0 auto; margin-bottom: 12px; }
-    .pair-index {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
       gap: 10px;
+      border-bottom: 1px solid var(--line);
     }
-    .pair-label {
-      color: var(--quiet);
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: .09em;
-      text-transform: uppercase;
-    }
-    .pair-title { margin: 6px 0 0; font-size: 16px; line-height: 1.15; font-weight: 680; letter-spacing: -.02em; }
-    .pair-desc { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.35; }
-    .qr-wrap {
+    .device:last-child { border-bottom: 0; }
+    .device-icon {
+      width: 26px;
+      height: 26px;
       display: grid;
       place-items: center;
-      width: min(100%, 252px);
+      border-radius: 8px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .device-main { min-width: 0; padding: 8px 0; }
+    .row-title { font-size: 11px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { padding: 17px 0; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+    .pair-card {
+      min-height: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 18px;
+      background: var(--panel-3);
+    }
+    .pair-head { flex: 0 0 auto; }
+    .pair-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .pair-title { margin: 6px 0 0; font-size: 17px; line-height: 1.2; font-weight: 690; letter-spacing: -.025em; }
+    .pair-desc { margin-top: 5px; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+    .qr-stage {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      padding: 14px 0 10px;
+    }
+    .qr-wrap {
+      width: min(100%, 248px);
       aspect-ratio: 1;
-      margin: 0 auto;
+      display: grid;
+      place-items: center;
       padding: 12px;
-      border-radius: 13px;
-      background: #f5f5f0;
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+      border-radius: 14px;
+      background: #f4f4ef;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.08), 0 10px 28px rgba(0,0,0,.16);
     }
     #pairing-qr { display: none; width: 100%; height: auto; image-rendering: pixelated; }
     #pairing-qr.ready { display: block; }
     .qr-fallback { display: none; margin: 0; max-width: 100%; overflow: hidden; color: #111; font: 6px/.86 ui-monospace, monospace; white-space: pre; }
     .qr-fallback.show { display: block; }
-    .qr-loading { max-width: 180px; color: #63645f; text-align: center; font-size: 10px; line-height: 1.4; }
-    .pair-primary { display: grid; grid-template-columns: 1fr; gap: 7px; margin-top: 10px; }
-    .pair-primary .btn { min-height: 32px; }
-    .pair-note { margin-top: 8px; color: var(--quiet); font-size: 9px; line-height: 1.35; }
-    details.advanced { flex: 0 0 auto; margin-top: 10px; border-top: 1px solid var(--line); }
-    details.advanced summary {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      min-height: 34px;
-      list-style: none;
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 640;
-      user-select: none;
-    }
-    details.advanced summary::-webkit-details-marker { display: none; }
-    .chevron { color: var(--quiet); transition: transform .14s ease; }
-    details[open] .chevron { transform: rotate(90deg); }
-    .advanced-body {
-      position: absolute;
-      left: 20px;
-      right: 20px;
-      bottom: 48px;
-      z-index: 20;
-      max-height: calc(100% - 66px);
-      overflow: auto;
-      padding: 12px 14px;
+    .qr-loading { max-width: 180px; color: #60615d; text-align: center; font-size: 10px; line-height: 1.4; }
+    .pair-actions { flex: 0 0 auto; }
+    .pair-note { margin-top: 7px; color: var(--quiet); font-size: 9.5px; line-height: 1.35; }
+    .btn {
+      min-height: 28px;
+      padding: 0 9px;
       border: 1px solid var(--line-strong);
-      border-radius: 12px;
-      background: var(--surface-raised);
-      box-shadow: 0 18px 50px rgba(0,0,0,.42);
+      border-radius: 8px;
+      background: transparent;
+      color: #d6d7d3;
+      font-size: 10px;
+      font-weight: 650;
+      transition: background .12s ease, border-color .12s ease, transform .12s ease;
     }
+    .btn:hover:not(:disabled) { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.19); }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn.primary { width: 100%; min-height: 34px; background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+    .btn.primary:hover:not(:disabled) { background: #f7f7f3; border-color: #f7f7f3; }
+    .btn.quiet { border-color: transparent; color: var(--muted); padding-left: 6px; padding-right: 6px; }
+    .btn.danger { color: #dca5a8; border-color: rgba(226,124,130,.2); }
+    .actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .drawer-backdrop {
+      display: none;
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      background: rgba(3,4,5,.5);
+      backdrop-filter: blur(2px);
+    }
+    .drawer-backdrop.open { display: block; }
+    .drawer {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 31;
+      width: min(470px, 74%);
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--line-strong);
+      background: #18191c;
+      box-shadow: -22px 0 54px rgba(0,0,0,.34);
+      transform: translateX(102%);
+      transition: transform .16s ease;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 17px 18px 13px;
+      border-bottom: 1px solid var(--line);
+    }
+    .drawer-title { margin: 0; font-size: 13px; font-weight: 700; }
+    .drawer-subtitle { margin-top: 3px; color: var(--muted); font-size: 9.5px; line-height: 1.35; }
+    .drawer-body { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 7px 18px 16px; }
     .technical {
       display: grid;
-      grid-template-columns: 100px minmax(0, 1fr);
-      gap: 6px 12px;
-      padding: 7px 0;
-      border-top: 1px solid var(--line);
-      font-size: 9.5px;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 8px 12px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 10px;
       line-height: 1.35;
     }
     .technical-label { color: var(--quiet); }
     .technical-value { color: var(--muted); overflow-wrap: anywhere; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .diag-list { margin-top: 7px; border-top: 1px solid var(--line); }
+    .drawer-actions { padding: 12px 0 4px; }
+    .diag-list { margin-top: 8px; border-top: 1px solid var(--line); }
     .diag {
       display: grid;
-      grid-template-columns: 7px 74px minmax(0,1fr);
+      grid-template-columns: 7px 80px minmax(0, 1fr);
       align-items: center;
       gap: 8px;
-      padding: 7px 0;
+      padding: 8px 0;
       border-bottom: 1px solid var(--line);
-      font-size: 9px;
+      font-size: 9.5px;
     }
     .diag-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
     .diag-dot.warn { background: var(--warn); }
     .diag-dot.bad { background: var(--bad); }
     .diag-value { color: var(--muted); overflow-wrap: anywhere; }
-    .danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0 1px; }
-    .danger-copy { color: var(--quiet); font-size: 9px; line-height: 1.35; }
-    .footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      padding: 7px 2px 0;
-      color: #555753;
-      font-size: 8.5px;
-    }
+    .danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0 2px; }
+    .danger-copy { color: var(--quiet); font-size: 9.5px; line-height: 1.35; }
     .toast {
       position: fixed;
-      right: 16px;
-      bottom: 14px;
+      right: 18px;
+      bottom: 16px;
+      z-index: 60;
       max-width: 320px;
       padding: 9px 11px;
-      border-radius: 8px;
-      background: #e7e7e2;
+      border-radius: 9px;
+      background: #ecece8;
       color: #17181a;
       font-size: 10px;
       font-weight: 680;
@@ -409,135 +411,138 @@ export function renderControlCenterPage(controlToken: string) {
     .toast.show { opacity: 1; transform: translateY(0); }
     @media (max-width: 820px) {
       html, body { height: auto; min-height: 100%; overflow: auto; }
-      .shell { width: min(700px, calc(100% - 28px)); height: auto; min-height: 100vh; padding-top: 22px; display: block; }
-      .workspace { height: auto; grid-template-columns: 1fr; }
-      .main-pane, .pair-pane { overflow: visible; }
-      .session-section { display: block; }
-      .device-list, .pending-section.visible { overflow: visible; max-height: none; }
-      .pair-pane { border-left: 0; border-top: 1px solid var(--line); }
-      .qr-wrap { max-width: 300px; }
-      .advanced-body { position: static; max-height: none; margin-bottom: 8px; box-shadow: none; }
+      .app { width: min(700px, calc(100% - 24px)); height: auto; min-height: 100vh; display: block; padding: 12px 0 20px; }
+      .topbar { margin-bottom: 10px; }
+      .dashboard { grid-template-columns: 1fr; overflow: visible; }
+      .left-column { display: grid; }
+      .pair-card { min-height: 500px; }
+      .drawer { position: fixed; width: min(470px, 92vw); }
+      .drawer-backdrop { position: fixed; }
+      .device-list, .request-list { overflow: visible; max-height: none; }
     }
-    @media (max-width: 540px) {
-      .shell { width: calc(100% - 20px); }
-      .masthead { align-items: flex-start; }
-      .mast-actions { flex-direction: column-reverse; align-items: flex-end; }
-      .main-pane, .pair-pane { padding: 18px 16px; }
-      .facts { grid-template-columns: 1fr; }
-      .fact:nth-child(even) { padding-left: 0; border-left: 0; }
-      .fact:nth-child(n+2) { border-top: 1px solid var(--line); }
-      .request, .device { align-items: flex-start; }
-      .pair-primary { grid-template-columns: 1fr; }
+    @media (max-width: 560px) {
+      .brand-subtitle, .host-pill { display: none; }
+      .status-strip { grid-template-columns: 1fr; }
+      .status-item + .status-item { border-left: 0; border-top: 1px solid var(--line); }
+      .overview-head { display: block; }
+      .sync-block { display: none; }
+      .drawer { width: 100vw; }
     }
     @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+      *, *::before, *::after { transition: none !important; }
     }
   </style>
 </head>
 <body>
-  <main class="shell">
-    <header class="masthead">
-      <div class="identity">
-        <h1 class="product">Codex Relay Plus</h1>
-        <div class="product-note" data-i18n="productNote">Mac Host · 平时保持运行即可</div>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">CR</div>
+        <div class="brand-copy">
+          <h1 class="brand-title">Codex Relay Plus</h1>
+          <div class="brand-subtitle" data-i18n="productNote">Mac Host · 保持运行即可</div>
+        </div>
       </div>
-      <div class="mast-actions">
-        <div class="live-state"><span class="state-dot" id="top-dot"></span><span id="top-state" data-i18n="connecting">正在连接</span></div>
+      <div class="top-actions">
+        <div class="host-pill"><span class="dot" id="top-dot"></span><span id="top-state" data-i18n="connecting">正在连接</span></div>
+        <button class="toolbar-button" id="diagnostics-trigger" data-i18n="diagnostics">诊断</button>
         <select class="language" id="language" aria-label="Language"><option value="zh-CN">简体中文</option><option value="en-US">English</option></select>
       </div>
     </header>
 
     <div class="error" id="error-banner"><span id="error-text"></span><button class="btn quiet" id="retry" data-i18n="retry">重试</button></div>
 
-    <div class="workspace">
-      <section class="main-pane">
-        <div class="hero">
-          <div class="hero-kicker" data-i18n="hostStatus">Host status</div>
-          <div class="hero-title-row">
-            <span class="state-dot hero-dot" id="hero-dot"></span>
-            <h2 class="hero-title" id="hero-title" data-i18n="connectingHost">正在启动本机服务</h2>
+    <div class="dashboard">
+      <section class="left-column">
+        <section class="card overview-card">
+          <div class="overview-head">
+            <div class="overview-state">
+              <div class="eyebrow" data-i18n="hostStatus">Host 状态</div>
+              <div class="overview-title-row"><span class="dot" id="host-dot"></span><h2 class="overview-title" id="host-title" data-i18n="connectingHost">正在启动</h2></div>
+              <div class="overview-copy" id="host-copy" data-i18n="hostCopy">保持此 Mac 在线，手机会自动选择可用连接路径。</div>
+            </div>
+            <div class="sync-block"><div class="sync-label" data-i18n="lastSync">最近更新</div><div class="sync-value" id="last-sync">—</div></div>
           </div>
-          <p class="hero-copy" id="hero-copy" data-i18n="hostCopy">保持此 Mac 在线，手机端会自动选择可用连接路径。</p>
-        </div>
 
-        <div class="facts" aria-label="Host summary">
-          <div class="fact">
-            <div class="fact-label" data-i18n="relay">Relay</div>
-            <div class="fact-value" id="relay-value" data-i18n="loading">加载中…</div>
-            <div class="fact-detail" id="relay-detail">—</div>
+          <div class="status-strip" aria-label="Host summary">
+            <div class="status-item">
+              <div class="status-label" data-i18n="relay">Relay</div>
+              <div class="status-value" id="relay-value" data-i18n="loading">加载中…</div>
+              <div class="status-detail" id="relay-detail">—</div>
+            </div>
+            <div class="status-item">
+              <div class="status-label" data-i18n="remoteAccess">Tailcat</div>
+              <div class="status-value" id="remote-value" data-i18n="loading">加载中…</div>
+              <div class="status-detail" id="remote-detail">—</div>
+            </div>
+            <div class="status-item">
+              <div class="status-label" data-i18n="phones">已授权设备</div>
+              <div class="status-value" id="phone-count">—</div>
+              <div class="status-detail" id="phone-detail" data-i18n="phoneHint">手机</div>
+            </div>
           </div>
-          <div class="fact">
-            <div class="fact-label" data-i18n="remoteAccess">Tailcat 远程访问</div>
-            <div class="fact-value" id="remote-value" data-i18n="loading">加载中…</div>
-            <div class="fact-detail" id="remote-detail" data-i18n="automaticNetwork">手机端自动选择连接路径</div>
-          </div>
-          <div class="fact">
-            <div class="fact-label" data-i18n="workspace">默认工作目录</div>
-            <div class="fact-value mono" id="workspace-value">—</div>
-            <div class="fact-detail" data-i18n="workspaceHint">仅用于新会话的默认起点</div>
-          </div>
-          <div class="fact">
-            <div class="fact-label" data-i18n="phones">手机</div>
-            <div class="fact-value" id="phone-count">—</div>
-            <div class="fact-detail" id="phone-detail" data-i18n="phoneHint">已授权设备</div>
-          </div>
-        </div>
 
-        <section class="section pending-section" id="pending-section">
-          <div class="section-head">
-            <div><h3 class="section-title" data-i18n="pending">等待你的确认</h3><div class="section-desc" data-i18n="pendingDesc">只允许你刚刚发起配对的手机。</div></div>
-            <span class="count" id="pending-count">0</span>
-          </div>
-          <div id="pending-list"></div>
+          <div class="workspace-row"><span data-i18n="workspace">默认工作目录</span><span class="workspace-path" id="workspace-value">—</span></div>
         </section>
 
-        <section class="section session-section">
-          <div class="section-head">
-            <div><h3 class="section-title" data-i18n="pairedPhones">已配对手机</h3><div class="section-desc" data-i18n="pairedDesc">这些设备可以在 Mac 在线时使用 Relay。</div></div>
+        <section class="card pending-card" id="pending-section">
+          <div class="pending-head"><h3 class="pending-title" data-i18n="pending">等待你的确认</h3><span class="pending-count" id="pending-count">0</span></div>
+          <div class="pending-desc" data-i18n="pendingDesc">只允许你刚刚发起配对的手机。</div>
+          <div class="request-list" id="pending-list"></div>
+        </section>
+
+        <section class="card devices-card">
+          <div class="card-head">
+            <div><h3 class="card-title" data-i18n="pairedPhones">已配对设备</h3><div class="card-subtitle" data-i18n="pairedDesc">这些手机可以在 Mac 在线时使用 Relay。</div></div>
+            <span class="device-count" id="device-count">0</span>
           </div>
           <div class="device-list" id="session-list"><div class="empty" data-i18n="loading">加载中…</div></div>
         </section>
-
-        <details class="advanced" id="advanced">
-          <summary><span data-i18n="advanced">高级与诊断</span><span class="chevron">›</span></summary>
-          <div class="advanced-body">
-            <div class="technical"><span class="technical-label" data-i18n="connectionAddress">Relay 连接地址</span><span class="technical-value mono" id="connect-url">—</span></div>
-            <div class="technical"><span class="technical-label" data-i18n="relayPort">Relay 端口</span><span class="technical-value mono" id="relay-port">—</span></div>
-            <div class="technical"><span class="technical-label" data-i18n="tailcatNode">Tailcat 节点</span><span class="technical-value mono" id="tailcat-node">—</span></div>
-            <div class="technical"><span class="technical-label" data-i18n="tailcatPort">Tailcat 端口</span><span class="technical-value mono" id="tailcat-port">—</span></div>
-            <div class="technical"><span class="technical-label" data-i18n="codexService">Codex 服务</span><span class="technical-value" id="codex-service">—</span></div>
-            <div class="actions" style="padding: 7px 0 4px">
-              <button class="btn" id="copy-address" disabled data-i18n="copyAddress">复制 Relay 地址</button>
-              <button class="btn" id="refresh" data-i18n="refresh">刷新状态</button>
-            </div>
-            <div class="diag-list" id="diagnostics"></div>
-            <div class="danger-zone">
-              <span class="danger-copy" data-i18n="disconnectAllHint">移除全部手机授权，不影响 Mac 上的 Codex 数据。</span>
-              <button class="btn danger" id="clear-all" disabled data-i18n="disconnectAll">断开全部</button>
-            </div>
-          </div>
-        </details>
       </section>
 
-      <aside class="pair-pane">
+      <aside class="card pair-card">
         <div class="pair-head">
-          <div class="pair-index"><span class="pair-label" data-i18n="pairing">Pairing</span><button class="btn quiet" id="pair-refresh" data-i18n="refreshShort">刷新</button></div>
-          <h3 class="pair-title" data-i18n="pairPhone">添加一台手机</h3>
-          <div class="pair-desc" data-i18n="scanHint">用移动端扫描二维码。首次连接会在左侧出现确认请求。</div>
+          <div class="pair-head-row"><span class="eyebrow" data-i18n="pairing">配对</span><button class="btn quiet" id="pair-refresh" data-i18n="refreshShort">刷新</button></div>
+          <h3 class="pair-title" data-i18n="pairPhone">添加手机</h3>
+          <div class="pair-desc" data-i18n="scanHint">在 Codex Relay mobile 中扫描二维码。首次连接会要求确认。</div>
         </div>
-        <div class="qr-wrap">
-          <canvas id="pairing-qr" aria-label="Pairing QR code"></canvas>
-          <pre class="qr-fallback" id="pairing-qr-fallback"></pre>
-          <div class="qr-loading" id="qr-loading" data-i18n="loadingQr">正在准备安全配对码…</div>
+        <div class="qr-stage">
+          <div class="qr-wrap">
+            <canvas id="pairing-qr" aria-label="Pairing QR code"></canvas>
+            <pre class="qr-fallback" id="pairing-qr-fallback"></pre>
+            <div class="qr-loading" id="qr-loading" data-i18n="loadingQr">正在准备安全配对码…</div>
+          </div>
         </div>
-        <div class="pair-primary">
+        <div class="pair-actions">
           <button class="btn primary" id="copy-pair" disabled data-i18n="copyPair">复制配对链接</button>
+          <div class="pair-note" data-i18n="pairNote">扫不了二维码时，把配对链接发到手机并用 Codex Relay mobile 打开。</div>
         </div>
-        <div class="pair-note" data-i18n="pairNote">无法扫码时，复制配对链接发送到手机，并在 Codex Relay mobile 中打开。</div>
+      </aside>
+
+      <div class="drawer-backdrop" id="drawer-backdrop"></div>
+      <aside class="drawer" id="diagnostics-drawer" aria-hidden="true">
+        <div class="drawer-head">
+          <div><h3 class="drawer-title" data-i18n="advanced">高级与诊断</h3><div class="drawer-subtitle" data-i18n="advancedHint">连接地址和运行状态仅用于排查问题。</div></div>
+          <button class="btn quiet" id="diagnostics-close" data-i18n="close">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <div class="technical"><span class="technical-label" data-i18n="connectionAddress">Relay 连接地址</span><span class="technical-value mono" id="connect-url">—</span></div>
+          <div class="technical"><span class="technical-label" data-i18n="relayPort">Relay 端口</span><span class="technical-value mono" id="relay-port">—</span></div>
+          <div class="technical"><span class="technical-label" data-i18n="tailcatNode">Tailcat 节点</span><span class="technical-value mono" id="tailcat-node">—</span></div>
+          <div class="technical"><span class="technical-label" data-i18n="tailcatPort">Tailcat 端口</span><span class="technical-value mono" id="tailcat-port">—</span></div>
+          <div class="technical"><span class="technical-label" data-i18n="codexService">Codex 服务</span><span class="technical-value" id="codex-service">—</span></div>
+          <div class="drawer-actions actions">
+            <button class="btn" id="copy-address" disabled data-i18n="copyAddress">复制 Relay 地址</button>
+            <button class="btn" id="refresh" data-i18n="refresh">刷新状态</button>
+          </div>
+          <div class="diag-list" id="diagnostics"></div>
+          <div class="danger-zone">
+            <span class="danger-copy" data-i18n="disconnectAllHint">移除全部手机授权，不影响 Mac 上的 Codex 数据。</span>
+            <button class="btn danger" id="clear-all" disabled data-i18n="disconnectAll">断开全部</button>
+          </div>
+        </div>
       </aside>
     </div>
-
-    <footer class="footer"><span data-i18n="footerNote">正常使用时无需保持此窗口打开。</span><span id="last-sync">—</span></footer>
   </main>
   <div class="toast" id="toast"></div>
 
@@ -549,36 +554,38 @@ export function renderControlCenterPage(controlToken: string) {
       var refreshing = false;
       var translations = {
         "zh-CN": {
-          productNote: "Mac Host · 平时保持运行即可",
+          productNote: "Mac Host · 保持运行即可",
           connecting: "正在连接",
           online: "Host 在线",
           failed: "连接失败",
           retry: "重试",
-          hostStatus: "HOST STATUS",
-          connectingHost: "正在启动本机服务",
-          hostReady: "服务已就绪",
-          hostCopy: "保持此 Mac 在线，手机端会自动选择可用连接路径。",
-          hostReadyCopy: "Mac 端已准备好。接下来通常只需要使用手机。",
+          hostStatus: "HOST 状态",
+          connectingHost: "正在启动",
+          hostReady: "Mac 已就绪",
+          hostCopy: "保持此 Mac 在线，手机会自动选择可用连接路径。",
+          hostReadyCopy: "Relay 和配对服务已准备好，可以从手机继续。",
+          lastSync: "最近更新",
           relay: "Relay",
-          relayReady: "正在运行",
-          remoteAccess: "Tailcat 远程访问",
+          relayReady: "运行中",
+          remoteAccess: "Tailcat",
           remoteReady: "已就绪",
           remoteStarting: "正在启动",
           remoteDisabled: "已关闭",
-          remoteDisabledDetail: "仅使用局域网 · 可在菜单栏重新开启",
-          remoteUnavailable: "当前 Host 未集成",
-          automaticNetwork: "手机端自动选择连接路径",
-          lanStillAvailable: "局域网连接仍可用",
+          remoteDisabledDetail: "仅局域网 · 菜单栏可重新开启",
+          remoteUnavailable: "未集成",
+          lanStillAvailable: "局域网仍可用",
           workspace: "默认工作目录",
-          workspaceHint: "仅用于新会话的默认起点",
-          phones: "手机",
-          phoneHint: "已授权设备",
-          phoneUnit: " 台已授权",
+          phones: "已授权设备",
+          phoneHint: "手机",
+          phoneUnit: " 台",
           pending: "等待你的确认",
           pendingDesc: "只允许你刚刚发起配对的手机。",
-          pairedPhones: "已配对手机",
-          pairedDesc: "这些设备可以在 Mac 在线时使用 Relay。",
+          pairedPhones: "已配对设备",
+          pairedDesc: "这些手机可以在 Mac 在线时使用 Relay。",
+          diagnostics: "诊断",
           advanced: "高级与诊断",
+          advancedHint: "连接地址和运行状态仅用于排查问题。",
+          close: "关闭",
           connectionAddress: "Relay 连接地址",
           relayPort: "Relay 端口",
           tailcatNode: "Tailcat 节点",
@@ -591,16 +598,15 @@ export function renderControlCenterPage(controlToken: string) {
           refreshShort: "刷新",
           disconnectAllHint: "移除全部手机授权，不影响 Mac 上的 Codex 数据。",
           disconnectAll: "断开全部",
-          pairing: "PAIRING",
-          pairPhone: "添加一台手机",
-          scanHint: "用移动端扫描二维码。首次连接会在左侧出现确认请求。",
+          pairing: "配对",
+          pairPhone: "添加手机",
+          scanHint: "在 Codex Relay mobile 中扫描二维码。首次连接会要求确认。",
           loadingQr: "正在准备安全配对码…",
           qrUnavailable: "配对码暂不可用，请刷新后重试。",
           copyPair: "复制配对链接",
-          pairNote: "无法扫码时，复制配对链接发送到手机，并在 Codex Relay mobile 中打开。",
-          footerNote: "正常使用时无需保持此窗口打开。",
+          pairNote: "扫不了二维码时，把配对链接发到手机并用 Codex Relay mobile 打开。",
           loading: "加载中…",
-          noDevices: "还没有已配对手机。扫描右侧二维码即可添加。",
+          noDevices: "还没有已配对设备。扫描右侧二维码即可添加手机。",
           unknownDevice: "未命名设备",
           approve: "允许",
           reject: "拒绝",
@@ -613,36 +619,38 @@ export function renderControlCenterPage(controlToken: string) {
           confirmClear: "确定断开全部已配对手机？"
         },
         "en-US": {
-          productNote: "Mac Host · designed to stay out of the way",
+          productNote: "Mac Host · keep it running",
           connecting: "Connecting",
           online: "Host online",
           failed: "Connection failed",
           retry: "Retry",
           hostStatus: "HOST STATUS",
-          connectingHost: "Starting local services",
-          hostReady: "Host is ready",
-          hostCopy: "Keep this Mac online. The mobile app chooses the best available connection automatically.",
-          hostReadyCopy: "The Mac side is ready. You can normally continue from your phone.",
+          connectingHost: "Starting",
+          hostReady: "Mac is ready",
+          hostCopy: "Keep this Mac online. The mobile app chooses an available connection path automatically.",
+          hostReadyCopy: "Relay and pairing are ready. Continue from your phone.",
+          lastSync: "Last update",
           relay: "Relay",
           relayReady: "Running",
-          remoteAccess: "Tailcat remote access",
+          remoteAccess: "Tailcat",
           remoteReady: "Ready",
           remoteStarting: "Starting",
           remoteDisabled: "Off",
-          remoteDisabledDetail: "LAN only · re-enable Tailcat from the menu bar",
-          remoteUnavailable: "Not included in this Host",
-          automaticNetwork: "The mobile app chooses the connection path automatically",
-          lanStillAvailable: "LAN access remains available",
+          remoteDisabledDetail: "LAN only · re-enable from the menu bar",
+          remoteUnavailable: "Not included",
+          lanStillAvailable: "LAN remains available",
           workspace: "Default workspace",
-          workspaceHint: "Used only as the starting point for new sessions",
-          phones: "Phones",
-          phoneHint: "Authorized devices",
-          phoneUnit: " authorized",
-          pending: "Waiting for your approval",
+          phones: "Authorized devices",
+          phoneHint: "Phones",
+          phoneUnit: "",
+          pending: "Waiting for approval",
           pendingDesc: "Only approve the phone you just paired.",
-          pairedPhones: "Paired phones",
-          pairedDesc: "These devices can use Relay while this Mac is online.",
+          pairedPhones: "Paired devices",
+          pairedDesc: "These phones can use Relay while this Mac is online.",
+          diagnostics: "Diagnostics",
           advanced: "Advanced & diagnostics",
+          advancedHint: "Connection addresses and runtime details are for troubleshooting only.",
+          close: "Close",
           connectionAddress: "Relay connection address",
           relayPort: "Relay port",
           tailcatNode: "Tailcat node",
@@ -656,15 +664,14 @@ export function renderControlCenterPage(controlToken: string) {
           disconnectAllHint: "Remove all phone authorizations without touching Codex data on this Mac.",
           disconnectAll: "Disconnect all",
           pairing: "PAIRING",
-          pairPhone: "Add a phone",
-          scanHint: "Scan this QR code in the mobile app. The first connection will appear for approval on the left.",
+          pairPhone: "Add phone",
+          scanHint: "Scan this QR code in Codex Relay mobile. The first connection will ask for approval.",
           loadingQr: "Preparing secure pairing code…",
           qrUnavailable: "Pairing code is unavailable. Refresh and try again.",
           copyPair: "Copy pairing link",
-          pairNote: "If you cannot scan the QR code, copy the pairing link, send it to your phone, and open it with Codex Relay mobile.",
-          footerNote: "You do not need to keep this window open during normal use.",
+          pairNote: "If you cannot scan the QR code, send the pairing link to your phone and open it with Codex Relay mobile.",
           loading: "Loading…",
-          noDevices: "No paired phones yet. Scan the QR code to add one.",
+          noDevices: "No paired devices yet. Scan the QR code to add a phone.",
           unknownDevice: "Unnamed device",
           approve: "Allow",
           reject: "Reject",
@@ -751,15 +758,15 @@ export function renderControlCenterPage(controlToken: string) {
         return new Date(timestamp).toLocaleDateString(language);
       }
       function setDots(kind) {
-        var className = "state-dot" + (kind === "good" ? " good" : kind === "bad" ? " bad" : "");
+        var className = "dot" + (kind === "good" ? " good" : kind === "bad" ? " bad" : "");
         byId("top-dot").className = className;
-        byId("hero-dot").className = className + " hero-dot";
+        byId("host-dot").className = className;
       }
       function setError(error) {
         var message = error && error.message ? error.message : String(error || "Unknown error");
         setDots("bad");
         byId("top-state").textContent = t("failed");
-        byId("hero-title").textContent = t("failed");
+        byId("host-title").textContent = t("failed");
         byId("error-text").textContent = message;
         byId("error-banner").classList.add("show");
         byId("qr-loading").textContent = t("qrUnavailable");
@@ -800,7 +807,7 @@ export function renderControlCenterPage(controlToken: string) {
         canvas.width = pixelWidth * moduleSize;
         canvas.height = pixelHeight * moduleSize;
         ctx.imageSmoothingEnabled = false;
-        ctx.fillStyle = "#f5f5f0";
+        ctx.fillStyle = "#f4f4ef";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "#0d0e0f";
         var dark = 0;
@@ -837,13 +844,14 @@ export function renderControlCenterPage(controlToken: string) {
         clearError();
         setDots("good");
         byId("top-state").textContent = t("online");
-        byId("hero-title").textContent = t("hostReady");
-        byId("hero-copy").textContent = t("hostReadyCopy");
+        byId("host-title").textContent = t("hostReady");
+        byId("host-copy").textContent = t("hostReadyCopy");
         byId("relay-value").textContent = t("relayReady");
         byId("relay-detail").textContent = "PID " + state.relay.pid + " · :" + state.relay.port;
         byId("workspace-value").textContent = state.relay.workspacePath || "—";
         byId("phone-count").textContent = String(state.sessions.length) + t("phoneUnit");
         byId("phone-detail").textContent = t("phoneHint");
+        byId("device-count").textContent = String(state.sessions.length);
 
         var tailcat = state.tailcat || {};
         if (tailcat.ready) {
@@ -876,12 +884,12 @@ export function renderControlCenterPage(controlToken: string) {
         pendingSection.classList.toggle("visible", state.pendingPairings.length > 0);
         byId("pending-count").textContent = String(state.pendingPairings.length);
         pendingList.innerHTML = state.pendingPairings.map(function (item) {
-          return '<div class="request"><div class="request-main"><div class="approval-code">' + escape(item.approvalCode) + '</div><div class="row-meta">' + escape(item.clientName || t("unknownDevice")) + ' · ' + t("expires") + ' ' + escape(new Date(item.expiresAt).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })) + '</div></div><div class="actions"><button class="btn" data-reject="' + escape(item.approvalCode) + '">' + t("reject") + '</button><button class="btn primary" data-approve="' + escape(item.approvalCode) + '">' + t("approve") + '</button></div></div>';
+          return '<div class="request"><div class="request-main"><div class="approval-code">' + escape(item.approvalCode) + '</div><div class="row-meta">' + escape(item.clientName || t("unknownDevice")) + ' · ' + t("expires") + ' ' + escape(new Date(item.expiresAt).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })) + '</div></div><div class="actions"><button class="btn" data-reject="' + escape(item.approvalCode) + '">' + t("reject") + '</button><button class="btn" data-approve="' + escape(item.approvalCode) + '">' + t("approve") + '</button></div></div>';
         }).join("");
 
         var sessions = byId("session-list");
         sessions.innerHTML = state.sessions.length ? state.sessions.map(function (item) {
-          return '<div class="device"><div class="device-main"><div class="row-title">' + escape(item.clientName || t("unknownDevice")) + '</div><div class="row-meta mono">' + escape(item.clientSessionId || item.displayId) + ' · ' + escape(relativeTime(item.updatedAt)) + '</div></div><button class="btn quiet" data-disconnect="' + escape(item.tokenHash) + '">' + t("disconnect") + '</button></div>';
+          return '<div class="device"><div class="device-icon">M</div><div class="device-main"><div class="row-title">' + escape(item.clientName || t("unknownDevice")) + '</div><div class="row-meta mono">' + escape(item.clientSessionId || item.displayId) + ' · ' + escape(relativeTime(item.updatedAt)) + '</div></div><button class="btn quiet" data-disconnect="' + escape(item.tokenHash) + '">' + t("disconnect") + '</button></div>';
         }).join("") : '<div class="empty">' + t("noDevices") + '</div>';
 
         var diagnostics = byId("diagnostics");
@@ -889,7 +897,7 @@ export function renderControlCenterPage(controlToken: string) {
           return '<div class="diag"><span class="diag-dot ' + escape(item.status) + '"></span><strong>' + escape(item.label) + '</strong><span class="diag-value mono">' + escape(item.value) + '</span></div>';
         }).join("") : "";
 
-        byId("last-sync").textContent = new Date().toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        byId("last-sync").textContent = new Date().toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" });
         bindActions();
       }
       function refresh() {
@@ -900,12 +908,20 @@ export function renderControlCenterPage(controlToken: string) {
           render();
         }).catch(setError).then(function () { refreshing = false; });
       }
+      function setDrawer(open) {
+        byId("diagnostics-drawer").classList.toggle("open", open);
+        byId("drawer-backdrop").classList.toggle("open", open);
+        byId("diagnostics-drawer").setAttribute("aria-hidden", open ? "false" : "true");
+      }
 
       byId("language").onchange = function (event) {
         language = event.target.value;
         localStorage.setItem("codex-relay-language", language);
         applyLanguage();
       };
+      byId("diagnostics-trigger").onclick = function () { setDrawer(true); };
+      byId("diagnostics-close").onclick = function () { setDrawer(false); };
+      byId("drawer-backdrop").onclick = function () { setDrawer(false); };
       byId("copy-address").onclick = function () { copy(state && state.relay.connectUrl); };
       byId("copy-pair").onclick = function () { copy(state && state.pairingPayload); };
       byId("refresh").onclick = refresh;
@@ -915,6 +931,7 @@ export function renderControlCenterPage(controlToken: string) {
         if (!state || !state.sessions.length || !confirm(t("confirmClear"))) return;
         act(api("/api/sessions/clear", { method: "POST" }));
       };
+      document.addEventListener("keydown", function (event) { if (event.key === "Escape") setDrawer(false); });
       document.addEventListener("visibilitychange", function () { if (!document.hidden) refresh(); });
 
       applyLanguage();
