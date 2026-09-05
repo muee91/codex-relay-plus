@@ -195,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   }
 
   @objc private func toggleTailcat(_ sender: NSMenuItem) {
-    tailcatEnabled.toggle()
+    tailcatEnabled = !tailcatEnabled
     sender.state = tailcatEnabled ? .on : .off
     currentTailcatAddress = nil
     refreshTailcatMenu()
@@ -360,10 +360,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let statusURL = support.appendingPathComponent("tailcat-status.\(relayPid)")
     guard let text = try? String(contentsOf: statusURL, encoding: .utf8) else { return nil }
 
-    for line in text.split(whereSeparator: \ .isNewline).reversed() {
+    for line in text.split(whereSeparator: { $0.isNewline }).reversed() {
       guard
         let data = String(line).data(using: .utf8),
-        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let json = try? JSONSerialization.jsonObject(with: data),
+        let object = json as? [String: Any],
         let address = object["address"] as? String,
         address.hasPrefix("tc")
       else { continue }
