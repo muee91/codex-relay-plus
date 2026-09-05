@@ -7,6 +7,7 @@ private enum C {
   static let name = "Codex Relay Plus"
   static let relayPort = 8787
   static let controlOffset = 2
+  static let tailcatEnabledKey = "tailcatRemoteAccessEnabled"
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
@@ -14,14 +15,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   private var webView: WKWebView?
   private var statusItem: NSStatusItem!
   private var relayStatusMenuItem: NSMenuItem!
+  private var tailcatStatusMenuItem: NSMenuItem!
+  private var tailcatAddressMenuItem: NSMenuItem!
+  private var tailcatToggleMenuItem: NSMenuItem!
+  private var copyTailcatAddressMenuItem: NSMenuItem!
   private var relay: Process?
   private var relayGroup: pid_t?
   private var logHandle: FileHandle?
+  private var tailcatStatusTimer: Timer?
+  private var currentTailcatAddress: String?
   private var relayPort = C.relayPort
   private var controlPort = C.relayPort + C.controlOffset
   private var generation = 0
   private var relayReady = false
   private var lastError: String?
+
+  private var tailcatEnabled: Bool {
+    get {
+      if UserDefaults.standard.object(forKey: C.tailcatEnabledKey) == nil {
+        return true
+      }
+      return UserDefaults.standard.bool(forKey: C.tailcatEnabledKey)
+    }
+    set {
+      UserDefaults.standard.set(newValue, forKey: C.tailcatEnabledKey)
+    }
+  }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -58,6 +77,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     relayStatusMenuItem = NSMenuItem(title: "Relay：正在启动", action: nil, keyEquivalent: "")
     relayStatusMenuItem.isEnabled = false
     menu.addItem(relayStatusMenuItem)
+
+    tailcatStatusMenuItem = NSMenuItem(title: "Tailcat：正在启动", action: nil, keyEquivalent: "")
+    tailcatStatusMenuItem.isEnabled = false
+    menu.addItem(tailcatStatusMenuItem)
+
+    tailcatAddressMenuItem = NSMenuItem(title: "Tailcat 地址：—", action: nil, keyEquivalent: "")
+    tailcatAddressMenuItem.isEnabled = false
+    menu.addItem(tailcatAddressMenuItem)
     menu.addItem(.separator())
 
     let pair = NSMenuItem(title: "添加手机…", action: #selector(showPairing(_:)), keyEquivalent: "")
@@ -67,6 +94,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let panel = NSMenuItem(title: "打开 Host 面板", action: #selector(showHostPanel(_:)), keyEquivalent: "")
     panel.target = self
     menu.addItem(panel)
+    menu.addItem(.separator())
+
+    tailcatToggleMenuItem = NSMenuItem(
+      title: "Tailcat 远程访问",
+      action: #selector(toggleTailcat(_:)),
+      keyEquivalent: ""
+    )
+    tailcatToggleMenuItem.target = self
+    tailcatToggleMenuItem.state = tailcatEnabled ? .on : .off
+    menu.addItem(tailcatToggleMenuItem)
+
+    copyTailcatAddressMenuItem = NSMenuItem(
+      title: "复制 Tailcat 地址",
+      action: #selector(copyTailcatAddress(_:)),
+      keyEquivalent: ""
+    )
+    copyTailcatAddressMenuItem.target = self
+    copyTailcatAddressMenuItem.isEnabled = false
+    menu.addItem(copyTailcatAddressMenuItem)
     menu.addItem(.separator())
 
     let restart = NSMenuItem(title: "重启 Relay", action: #selector(restartRelay(_:)), keyEquivalent: "")
@@ -81,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let quit = NSMenuItem(title: "退出 \(C.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
     menu.addItem(quit)
     statusItem.menu = menu
+    refreshTailcatMenu()
   }
 
   private func ensureWindow() {
@@ -101,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     let nextWindow = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 1040, height: 700),
-      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+      styleMask: [.titled, .closable, .miniaturizable, .resizable],
       backing: .buffered,
       defer: false
     )
@@ -147,6 +194,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     startRelay()
   }
 
+  @objc private func toggleTailcat(_ sender: NSMenuItem) {
+    tailcatEnabled.toggle()
+    sender.state = tailcatEnabled ? .on : .off
+    currentTailcatAddress = nil
+    refreshTailcatMenu()
+    startRelay()
+  }
+
+  @objc private func copyTailcatAddress(_ sender: Any?) {
+    guard let currentTailcatAddress else { return }
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(currentTailcatAddress, forType: .string)
+  }
+
   @objc private func openRelayLog(_ sender: Any?) {
     guard let url = try? logURL() else { return }
     if !FileManager.default.fileExists(atPath: url.path) {
@@ -166,7 +227,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let currentGeneration = generation
     relayReady = false
     lastError = nil
+    currentTailcatAddress = nil
     setRelayStatus("正在启动")
+    refreshTailcatMenu()
     if window?.isVisible == true {
       showLoading()
     }
@@ -213,6 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       env["CODEX_RELAY_DESKTOP"] = "1"
       env["CODEX_RELAY_HOME"] = support.path
       env["CODEX_RELAY_WORKSPACE_PATH"] = FileManager.default.homeDirectoryForCurrentUser.path
+      env["CODEX_RELAY_TAILCAT_ENABLED"] = tailcatEnabled ? "1" : "0"
       env["NO_COLOR"] = "1"
       env["PATH"] = [
         node.deletingLastPathComponent().path,
@@ -242,10 +306,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       if setpgid(process.processIdentifier, process.processIdentifier) == 0 {
         relayGroup = process.processIdentifier
       }
+      startTailcatStatusTimer()
       waitForControlCenter(currentGeneration, 0)
     } catch {
       fail("无法启动内置 Relay：\(error.localizedDescription)")
     }
+  }
+
+  private func startTailcatStatusTimer() {
+    tailcatStatusTimer?.invalidate()
+    refreshTailcatMenu()
+    tailcatStatusTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+      self?.refreshTailcatMenu()
+    }
+  }
+
+  private func refreshTailcatMenu() {
+    guard tailcatStatusMenuItem != nil else { return }
+    tailcatToggleMenuItem?.state = tailcatEnabled ? .on : .off
+
+    guard tailcatEnabled else {
+      tailcatStatusMenuItem.title = "Tailcat：已关闭"
+      tailcatAddressMenuItem.title = "Tailcat 地址：—"
+      copyTailcatAddressMenuItem?.isEnabled = false
+      currentTailcatAddress = nil
+      return
+    }
+
+    guard let process = relay else {
+      tailcatStatusMenuItem.title = "Tailcat：等待 Relay"
+      tailcatAddressMenuItem.title = "Tailcat 地址：—"
+      copyTailcatAddressMenuItem?.isEnabled = false
+      currentTailcatAddress = nil
+      return
+    }
+
+    guard let status = readTailcatStatus(for: process.processIdentifier) else {
+      tailcatStatusMenuItem.title = relayReady ? "Tailcat：启动中或暂不可用" : "Tailcat：正在启动"
+      tailcatAddressMenuItem.title = "Tailcat 地址：—"
+      copyTailcatAddressMenuItem?.isEnabled = false
+      currentTailcatAddress = nil
+      return
+    }
+
+    currentTailcatAddress = status.address
+    tailcatStatusMenuItem.title = "Tailcat：已就绪"
+    tailcatAddressMenuItem.title = "Tailcat 地址：\(status.address) · :\(status.port)"
+    copyTailcatAddressMenuItem?.isEnabled = true
+  }
+
+  private func readTailcatStatus(for relayPid: pid_t) -> (address: String, port: Int)? {
+    guard let support = try? supportURL() else { return nil }
+    let statusURL = support.appendingPathComponent("tailcat-status.\(relayPid)")
+    guard let text = try? String(contentsOf: statusURL, encoding: .utf8) else { return nil }
+
+    for line in text.split(whereSeparator: \ .isNewline).reversed() {
+      guard
+        let data = String(line).data(using: .utf8),
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let address = object["address"] as? String,
+        address.hasPrefix("tc")
+      else { continue }
+
+      let port: Int?
+      if let value = object["port"] as? Int {
+        port = value
+      } else if let value = object["port"] as? NSNumber {
+        port = value.intValue
+      } else {
+        port = nil
+      }
+      guard let port, (1...65535).contains(port) else { continue }
+      return (address, port)
+    }
+    return nil
   }
 
   private func waitForControlCenter(_ expectedGeneration: Int, _ attempt: Int) {
@@ -266,6 +400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
           self.relayReady = true
           self.lastError = nil
           self.setRelayStatus("运行中")
+          self.refreshTailcatMenu()
           if self.window?.isVisible == true {
             self.loadControlCenter()
           }
@@ -291,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     relayReady = false
     lastError = message
     setRelayStatus("启动失败")
+    refreshTailcatMenu()
     if window?.isVisible == true {
       showError(message)
     }
@@ -299,8 +435,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   private func stopRelay() {
     generation += 1
     relayReady = false
+    tailcatStatusTimer?.invalidate()
+    tailcatStatusTimer = nil
+    currentTailcatAddress = nil
     guard let process = relay else {
       closeLog()
+      refreshTailcatMenu()
       return
     }
 
@@ -326,6 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     relayGroup = nil
     relay = nil
     closeLog()
+    refreshTailcatMenu()
   }
 
   private func closeLog() {
