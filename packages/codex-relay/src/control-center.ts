@@ -247,9 +247,11 @@ function collectCoreDiagnostics(options: ControlCenterOptions, network: NetworkS
     (nodeParts[0] === 22 && (nodeParts[1] > 14 || (nodeParts[1] === 14 && nodeParts[2] >= 0)));
   const tailcatValue = network.tailcat.ready
     ? `${network.tailcat.address} · :${network.tailcat.port} · encrypted remote transport`
-    : network.tailcat.configured
-      ? "starting or unavailable · LAN remains available"
-      : "not configured in this host build";
+    : network.tailcat.configured && !network.tailcat.enabled
+      ? "disabled by host setting · LAN remains available"
+      : network.tailcat.configured
+        ? "starting or unavailable · LAN remains available"
+        : "not configured in this host build";
 
   return [
     {
