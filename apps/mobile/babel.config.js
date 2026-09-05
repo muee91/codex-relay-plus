@@ -9,6 +9,7 @@ module.exports = function (api) {
   return {
     presets: ["babel-preset-expo"],
     plugins: [
+      "./babel-plugin-product-overrides.cjs",
       "@babel/plugin-transform-async-to-generator",
       ...(isZhCn ? ["./babel-plugin-zh-cn.cjs"] : []),
     ],

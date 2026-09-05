@@ -1,83 +1,25 @@
-import { Pressable, View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 
 import { ThemedText } from "@/components/themed-text";
 import { Button } from "@/components/ui/button";
+import { CopyableCommand } from "@/components/ui/copyable-command";
 import { Icon } from "@/components/ui/icon";
+import { workspaceName } from "@/lib/workspace-name";
 
-const isZhCn = process.env.CODEX_RELAY_LOCALE === "zh-CN";
+import { relayStartCommand } from "./pairing-commands";
 
-const copy = isZhCn
-  ? {
-      reconnectingTitle: "正在重新连接 Mac",
-      reconnectingChecking: "正在寻找可用连接…",
-      reconnectingOffline: "网络变化时会自动尝试局域网和远程连接。",
-      connectTitle: "连接你的 Mac",
-      connectSubtitle: "配对一次，之后在可用网络下会自动恢复连接。",
-      introTitle: "从 Mac 端开始",
-      introBody: "打开 Codex Relay Plus 桌面端，在主窗口里找到“添加手机”。",
-      steps: [
-        {
-          icon: "workspace" as const,
-          label: "1",
-          title: "打开桌面端",
-          body: "确认 Mac 上的 Relay 显示为已就绪。",
-        },
-        {
-          icon: "check" as const,
-          label: "2",
-          title: "扫描二维码",
-          body: "用这台手机扫描桌面端显示的配对二维码。",
-        },
-        {
-          icon: "terminal" as const,
-          label: "3",
-          title: "批准手机",
-          body: "回到 Mac 端确认这台手机，配对随后自动完成。",
-        },
-      ],
-      scan: "扫描二维码",
-      refresh: "重新连接",
-    }
-  : {
-      reconnectingTitle: "Reconnecting to your Mac",
-      reconnectingChecking: "Finding an available connection…",
-      reconnectingOffline: "Codex Relay will retry local and remote paths automatically.",
-      connectTitle: "Connect your Mac",
-      connectSubtitle:
-        "Pair once, then Codex Relay reconnects automatically whenever a path is available.",
-      introTitle: "Start on your Mac",
-      introBody: "Open Codex Relay Plus on your Mac and find Add phone in the main window.",
-      steps: [
-        {
-          icon: "workspace" as const,
-          label: "1",
-          title: "Open the desktop app",
-          body: "Make sure the Relay status on your Mac shows Ready.",
-        },
-        {
-          icon: "check" as const,
-          label: "2",
-          title: "Scan the QR code",
-          body: "Use this phone to scan the pairing QR shown on your Mac.",
-        },
-        {
-          icon: "terminal" as const,
-          label: "3",
-          title: "Approve this phone",
-          body: "Confirm the phone on your Mac. Pairing finishes automatically.",
-        },
-      ],
-      scan: "Scan QR",
-      refresh: "Reconnect",
-    };
+const tailscaleAppStoreUrl = "https://apps.apple.com/us/app/tailscale/id1470499037";
 
 export function ConnectionBanner({
   connection,
+  error,
   hasPairedSession,
   onRefresh,
   onScanConnect,
+  serverUrl,
+  workspacePath,
 }: {
   connection: "checking" | "connected" | "offline";
   error?: string;
@@ -87,11 +29,14 @@ export function ConnectionBanner({
   serverUrl: string;
   workspacePath?: string;
 }) {
-  if (connection === "connected") {
-    return null;
-  }
+  const isConnected = connection === "connected";
+  const statusText = isConnected
+    ? `Connected · ${workspaceName(workspacePath) ?? compactServer(serverUrl)}`
+    : connection === "checking"
+      ? `Checking · ${compactServer(serverUrl)}`
+      : (error ?? `Offline · ${compactServer(serverUrl)}`);
 
-  if (hasPairedSession) {
+  if (hasPairedSession && !isConnected) {
     return (
       <Animated.View
         entering={connectionBannerEnterTransition}
@@ -99,114 +44,160 @@ export function ConnectionBanner({
         layout={connectionBannerLayoutTransition}
         style={styles.container}
       >
-        <Animated.View layout={connectionBannerLayoutTransition} style={styles.reconnectPanel}>
-          <View
-            style={[
-              styles.statusDot,
-              connection === "checking" ? styles.statusDotChecking : styles.statusDotOffline,
-            ]}
-          />
-          <View style={styles.reconnectCopy}>
-            <ThemedText type="smallBold" style={styles.reconnectTitle}>
-              {copy.reconnectingTitle}
-            </ThemedText>
-            <ThemedText
-              type="small"
-              themeColor="textSecondary"
-              style={styles.reconnectSubtitle}
-              numberOfLines={2}
-            >
-              {connection === "checking" ? copy.reconnectingChecking : copy.reconnectingOffline}
-            </ThemedText>
+        <Animated.View layout={connectionBannerLayoutTransition} style={styles.pairPanel}>
+          <View style={styles.pairHeader}>
+            <View
+              style={[
+                styles.pairStatusDot,
+                connection === "checking" && styles.pairStatusDotChecking,
+              ]}
+            />
+            <View style={styles.pairCopy}>
+              <ThemedText type="smallBold" style={styles.pairTitle}>
+                {connection === "checking"
+                  ? "Connecting to your computer"
+                  : "Reconnecting to your computer"}
+              </ThemedText>
+              <ThemedText
+                type="small"
+                themeColor="textSecondary"
+                style={styles.pairSubtitle}
+                numberOfLines={2}
+              >
+                {connection === "checking"
+                  ? `Checking · ${compactServer(serverUrl)}`
+                  : (error ?? `Waiting for ${compactServer(serverUrl)}`)}
+              </ThemedText>
+            </View>
           </View>
-          {connection === "offline" ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={copy.refresh}
-              hitSlop={8}
-              onPress={onRefresh}
-              style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
-            >
-              <Icon name="refresh" size={14} tintColor="#E7E8E5" />
-            </Pressable>
-          ) : null}
         </Animated.View>
       </Animated.View>
     );
   }
 
-  return (
-    <Animated.View
-      entering={connectionBannerEnterTransition}
-      exiting={connectionBannerExitTransition}
-      layout={connectionBannerLayoutTransition}
-      style={styles.container}
-    >
-      <Animated.View layout={connectionBannerLayoutTransition} style={styles.pairPanel}>
-        <View style={styles.heroCopy}>
-          <ThemedText type="smallBold" style={styles.heroTitle}>
-            {copy.connectTitle}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>
-            {copy.connectSubtitle}
-          </ThemedText>
-        </View>
-
-        <View style={styles.onboardingIntro}>
-          <ThemedText type="smallBold" style={styles.onboardingTitle}>
-            {copy.introTitle}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.onboardingCopy}>
-            {copy.introBody}
-          </ThemedText>
-        </View>
-
-        <View style={styles.stepList}>
-          {copy.steps.map((step) => (
-            <PairingStep key={step.label} {...step} />
-          ))}
-        </View>
-
-        <Button
-          accessibilityRole="button"
-          accessibilityLabel={copy.scan}
-          onPress={onScanConnect}
-          size="lg"
-          variant="default"
-          className="h-11 rounded-xl"
-          style={styles.pairButton}
-        >
-          <Icon name="workspace" size={16} tintColor="#141414" />
-          <ThemedText type="smallBold" style={styles.primaryActionText}>
-            {copy.scan}
-          </ThemedText>
-        </Button>
+  if (connection === "offline") {
+    return (
+      <Animated.View
+        entering={connectionBannerEnterTransition}
+        exiting={connectionBannerExitTransition}
+        layout={connectionBannerLayoutTransition}
+        style={styles.container}
+      >
+        <Animated.View layout={connectionBannerLayoutTransition} style={styles.pairPanel}>
+          <View style={styles.pairHeader}>
+            <View style={styles.pairStatusDot} />
+            <View style={styles.pairCopy}>
+              <ThemedText type="smallBold" style={styles.pairTitle}>
+                Connect to your computer
+              </ThemedText>
+              <ThemedText
+                type="small"
+                themeColor="textSecondary"
+                style={styles.pairSubtitle}
+                numberOfLines={2}
+              >
+                {hasPairedSession ? statusText : "No paired computer yet"}
+              </ThemedText>
+            </View>
+          </View>
+          <View style={styles.onboardingIntro}>
+            <ThemedText type="smallBold" style={styles.onboardingTitle}>
+              Pair this phone once
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.onboardingCopy}>
+              Run one command on your computer, scan the QR code, then approve the phone in that
+              same terminal.
+            </ThemedText>
+          </View>
+          <View style={styles.stepList}>
+            <PairingStep
+              icon="terminal"
+              label="1"
+              title="Start the relay"
+              body="Open Terminal on your computer and run:"
+              command={relayStartCommand}
+            />
+            <PairingStep
+              icon="workspace"
+              label="2"
+              title="Choose Wi-Fi or Tailscale"
+              body="Same Wi-Fi is enough nearby. To use Codex Relay away from this Wi-Fi, install Tailscale on your computer and phone, sign in to the same account, and make sure both say Connected before scanning."
+              actionLabel="Open Tailscale on App Store"
+              actionAccessibilityLabel="Open Tailscale on the App Store"
+              onAction={() => void Linking.openURL(tailscaleAppStoreUrl)}
+            />
+            <PairingStep
+              icon="check"
+              label="3"
+              title="Scan and approve"
+              body="Scan the QR shown in Terminal. When a code appears, approve it on your computer."
+            />
+          </View>
+          <View style={styles.pairActions}>
+            <Button
+              accessibilityRole="button"
+              accessibilityLabel="Scan connection QR"
+              onPress={onScanConnect}
+              size="lg"
+              variant="default"
+              className="h-11 rounded-lg"
+              style={styles.pairButton}
+            >
+              <Icon name="workspace" size={16} tintColor="#141414" />
+              <ThemedText type="smallBold" style={styles.primaryActionText}>
+                Scan QR
+              </ThemedText>
+            </Button>
+            {hasPairedSession ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Refresh connection"
+                onPress={onRefresh}
+                style={({ pressed }) => [styles.refreshAction, pressed && styles.pressed]}
+              >
+                <ThemedText type="smallBold" themeColor="textSecondary" style={styles.refreshText}>
+                  Refresh connection
+                </ThemedText>
+              </Pressable>
+            ) : null}
+          </View>
+        </Animated.View>
       </Animated.View>
-    </Animated.View>
-  );
+    );
+  }
+
+  return null;
 }
 
 function PairingStep({
   body,
+  command,
   icon,
   label,
+  actionAccessibilityLabel,
+  actionLabel,
+  onAction,
   title,
 }: {
+  actionAccessibilityLabel?: string;
+  actionLabel?: string;
   body: string;
+  command?: string;
   icon: "check" | "terminal" | "workspace";
   label: string;
+  onAction?: () => void;
   title: string;
 }) {
   return (
     <View style={styles.stepRow}>
       <View style={styles.stepMarker}>
-        <ThemedText type="code" style={styles.stepNumber}>
-          {label}
-        </ThemedText>
+        <Icon name={icon} size={15} tintColor="#F2F2F2" />
       </View>
       <View style={styles.stepCopy}>
         <View style={styles.stepTitleRow}>
-          <Icon name={icon} size={14} tintColor="#DADCD8" />
+          <ThemedText type="smallBold" style={styles.stepNumber}>
+            {label}
+          </ThemedText>
           <ThemedText type="smallBold" style={styles.stepTitle}>
             {title}
           </ThemedText>
@@ -214,9 +205,29 @@ function PairingStep({
         <ThemedText type="small" themeColor="textSecondary" style={styles.stepBody}>
           {body}
         </ThemedText>
+        {command ? (
+          <CopyableCommand command={command} copyAccessibilityLabel="Copy relay start command" />
+        ) : null}
+        {actionLabel && onAction ? (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={actionAccessibilityLabel ?? actionLabel}
+            onPress={onAction}
+            style={({ pressed }) => [styles.stepAction, pressed && styles.pressed]}
+          >
+            <ThemedText type="smallBold" style={styles.stepActionText}>
+              {actionLabel}
+            </ThemedText>
+            <Icon name="externalLink" size={13} tintColor="#F2F2F2" />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
+}
+
+function compactServer(serverUrl: string) {
+  return serverUrl.replace(/^https?:\/\//, "");
 }
 
 const connectionBannerLayoutTransition = LinearTransition.duration(180);
@@ -228,116 +239,124 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 2,
   },
-  reconnectPanel: {
+  statusLine: {
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.035)",
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(42, 42, 42, 0.78)",
+    borderColor: "rgba(255, 255, 255, 0.09)",
     borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     flexDirection: "row",
-    gap: 10,
-    minHeight: 54,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    gap: 6,
+    maxWidth: "100%",
+    minHeight: 28,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
   },
-  statusDot: {
+  statusLineConnected: {
+    minHeight: 24,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  dot: {
+    backgroundColor: "#f2b84b",
     borderRadius: 4,
     height: 8,
     width: 8,
   },
-  statusDotChecking: {
-    backgroundColor: "#D7B15D",
+  connected: {
+    backgroundColor: "#2ca36f",
   },
-  statusDotOffline: {
-    backgroundColor: "#8B8F8D",
+  offline: {
+    backgroundColor: "#d84f4f",
   },
-  reconnectCopy: {
+  text: {
     flex: 1,
-    gap: 1,
-    minWidth: 0,
-  },
-  reconnectTitle: {
-    fontSize: 13,
-    lineHeight: 17,
-  },
-  reconnectSubtitle: {
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 15,
   },
-  retryButton: {
-    alignItems: "center",
-    borderRadius: 8,
-    height: 32,
-    justifyContent: "center",
-    width: 32,
-  },
   pairPanel: {
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-    borderColor: "rgba(255, 255, 255, 0.09)",
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: 16,
-    padding: 16,
+    backgroundColor: "rgba(42, 42, 42, 0.92)",
+    borderColor: "rgba(255, 255, 255, 0.11)",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 12,
+    padding: 12,
+    position: "relative",
   },
-  heroCopy: {
-    gap: 5,
+  pairHeader: {
+    minHeight: 37,
+    paddingLeft: 17,
   },
-  heroTitle: {
-    fontSize: 20,
-    lineHeight: 25,
+  pairStatusDot: {
+    backgroundColor: "#d84f4f",
+    borderRadius: 4,
+    height: 8,
+    left: 0,
+    position: "absolute",
+    top: 6,
+    width: 8,
   },
-  heroSubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
+  pairStatusDotChecking: {
+    backgroundColor: "#f2b84b",
+  },
+  pairCopy: {
+    gap: 2,
+    minWidth: 0,
+  },
+  pairTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  pairSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   onboardingIntro: {
     gap: 4,
-    paddingTop: 2,
   },
   onboardingTitle: {
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 18,
+    lineHeight: 23,
   },
   onboardingCopy: {
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 18,
   },
   stepList: {
-    gap: 2,
+    gap: 10,
   },
   stepRow: {
-    alignItems: "flex-start",
+    backgroundColor: "rgba(255, 255, 255, 0.055)",
+    borderColor: "rgba(255, 255, 255, 0.09)",
+    borderRadius: 8,
+    borderWidth: 1,
     flexDirection: "row",
-    gap: 11,
-    minHeight: 56,
-    paddingHorizontal: 2,
-    paddingVertical: 8,
+    gap: 10,
+    padding: 10,
   },
   stepMarker: {
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.07)",
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    borderRadius: 11,
-    borderWidth: StyleSheet.hairlineWidth,
-    height: 22,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 15,
+    height: 30,
     justifyContent: "center",
-    marginTop: 1,
-    width: 22,
-  },
-  stepNumber: {
-    color: "#BFC3BE",
-    fontSize: 9,
-    lineHeight: 12,
+    width: 30,
   },
   stepCopy: {
     flex: 1,
-    gap: 3,
+    gap: 5,
     minWidth: 0,
   },
   stepTitleRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 6,
+    gap: 7,
+  },
+  stepNumber: {
+    color: "#B8C7FF",
+    fontSize: 11,
+    lineHeight: 14,
   },
   stepTitle: {
     fontSize: 13,
@@ -346,6 +365,27 @@ const styles = StyleSheet.create({
   stepBody: {
     fontSize: 12,
     lineHeight: 16,
+  },
+  stepAction: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 7,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 32,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  stepActionText: {
+    color: "#F2F2F2",
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  pairActions: {
+    gap: 8,
   },
   pairButton: {
     flexDirection: "row",
@@ -356,6 +396,15 @@ const styles = StyleSheet.create({
     color: "#141414",
     fontSize: 13,
     lineHeight: 17,
+  },
+  refreshAction: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 28,
+  },
+  refreshText: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   pressed: {
     opacity: 0.7,

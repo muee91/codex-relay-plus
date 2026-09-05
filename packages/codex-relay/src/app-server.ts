@@ -219,14 +219,6 @@ export type AppServerThreadResumeParams = {
   threadId: string;
 };
 
-export type AppServerThreadForkParams = {
-  beforeTurnId?: string | null;
-  ephemeral?: boolean;
-  excludeTurns?: boolean;
-  lastTurnId?: string | null;
-  threadId: string;
-};
-
 export type AppServerTurnStartParams = {
   approvalPolicy?: string | null;
   clientUserMessageId?: string | null;
@@ -244,13 +236,6 @@ export type AppServerTurnStartParams = {
   model?: string | null;
   sandboxPolicy?: unknown;
   serviceTier?: string | null;
-  threadId: string;
-};
-
-export type AppServerTurnSteerParams = {
-  clientUserMessageId?: string | null;
-  expectedTurnId?: string | null;
-  input: AppServerUserInput[];
   threadId: string;
 };
 
@@ -302,7 +287,6 @@ export class CodexAppServerClient {
   private notificationHandlers = new Set<(notification: AppServerNotification) => void>();
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
-  private permissionRequestsById = new Map<number | string, unknown>();
   private reconnecting: Promise<void> | undefined;
   private requestHandlers = new Set<(request: AppServerRequest) => void>();
   private readline: Interface | undefined;
@@ -335,7 +319,7 @@ export class CodexAppServerClient {
     return this.ensureInitialized();
   }
 
-  async listThreads(limit = 80, options: { archived?: boolean } = {}) {
+  async listThreads(limit = 80) {
     const threads: AppServerThread[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | undefined;
@@ -344,7 +328,7 @@ export class CodexAppServerClient {
         data: AppServerThread[];
         nextCursor?: string | null;
       }>("thread/list", {
-        archived: options.archived ?? false,
+        archived: false,
         limit,
         sortDirection: "desc",
         sortKey: "recency_at",
@@ -363,61 +347,11 @@ export class CodexAppServerClient {
   }
 
   async readThread(threadId: string, options: { includeTurns?: boolean } = {}) {
-    const includeTurns = options.includeTurns ?? true;
-    if (!includeTurns) {
-      const response = await this.request<{ thread: AppServerThread }>("thread/read", {
-        threadId,
-        includeTurns: false,
-      });
-      return response.thread;
-    }
-
-    const metadataResponse = await this.request<{ thread: AppServerThread }>("thread/read", {
-      threadId,
-      includeTurns: false,
-    });
-    if (metadataResponse.thread.historyMode === "paginated") {
-      try {
-        const turns = await this.listThreadTurns(threadId);
-        return { ...metadataResponse.thread, turns };
-      } catch (error) {
-        if (!isUnsupportedAppServerMethodError(error)) {
-          throw error;
-        }
-      }
-    }
-
     const response = await this.request<{ thread: AppServerThread }>("thread/read", {
       threadId,
-      includeTurns: true,
+      includeTurns: options.includeTurns ?? true,
     });
     return response.thread;
-  }
-
-  async listThreadTurns(threadId: string, limit = 100) {
-    const turns: AppServerTurn[] = [];
-    const seenCursors = new Set<string>();
-    let cursor: string | undefined;
-    do {
-      const response = await this.request<{
-        data: AppServerTurn[];
-        nextCursor?: string | null;
-      }>("thread/turns/list", {
-        threadId,
-        limit,
-        sortDirection: "asc",
-        itemsView: "full",
-        ...(cursor ? { cursor } : {}),
-      });
-      turns.push(...response.data);
-      const nextCursor = response.nextCursor ?? undefined;
-      if (!nextCursor || seenCursors.has(nextCursor)) {
-        break;
-      }
-      seenCursors.add(nextCursor);
-      cursor = nextCursor;
-    } while (cursor);
-    return turns;
   }
 
   async listModels(limit = 80) {
@@ -459,22 +393,10 @@ export class CodexAppServerClient {
     return response.thread;
   }
 
-  async forkThread(params: AppServerThreadForkParams) {
-    const response = await this.request<{ thread: AppServerThread }>("thread/fork", params);
-    this.subscribedThreadIds.add(response.thread.id);
-    this.rememberActiveTurn(response.thread);
-    return response.thread;
-  }
-
   async startTurn(params: AppServerTurnStartParams) {
     const response = await this.request<{ turn: AppServerTurn }>("turn/start", params);
     this.rememberTurn(params.threadId, response.turn);
     return response.turn;
-  }
-
-  async steerTurn(params: AppServerTurnSteerParams) {
-    const response = await this.request<{ turnId: string }>("turn/steer", params);
-    return response.turnId;
   }
 
   async interruptTurn(params: AppServerTurnInterruptParams) {
@@ -483,21 +405,9 @@ export class CodexAppServerClient {
 
   async archiveThread(params: AppServerThreadArchiveParams) {
     await this.request("thread/archive", params);
-    this.forgetThread(params.threadId);
-  }
-
-  async unarchiveThread(params: AppServerThreadArchiveParams) {
-    const response = await this.request<{ thread: AppServerThread }>("thread/unarchive", params);
-    return response.thread;
-  }
-
-  async deleteThread(params: AppServerThreadArchiveParams) {
-    await this.request("thread/delete", params);
-    this.forgetThread(params.threadId);
-  }
-
-  async compactThread(params: AppServerThreadArchiveParams) {
-    await this.request("thread/compact/start", params);
+    this.subscribedThreadIds.delete(params.threadId);
+    this.activeTurnIdsByThreadId.delete(params.threadId);
+    this.terminalTurnIdsByThreadId.delete(params.threadId);
   }
 
   async setThreadName(params: AppServerThreadNameSetParams) {
@@ -542,28 +452,11 @@ export class CodexAppServerClient {
   }
 
   async respondToRequest(id: number | string, result: unknown) {
-    const hasPermissionRequest = this.permissionRequestsById.has(id);
-    const requestedPermissions = this.permissionRequestsById.get(id);
-    try {
-      await this.writeJson({
-        id,
-        result: hasPermissionRequest
-          ? normalizePermissionsApprovalResponse(requestedPermissions, result)
-          : result,
-      });
-    } finally {
-      if (hasPermissionRequest) {
-        this.permissionRequestsById.delete(id);
-      }
-    }
+    await this.writeJson({ id, result });
   }
 
   async rejectRequest(id: number | string, code: number, message: string) {
-    try {
-      await this.writeJson({ id, error: { code, message } });
-    } finally {
-      this.permissionRequestsById.delete(id);
-    }
+    await this.writeJson({ id, error: { code, message } });
   }
 
   close() {
@@ -575,7 +468,6 @@ export class CodexAppServerClient {
       pending.reject(new Error("Codex app-server was closed."));
     }
     this.pending.clear();
-    this.permissionRequestsById.clear();
     this.stopStdioCodexAppServer();
     this.stopSharedCodexAppServer();
     this.initialized = undefined;
@@ -729,12 +621,6 @@ export class CodexAppServerClient {
     } else if (this.activeTurnIdsByThreadId.get(threadId) === turn.id) {
       this.activeTurnIdsByThreadId.delete(threadId);
     }
-  }
-
-  private forgetThread(threadId: string) {
-    this.subscribedThreadIds.delete(threadId);
-    this.activeTurnIdsByThreadId.delete(threadId);
-    this.terminalTurnIdsByThreadId.delete(threadId);
   }
 
   private dispatchNotification(notification: AppServerNotification) {
@@ -1026,13 +912,6 @@ export class CodexAppServerClient {
       (typeof message.id === "number" || typeof message.id === "string")
     ) {
       debugAppServer("server-request", message.method, message.id);
-      if (message.method === "item/permissions/requestApproval") {
-        const params =
-          message.params && typeof message.params === "object"
-            ? (message.params as Record<string, unknown>)
-            : undefined;
-        this.permissionRequestsById.set(message.id, params?.permissions);
-      }
       const request = { id: message.id, method: message.method, params: message.params };
       if (this.requestHandlers.size === 0) {
         void this.rejectRequest(request.id, -32601, `No handler for ${request.method}.`);
@@ -1195,37 +1074,6 @@ function isAppServerTurnInProgress(turn: AppServerTurn) {
         : "";
   return ["active", "inprogress", "running"].includes(
     status.toLowerCase().replace(/[^a-z0-9]/g, ""),
-  );
-}
-
-function isUnsupportedAppServerMethodError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /method not found|unsupported|-32601/i.test(message);
-}
-
-function normalizePermissionsApprovalResponse(requestedPermissions: unknown, result: unknown) {
-  if (!result || typeof result !== "object" || Array.isArray(result)) {
-    return result;
-  }
-  const response = result as Record<string, unknown>;
-  if (typeof response.strictAutoReview !== "boolean") {
-    return result;
-  }
-  const { strictAutoReview, ...normalized } = response;
-  return {
-    ...normalized,
-    permissions: strictAutoReview ? {} : grantedPermissionsFromRequest(requestedPermissions),
-  };
-}
-
-function grantedPermissionsFromRequest(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).filter(
-      ([, permission]) => permission !== null && permission !== undefined,
-    ),
   );
 }
 

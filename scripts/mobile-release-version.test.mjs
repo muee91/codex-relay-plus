@@ -76,7 +76,7 @@ test("keeps the npm release when preparing a mixed mobile changeset", () => {
   ]);
 });
 
-test("keeps npm release automation separate from mobile package versioning", () => {
+test("defines independent npm and mobile version commands", () => {
   const releaseConfig = JSON.parse(
     readFileSync(new URL("../.changeset/config.json", import.meta.url), "utf8"),
   );
@@ -98,17 +98,22 @@ test("keeps npm release automation separate from mobile package versioning", () 
     "node scripts/version-packages.mjs mobile",
   );
   assert.match(releaseWorkflow, /changeset-release\/npm-main/);
-  assert.doesNotMatch(releaseWorkflow, /changeset-release\/mobile-main/);
+  assert.match(releaseWorkflow, /changeset-release\/mobile-main/);
   assert.doesNotMatch(releaseWorkflow, /changesets\/action/);
 });
 
-test("does not prepare mobile OTA releases", () => {
+test("waits for the relay package release before preparing the mobile OTA", () => {
   const releaseWorkflow = readFileSync(
     new URL("../.github/workflows/release.yml", import.meta.url),
     "utf8",
   );
 
-  assert.doesNotMatch(releaseWorkflow, /mobile-release-plan/);
-  assert.doesNotMatch(releaseWorkflow, /changeset-release\/mobile-main/);
-  assert.doesNotMatch(releaseWorkflow, /mobile OTA/i);
+  assert.match(
+    releaseWorkflow,
+    /if: steps\.mobile-release-plan\.outputs\.deploy == 'true' && steps\.mobile-release-plan\.outputs\.relay-package-version == ''/,
+  );
+  assert.match(
+    releaseWorkflow,
+    /if \(process\.env\.MOBILE_RELEASE_VERSION && !process\.env\.RELAY_RELEASE_VERSION\)/,
+  );
 });
