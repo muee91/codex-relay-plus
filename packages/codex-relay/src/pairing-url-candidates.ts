@@ -27,20 +27,28 @@ export type TailscaleSnapshot = {
   status?: TailscaleStatus;
 };
 
+export type TailcatSnapshot = {
+  address?: string;
+  checkedAt: number;
+  configured: boolean;
+  port?: number;
+  ready: boolean;
+};
+
 export function getConnectUrlGuidance(url: string) {
   const host = parseUrlHost(url);
   if (!host) return undefined;
   if (isLocalhost(host) || isUnspecifiedHost(host)) {
     return (
       "This address is only reachable from this computer. " +
-      "Use a same-Wi-Fi address or a verified remote path for mobile pairing."
+      "Use a same-Wi-Fi address or the built-in Tailcat remote path for mobile pairing."
     );
   }
   if (isTailscaleHost(host)) {
     return "This is a legacy Tailscale address. New mobile pairings use Tailcat for remote connectivity.";
   }
   if (isPrivateIPv4Host(host) || isLocalIPv6Host(host) || host.endsWith(".local")) {
-    return "Using a local Wi-Fi/LAN address. Keep the phone and computer on the same network.";
+    return "Using a local Wi-Fi/LAN address. Tailcat is used automatically when the phone leaves the LAN.";
   }
   return "Using a configured or public address. Make sure the phone can reach it before pairing.";
 }
@@ -50,9 +58,7 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
   if (!primaryServerUrl) throw new Error("Pairing QR requires at least one server URL.");
 
   const tailcat = tailcatBootstrapCandidate();
-  const candidateUrls = tailcat
-    ? [...details.serverUrls, tailcat.candidateUrl]
-    : details.serverUrls;
+  const candidateUrls = tailcat ? [...details.serverUrls, tailcat.candidateUrl] : details.serverUrls;
 
   const url = new URL("codex-relay://pair");
   url.searchParams.set("serverUrl", primaryServerUrl);
@@ -83,6 +89,20 @@ export function getConnectUrlCandidates(
     prioritizeConnectUrlCandidates(candidates),
     options.mode ?? "auto",
   );
+}
+
+export function getTailcatSnapshot(): TailcatSnapshot {
+  const candidate = tailcatBootstrapCandidate();
+  return {
+    address: candidate?.address,
+    checkedAt: Date.now(),
+    configured: Boolean(
+      process.env.CODEX_RELAY_TAILCAT_ADDR?.trim() ||
+        process.env.CODEX_RELAY_TAILCAT_STATUS_FILE?.trim(),
+    ),
+    port: candidate?.port,
+    ready: Boolean(candidate),
+  };
 }
 
 export function prioritizeConnectUrlCandidates(candidates: ConnectUrlCandidate[]) {
