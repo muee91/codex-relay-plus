@@ -22,11 +22,11 @@ type CodexRelayTransportNativeModule = {
   tailcatStatus(): Promise<string>;
 };
 
-// Accessing NativeModules here eagerly instantiates the Android module. Its
-// constructor restores the fixed-port proxy from native SharedPreferences, so
-// a previously selected remote route is available before normal API traffic.
+// Accessing NativeModules here eagerly instantiates the mobile bridge. Both the
+// Android and iOS implementations restore the fixed-port proxy from native
+// storage so a previously selected remote route is available before API traffic.
 const nativeTransport =
-  Platform.OS === "android"
+  Platform.OS === "android" || Platform.OS === "ios"
     ? (NativeModules.CodexRelayTransport as CodexRelayTransportNativeModule | undefined)
     : undefined;
 
