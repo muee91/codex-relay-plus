@@ -7,18 +7,17 @@ import {
 } from "../src/tailscale-serve.js";
 
 describe("parseTailscaleServePreviewUrl", () => {
-  it("keeps legacy URLs parseable for deterministic upgrade errors", () => {
+  it("keeps legacy Tailscale URLs parseable for deterministic upgrade errors", () => {
     expect(parseTailscaleServePreviewUrl("http://100.103.76.81:3000/")).toEqual({
       port: 3000,
       sourceUrl: "http://100.103.76.81:3000/",
     });
   });
 
-  it("accepts ordinary HTTP preview URLs because no Tailscale command is executed", () => {
-    expect(parseTailscaleServePreviewUrl("http://192.168.1.4:3000")).toEqual({
-      port: 3000,
-      sourceUrl: "http://192.168.1.4:3000/",
-    });
+  it("rejects ordinary LAN preview URLs instead of treating them as Tailscale", () => {
+    expect(() => parseTailscaleServePreviewUrl("http://192.168.1.4:3000")).toThrow(
+      "Preview URL host must be a legacy Tailscale address.",
+    );
   });
 
   it("rejects a preview URL without an explicit port", () => {
