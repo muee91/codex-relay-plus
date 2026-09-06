@@ -42,6 +42,7 @@ export function ChatShell({
   inputNativeID,
   isAttachingImage,
   isLoadingMessages,
+  messageLoadError,
   isRunning,
   leadingAction,
   messages,
@@ -57,6 +58,7 @@ export function ChatShell({
   onRefreshUsageStatus,
   onSubmitInputRequest,
   onRemoveQueuedPrompt,
+  onRetryLoadMessages,
   onRestoreQueuedPrompt,
   onSend,
   onSteerQueuedPrompt,
@@ -87,6 +89,7 @@ export function ChatShell({
   inputNativeID: string;
   isAttachingImage: boolean;
   isLoadingMessages?: boolean;
+  messageLoadError?: string;
   isRunning: boolean;
   leadingAction: ChatShellAction;
   messages: ChatMessage[];
@@ -102,6 +105,7 @@ export function ChatShell({
   onRefreshUsageStatus?: () => Promise<void> | void;
   onSubmitInputRequest?: (request: PendingInputRequest, answers: string[]) => void;
   onRemoveQueuedPrompt?: (item: QueuedComposerPrompt) => void;
+  onRetryLoadMessages?: () => void;
   onRestoreQueuedPrompt?: (item: QueuedComposerPrompt) => void;
   onSend: () => void;
   onSteerQueuedPrompt?: (item: QueuedComposerPrompt) => void;
@@ -172,9 +176,11 @@ export function ChatShell({
                 isRunning={isRunning}
                 keyboardLayoutFrozen={isKeyboardLayoutFrozen}
                 messages={visibleMessages}
+                error={messageLoadError}
                 onMessageCopied={onMessageCopied}
                 onMessageRewind={onMessageRewind}
                 onOpenMarkdownAttachment={onOpenMarkdownAttachment}
+                onRetry={onRetryLoadMessages}
                 onKeyboardDismissRequest={handleTimelineKeyboardDismissRequest}
                 bottomAccessoryHeight={queuedPromptPanelHeight}
                 threadId={threadId}

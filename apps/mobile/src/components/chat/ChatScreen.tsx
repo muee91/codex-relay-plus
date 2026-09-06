@@ -455,6 +455,12 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     queryFn: ({ queryKey }) => fetchThreadQueryState(queryClient, String(queryKey[3] ?? "")),
     enabled: Boolean(activeThreadId),
   });
+  useEffect(() => {
+    if (!activeThreadId || !activeThreadDetailQuery.isError) {
+      return;
+    }
+    setConnection("offline", errorMessage(activeThreadDetailQuery.error));
+  }, [activeThreadDetailQuery.error, activeThreadDetailQuery.isError, activeThreadId]);
   const queuedInputsQuery = useQuery({
     queryKey: activeThreadId
       ? serverStateKeys.queuedInputs(activeThreadId)
@@ -523,12 +529,30 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     [activeThreadId],
   );
   const messages = activeThreadDetailQuery.data?.messages ?? [];
+  const threadDetailError =
+    activeThreadDetailQuery.isError && !activeThreadDetailQuery.data
+      ? errorMessage(activeThreadDetailQuery.error)
+      : undefined;
+  const retryActiveThread = useCallback(() => {
+    if (!activeThreadId) {
+      return;
+    }
+    setConnection("checking");
+    void fetchThreadState(queryClient, activeThreadId)
+      .then(() => {
+        setConnection("connected");
+      })
+      .catch((caught) => {
+        setConnection("offline", errorMessage(caught));
+      });
+  }, [activeThreadId, queryClient]);
   const isLoadingSelectedThreadMessages = activeThreadId
     ? threadMessagesLoadingByThreadId[activeThreadId] === true
     : false;
   const isLoadingMessages =
     !!activeThreadId &&
     !activeThreadDetailQuery.data &&
+    !activeThreadDetailQuery.isError &&
     !isRunningAppThread &&
     (isLoadingSelectedThreadMessages || (activeThread?.messageCount ?? 0) > 0);
   const contextWindowUsage = contextWindowQuery.data?.usage ?? undefined;
@@ -2289,6 +2313,8 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       inputNativeID={CHAT_INPUT_NATIVE_ID}
       isAttachingImage={isAttachingImages}
       isLoadingMessages={isLoadingMessages}
+      onRetryLoadMessages={retryActiveThread}
+      messageLoadError={threadDetailError}
       isRunning={isRunning}
       leadingAction={{
         icon: usesExpandedSidebar ? (isSidebarVisible ? "sidebarHide" : "sidebarShow") : "menu",

@@ -22,6 +22,8 @@ const mobileToServerKeyStorageKey = "mobile-to-server-key";
 const serverToMobileKeyStorageKey = "server-to-mobile-key";
 const nextMobileCounterStorageKey = "next-mobile-counter";
 const lastServerCounterStorageKey = "last-server-counter";
+const receivedServerCountersStorageKey = "received-server-counters";
+const maxRememberedServerCounters = 256;
 
 export type SecurePairingAttempt = {
   approvalCode?: string;
@@ -37,6 +39,7 @@ type SecureSession = {
   lastServerCounter: number;
   mobileToServerKey: Uint8Array;
   nextMobileCounter: number;
+  receivedServerCounters: number[];
   serverToMobileKey: Uint8Array;
 };
 
@@ -126,7 +129,7 @@ export function decryptResponsePayload(payload: unknown) {
   if (
     envelope.data.sender !== "server" ||
     envelope.data.keyEpoch !== session.keyEpoch ||
-    envelope.data.counter <= session.lastServerCounter
+    session.receivedServerCounters.includes(envelope.data.counter)
   ) {
     throw new Error("Server returned an invalid encrypted payload.");
   }
@@ -137,7 +140,11 @@ export function decryptResponsePayload(payload: unknown) {
     envelope.data.counter,
     envelope.data.ciphertext,
   );
-  session.lastServerCounter = envelope.data.counter;
+  session.lastServerCounter = Math.max(session.lastServerCounter, envelope.data.counter);
+  session.receivedServerCounters = rememberServerCounter(
+    session.receivedServerCounters,
+    envelope.data.counter,
+  );
   saveSecureSession(session);
   return JSON.parse(decrypted);
 }
@@ -164,6 +171,7 @@ function deriveSession(
       32,
     ),
     nextMobileCounter: 0,
+    receivedServerCounters: [],
     serverToMobileKey: hkdf(
       sha256,
       sharedSecret,
@@ -239,6 +247,10 @@ function saveSecureSession(session: SecureSession) {
   storage.set(serverToMobileKeyStorageKey, bytesToBase64(session.serverToMobileKey));
   storage.set(nextMobileCounterStorageKey, session.nextMobileCounter);
   storage.set(lastServerCounterStorageKey, session.lastServerCounter);
+  storage.set(
+    receivedServerCountersStorageKey,
+    JSON.stringify(session.receivedServerCounters.slice(-maxRememberedServerCounters)),
+  );
 }
 
 function readSecureSession() {
@@ -254,8 +266,30 @@ function readSecureSession() {
     lastServerCounter: storage.getNumber(lastServerCounterStorageKey) ?? 0,
     mobileToServerKey: base64ToBytes(mobileToServerKey),
     nextMobileCounter: storage.getNumber(nextMobileCounterStorageKey) ?? 0,
+    receivedServerCounters: readReceivedServerCounters(),
     serverToMobileKey: base64ToBytes(serverToMobileKey),
   };
+}
+
+function readReceivedServerCounters() {
+  const raw = storage.getString(receivedServerCountersStorageKey);
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed
+          .filter((counter): counter is number => Number.isInteger(counter) && counter >= 0)
+          .slice(-maxRememberedServerCounters)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberServerCounter(counters: number[], counter: number) {
+  return [...counters, counter].slice(-maxRememberedServerCounters);
 }
 
 function bytesToBase64(bytes: Uint8Array) {

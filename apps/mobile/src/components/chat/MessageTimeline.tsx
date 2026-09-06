@@ -20,6 +20,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Colors, Spacing } from "@/constants/theme";
 import { hapticSelection } from "@/lib/haptics";
@@ -57,6 +58,8 @@ export function MessageTimeline({
   isRunning,
   keyboardLayoutFrozen = false,
   messages,
+  onRetry,
+  error,
   onKeyboardDismissRequest,
   onMessageCopied,
   onMessageRewind,
@@ -68,6 +71,8 @@ export function MessageTimeline({
   isRunning: boolean;
   keyboardLayoutFrozen?: boolean;
   messages: ChatMessage[];
+  onRetry?: () => void;
+  error?: string;
   onKeyboardDismissRequest?: () => void;
   onMessageCopied?: () => void;
   onMessageRewind?: (message: ChatMessage) => void;
@@ -174,7 +179,29 @@ export function MessageTimeline({
   return (
     <View onTouchStart={onKeyboardDismissRequest} style={styles.transitionHost}>
       {!isLoading ? (
-        rows.length === 0 && !isRunning ? (
+        error ? (
+          <Animated.View style={[styles.transitionScene, timelineContentStyle]}>
+            <View style={styles.empty} accessibilityRole="alert">
+              <ThemedText type="smallBold" themeColor="textSecondary" style={styles.errorTitle}>
+                Unable to load this conversation.
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.errorText}>
+                {error}
+              </ThemedText>
+              {onRetry ? (
+                <Button
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry loading conversation"
+                  onPress={onRetry}
+                  size="sm"
+                  variant="secondary"
+                >
+                  <ThemedText type="smallBold">Retry</ThemedText>
+                </Button>
+              ) : null}
+            </View>
+          </Animated.View>
+        ) : rows.length === 0 && !isRunning ? (
           <Animated.View style={[styles.transitionScene, timelineContentStyle]}>
             <View style={styles.empty}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
@@ -276,6 +303,14 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     maxWidth: 260,
+    textAlign: "center",
+  },
+  errorText: {
+    maxWidth: 320,
+    textAlign: "center",
+  },
+  errorTitle: {
+    maxWidth: 320,
     textAlign: "center",
   },
   list: {
