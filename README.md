@@ -5,7 +5,11 @@
 </p>
 
 <p align="center">
-  <strong>让 Codex 运行在你的电脑上，用手机在局域网或远程控制。<br />Run Codex on your computer. Control it from your phone — on LAN or remotely.</strong>
+  <strong>Run Codex on your computer. Control it from your phone — on LAN or remotely.</strong>
+</p>
+
+<p align="center">
+  English | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
 <p align="center">
@@ -16,23 +20,10 @@
 </p>
 
 > [!IMPORTANT]
-> **当前版本尚未上架任何应用市场，包括 Apple App Store 和 Google Play。**
-> 本仓库中的项目状态、构建产物和说明以 GitHub 当前版本为准。
->
 > **This version is not currently published in any app marketplace, including the Apple App Store or Google Play.**
 > Treat the current GitHub repository, its build artifacts, and its documentation as the source of truth.
 
-## 项目介绍 / Project Introduction
-
-### 中文
-
-Codex Relay 是 Codex CLI 的本地优先远程伴侣。Relay 运行在你的工作区中，让你可以通过手机查看 Codex 的实时输出、发送提示词、继续会话、处理审批和输入请求，并查看工作区状态；代码、Shell、Git 状态和 Codex 会话本身仍保留在你的电脑上。
-
-独立运行的 Relay 使用电脑已有的网络路径。macOS 上的 Codex Relay Plus 额外提供桌面 Host，并内置 Tailcat，用于加密远程连接；不需要账号、tailnet、公网 IP 或路由器端口转发。在 **Auto** 模式下，移动端会优先使用已验证的局域网路径，在需要时回退到 Tailcat。
-
-Codex Relay 是独立项目，与 OpenAI 或 OpenAI Codex 团队不存在隶属、背书或赞助关系。
-
-### English
+## Project Introduction
 
 Codex Relay is a local-first remote companion for the Codex CLI. It runs a
 relay inside your workspace so you can follow live output, send prompts,
