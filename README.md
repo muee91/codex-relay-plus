@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Use Codex from your phone while the real work stays on your computer.</strong>
+  <strong>Run Codex on your computer. Control it from your phone — on LAN or remotely.</strong>
 </p>
 
 <p align="center">
@@ -26,16 +26,20 @@
   <img alt="Local first" src="https://img.shields.io/badge/local--first-yes-111111?style=flat-square">
 </p>
 
-Codex Relay is a mobile companion for the Codex CLI. It runs a local relay
-server in your workspace, pairs with the mobile app over your own network, and
-lets you follow or steer Codex sessions from your phone.
+Codex Relay is a local-first remote companion for the Codex CLI. It runs a
+relay inside your workspace so you can follow live output, send prompts,
+continue threads, handle approvals and input requests, and inspect workspace
+state from your phone while your code, shell, git state, and Codex session stay
+on the computer.
+
+The standalone relay uses whatever network path your computer already has.
+Codex Relay Plus on macOS adds a desktop host with bundled Tailcat for encrypted
+remote connectivity — no account, tailnet, public IP, or router port forwarding.
+In **Auto** mode, the mobile app prefers a verified LAN route and falls back to
+Tailcat when needed.
 
 Codex Relay is an independent project. It is not affiliated with, endorsed by,
 or sponsored by OpenAI or the OpenAI Codex team.
-
-The project is intentionally local-first. Your code, shell, git state, and
-Codex CLI session stay on your computer; the phone talks to the relay that you
-run.
 
 <p align="center">
   <img src="./docs/readme-assets/demo.gif" alt="Codex Relay mobile demo" width="60%" />
