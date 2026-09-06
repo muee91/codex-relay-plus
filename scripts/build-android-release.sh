@@ -11,11 +11,18 @@ APK_PATH="$ARTIFACT_DIR/$APK_NAME"
 ANDROID_DIR="$ROOT_DIR/apps/mobile/android"
 APK_SOURCE="$ANDROID_DIR/app/build/outputs/apk/release/app-release.apk"
 
-if [[ -z "${JAVA_HOME:-}" ]]; then
-  HOMEBREW_JAVA17="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
-  if [[ -x "$HOMEBREW_JAVA17/bin/java" ]]; then
-    export JAVA_HOME="$HOMEBREW_JAVA17"
-  fi
+# The Android client is shipped in Simplified Chinese. Keep this explicit at
+# the build boundary so Expo prebuild and Metro use the same locale and the
+# app cannot silently fall back to the English source strings.
+export CODEX_RELAY_LOCALE="${CODEX_RELAY_LOCALE:-zh-CN}"
+export CODEX_RELAY_PLATFORM="${CODEX_RELAY_PLATFORM:-android}"
+GRADLE_JVM_ARGS="${CODEX_RELAY_GRADLE_JVMARGS:--Xmx8g -XX:MaxMetaspaceSize=1g}"
+
+HOMEBREW_JAVA17="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+if [[ -x "$HOMEBREW_JAVA17/bin/java" ]]; then
+  # Android SDK 36's JDK image transform is incompatible with the installed
+  # Temurin 26 jlink. Prefer the known-good Homebrew JDK 17 for this build.
+  export JAVA_HOME="$HOMEBREW_JAVA17"
 fi
 
 if [[ -n "${JAVA_HOME:-}" && ! -x "$JAVA_HOME/bin/java" ]]; then
@@ -31,7 +38,11 @@ CI=true pnpm install --frozen-lockfile
 
 (
   cd "$ANDROID_DIR"
-  ./gradlew :app:assembleRelease
+  if [[ -n "${JAVA_HOME:-}" ]]; then
+    ./gradlew -Dorg.gradle.java.home="$JAVA_HOME" -Dorg.gradle.jvmargs="$GRADLE_JVM_ARGS" :app:assembleRelease --rerun-tasks
+  else
+    ./gradlew -Dorg.gradle.jvmargs="$GRADLE_JVM_ARGS" :app:assembleRelease --rerun-tasks
+  fi
 )
 
 if [[ ! -f "$APK_SOURCE" ]]; then
