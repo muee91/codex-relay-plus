@@ -42,6 +42,7 @@ export const threadRunStreamEventTypes: StreamThreadRunEvent["type"][] = [
   "thread.preview_target.detected",
   "thread.input_request.created",
   "thread.input_request.resolved",
+  "thread.stream.replay_unavailable",
 ];
 
 export function createThreadRunSseDispatcher(

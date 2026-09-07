@@ -136,6 +136,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class CodexRelayTransportModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   private val executor = Executors.newSingleThreadExecutor()
   private val preferences = context.getSharedPreferences("codex-relay-tailcat", Context.MODE_PRIVATE)
+  private val fixedRelayRemotePort = 8787L
 
   init {
     // NativeModules access is synchronous. Restore the fixed listener before JS
@@ -144,6 +145,17 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
   }
 
   override fun getName() = "CodexRelayTransport"
+
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun getPersistedRelayProxyConfig(): String {
+    val serverAddr = preferences.getString("serverAddr", null) ?: return ""
+    val remotePort = preferences.getLong("remotePort", 0L)
+    if (remotePort !in 1L..65535L) return ""
+    return org.json.JSONObject()
+      .put("serverAddr", serverAddr)
+      .put("remotePort", fixedRelayRemotePort)
+      .toString()
+  }
 
   @ReactMethod
   fun configureRelayProxy(serverAddr: String, remotePort: Double, lanTargetsJson: String, mode: String, promise: Promise) {
@@ -256,10 +268,10 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
   }
 
   private fun configureAndPersist(serverAddr: String, remotePort: Long, lanTargetsJson: String, mode: String): String {
-    val localUrl = configureProxy(serverAddr, remotePort, lanTargetsJson, mode)
+    val localUrl = configureProxy(serverAddr, fixedRelayRemotePort, lanTargetsJson, mode)
     val persisted = preferences.edit()
       .putString("serverAddr", serverAddr)
-      .putLong("remotePort", remotePort)
+      .putLong("remotePort", fixedRelayRemotePort)
       .putString("lanTargetsJson", lanTargetsJson)
       .putString("mode", mode)
       .commit()
@@ -276,12 +288,20 @@ class CodexRelayTransportModule(private val context: ReactApplicationContext) : 
 
   private fun restoreProxyIfConfigured() {
     val serverAddr = preferences.getString("serverAddr", null) ?: return
-    val remotePort = preferences.getLong("remotePort", 0L)
-    if (remotePort !in 1L..65535L) return
-    val lanTargetsJson = preferences.getString("lanTargetsJson", "[]") ?: "[]"
+    val persistedRemotePort = preferences.getLong("remotePort", 0L)
+    if (persistedRemotePort !in 1L..65535L) return
     val mode = preferences.getString("mode", "auto") ?: "auto"
+    if (mode == "local") return
     try {
-      configureProxy(serverAddr, remotePort, lanTargetsJson, mode)
+      // LAN targets may contain an address and port from a previous network.
+      // Restore Tailcat immediately; JS reconciliation can add verified LAN
+      // targets after the current network has been discovered.
+      configureProxy(serverAddr, fixedRelayRemotePort, "[]", "remote")
+      preferences.edit()
+        .putLong("remotePort", fixedRelayRemotePort)
+        .putString("lanTargetsJson", "[]")
+        .putString("mode", "remote")
+        .commit()
     } catch (_: Throwable) {
       // JS reconciliation retries configuration with current discovery data.
     }

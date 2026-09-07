@@ -185,6 +185,8 @@ const defaultCodexModel = "gpt-5.5";
 const execFileAsync = promisify(execFile);
 const IMAGE_ATTACHMENT_MAX_BYTES = 8 * 1024 * 1024;
 const WORKSPACE_FILE_PREVIEW_MAX_BYTES = 256 * 1024;
+const RUNNING_ROLLOUT_HISTORY_MAX_BYTES = 4 * 1024 * 1024;
+const PAGINATED_ROLLOUT_HISTORY_MAX_MESSAGES = 256;
 const LOCAL_MARKDOWN_IMAGE_PATTERN = /!\[([^\]]*)\]\(([^)]*)\)/g;
 const LOCAL_IMAGE_REFERENCE_PATTERN = /\.(gif|heic|heif|jpe?g|png|webp)$/i;
 const imageAttachmentDirectory = codexRelayDataPath("attachments/images");
@@ -320,6 +322,28 @@ type WorkspaceTerminalSession = {
 
 const maxWorkspaceTerminalOutputChunks = 2000;
 
+const maxThreadStreamEventCacheSize = 256;
+
+type ThreadStreamEventRecord = {
+  event: StreamThreadRunEvent;
+  sequence: number;
+};
+
+type ThreadStreamEventCache = {
+  events: ThreadStreamEventRecord[];
+  nextSequence: number;
+};
+
+type ThreadStreamSseContext = {
+  eventCaches: Map<string, ThreadStreamEventCache>;
+  threadId: string;
+};
+
+const threadStreamSseContextsByController = new WeakMap<
+  ReadableStreamDefaultController<Uint8Array>,
+  ThreadStreamSseContext
+>();
+
 export function createApp(options: AppOptions = {}) {
   const app = new Hono();
   const appServer =
@@ -352,6 +376,22 @@ export function createApp(options: AppOptions = {}) {
     ReadableStreamDefaultController<Uint8Array>,
     () => void
   >();
+  const closeThreadStreamControllers = (threadId: string) => {
+    for (const [controller, closeStream] of activeStreamControllers) {
+      if (threadStreamSseContextsByController.get(controller)?.threadId === threadId) {
+        closeStream();
+      }
+    }
+  };
+  const threadStreamEventCaches = new Map<string, ThreadStreamEventCache>();
+  const pruneThreadStreamEventCaches = (activeThreadIds: Iterable<string>) => {
+    const activeIds = new Set(activeThreadIds);
+    for (const threadId of threadStreamEventCaches.keys()) {
+      if (!activeIds.has(threadId)) {
+        threadStreamEventCaches.delete(threadId);
+      }
+    }
+  };
   const threadOptions = { threadSource: "codex-relay", workingDirectory: workspacePath };
   const advanceAppServerHistoryGeneration = (threadId: string) => {
     appServerHistoryGenerationsByThreadId.set(
@@ -1744,10 +1784,14 @@ export function createApp(options: AppOptions = {}) {
     if (appServer) {
       try {
         const appServerThreads = await appServer.listThreads();
+        const visibleAppServerThreads = appServerThreads.filter(
+          (thread) => !isSubagentThread(thread),
+        );
+        pruneThreadStreamEventCaches(visibleAppServerThreads.map((thread) => thread.id));
         const response: ListThreadsResponse = ListThreadsResponseSchema.parse({
-          threads: appServerThreads
-            .filter((thread) => !isSubagentThread(thread))
-            .map((thread) => rememberAppServerThread(threads, thread)),
+          threads: visibleAppServerThreads.map((thread) =>
+            rememberAppServerThread(threads, thread),
+          ),
           source: "app-server",
         });
         return secureJson(c, options.pairing, secureSessionsByTokenHash, response);
@@ -1769,6 +1813,8 @@ export function createApp(options: AppOptions = {}) {
     if (appServer) {
       try {
         await appServer.archiveThread({ threadId });
+        closeThreadStreamControllers(threadId);
+        threadStreamEventCaches.delete(threadId);
         threads.delete(threadId);
         messagesByThreadId.delete(threadId);
         activeAppServerTurnIdsByThreadId.delete(threadId);
@@ -1776,11 +1822,15 @@ export function createApp(options: AppOptions = {}) {
         steeringThreads.delete(threadId);
 
         const appServerThreads = await appServer.listThreads();
+        const visibleAppServerThreads = appServerThreads.filter(
+          (thread) => !isSubagentThread(thread),
+        );
+        pruneThreadStreamEventCaches(visibleAppServerThreads.map((thread) => thread.id));
         const response: ArchiveThreadResponse = ArchiveThreadResponseSchema.parse({
           archivedThreadId: threadId,
-          threads: appServerThreads
-            .filter((thread) => !isSubagentThread(thread))
-            .map((thread) => rememberAppServerThread(threads, thread)),
+          threads: visibleAppServerThreads.map((thread) =>
+            rememberAppServerThread(threads, thread),
+          ),
           source: "app-server",
         });
         return secureJson(c, options.pairing, secureSessionsByTokenHash, response);
@@ -1809,6 +1859,8 @@ export function createApp(options: AppOptions = {}) {
 
     threads.delete(threadId);
     liveThreads.delete(threadId);
+    closeThreadStreamControllers(threadId);
+    threadStreamEventCaches.delete(threadId);
     messagesByThreadId.delete(threadId);
     queuedInputsByThreadId.delete(threadId);
     steeringThreads.delete(threadId);
@@ -2042,6 +2094,137 @@ export function createApp(options: AppOptions = {}) {
     }
     const wasKnownRunning =
       knownThread?.state === "running" || activeAppServerTurnIdsByThreadId.has(threadId);
+    if (appServer && forceRefresh && !knownThread) {
+      const rolloutHistory = readRolloutThreadMessages(threadId, workspacePath, undefined, {
+        allowPaginated: true,
+        maxBytes: RUNNING_ROLLOUT_HISTORY_MAX_BYTES,
+        maxMessages: PAGINATED_ROLLOUT_HISTORY_MAX_MESSAGES,
+      });
+      if (rolloutHistory.rolloutPath && rolloutHistory.messages.length > 0) {
+        const cachedMessages = messagesByThreadId.get(threadId) ?? [];
+        const messages = mergeRolloutThreadMessagePages(rolloutHistory.messages, cachedMessages);
+        const responseThread = rememberRolloutThreadMessages(
+          threads,
+          rolloutThreadMetadata(threadId, workspacePath, rolloutHistory.rolloutPath, messages),
+          messages,
+          rolloutHistory.messageCountLowerBound,
+        );
+        appServerRolloutPathsByThreadId.set(threadId, rolloutHistory.rolloutPath);
+        messagesByThreadId.set(threadId, messages);
+        scheduleAppServerHistoryLoad(threadId, messages);
+        const response = threadDetailResponse({
+          thread: responseThread,
+          messages,
+          pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
+        });
+        relayDebugLog("thread.detail.responded", {
+          durationMs: Date.now() - detailStartedAt,
+          fastPath: "refresh-rollout-tail-unknown-thread",
+          loadedMessages: true,
+          messageCount: messages.length,
+          state: responseThread.state,
+          threadId,
+        });
+        return secureJson(c, options.pairing, secureSessionsByTokenHash, response);
+      }
+    }
+    if (appServer && knownThread && forceRefresh && !wasKnownRunning) {
+      const cachedMessages = messagesByThreadId.get(threadId) ?? [];
+      const rolloutHistory = readRolloutThreadMessages(
+        threadId,
+        knownThread.cwd ?? workspacePath,
+        appServerRolloutPathsByThreadId.get(threadId),
+        {
+          allowPaginated: true,
+          maxBytes: RUNNING_ROLLOUT_HISTORY_MAX_BYTES,
+          maxMessages: PAGINATED_ROLLOUT_HISTORY_MAX_MESSAGES,
+        },
+      );
+      if (rolloutHistory.rolloutPath) {
+        appServerRolloutPathsByThreadId.set(threadId, rolloutHistory.rolloutPath);
+      }
+      if (rolloutHistory.messages.length > 0) {
+        const messages = mergeRolloutThreadMessagePages(rolloutHistory.messages, cachedMessages);
+        let responseThread = rememberRolloutThreadMessages(
+          threads,
+          knownThread,
+          messages,
+          rolloutHistory.messageCountLowerBound,
+        );
+        responseThread = preserveKnownRunningThreadState(responseThread, wasKnownRunning);
+        messagesByThreadId.set(threadId, messages);
+        scheduleAppServerHistoryLoad(threadId, messages);
+        const response = threadDetailResponse({
+          thread: responseThread,
+          messages,
+          pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
+        });
+        relayDebugLog("thread.detail.responded", {
+          durationMs: Date.now() - detailStartedAt,
+          fastPath: "refresh-rollout-tail",
+          loadedMessages: true,
+          messageCount: messages.length,
+          state: responseThread.state,
+          threadId,
+        });
+        return secureJson(c, options.pairing, secureSessionsByTokenHash, response);
+      }
+    }
+    if (appServer && knownThread && wasKnownRunning) {
+      const cachedMessages = messagesByThreadId.get(threadId) ?? [];
+      const rolloutHistory = readRolloutThreadMessages(
+        threadId,
+        knownThread.cwd ?? workspacePath,
+        undefined,
+        {
+          allowPaginated: true,
+          maxBytes: RUNNING_ROLLOUT_HISTORY_MAX_BYTES,
+          maxMessages: PAGINATED_ROLLOUT_HISTORY_MAX_MESSAGES,
+        },
+      );
+      let messages = cachedMessages;
+      let responseThread = preserveKnownRunningThreadState(knownThread, true);
+      let loadedMessages = false;
+
+      if (rolloutHistory.rolloutPath) {
+        appServerRolloutPathsByThreadId.set(threadId, rolloutHistory.rolloutPath);
+      }
+      if (rolloutHistory.messages.length > 0) {
+        messages = mergeRolloutThreadMessagePages(rolloutHistory.messages, cachedMessages);
+        responseThread = rememberRolloutThreadMessages(
+          threads,
+          responseThread,
+          messages,
+          rolloutHistory.messageCountLowerBound,
+        );
+        responseThread = preserveKnownRunningThreadState(responseThread, true);
+        messagesByThreadId.set(threadId, messages);
+        loadedMessages = true;
+      } else if (cachedMessages.length > 0) {
+        messages = dedupeThreadMessages(cachedMessages);
+        if (messages.length !== cachedMessages.length) {
+          messagesByThreadId.set(threadId, messages);
+        }
+        loadedMessages = true;
+      } else {
+        scheduleAppServerHistoryLoad(threadId, cachedMessages);
+      }
+
+      const response = threadDetailResponse({
+        thread: responseThread,
+        messages,
+        pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
+      });
+      relayDebugLog("thread.detail.responded", {
+        durationMs: Date.now() - detailStartedAt,
+        fastPath: "running-rollout",
+        loadedMessages,
+        messageCount: messages.length,
+        state: responseThread.state,
+        threadId,
+      });
+      return secureJson(c, options.pairing, secureSessionsByTokenHash, response);
+    }
     if (appServer) {
       try {
         const thread = await appServer.readThread(threadId, {
@@ -2089,12 +2272,24 @@ export function createApp(options: AppOptions = {}) {
             threadId,
             workspacePath,
             thread.path ?? undefined,
+            responseThread.state === "running" && cachedMessages.length === 0
+              ? {
+                  allowPaginated: true,
+                  maxBytes: RUNNING_ROLLOUT_HISTORY_MAX_BYTES,
+                  maxMessages: PAGINATED_ROLLOUT_HISTORY_MAX_MESSAGES,
+                }
+              : forceRefresh
+                ? {
+                    allowPaginated: true,
+                    maxMessages: PAGINATED_ROLLOUT_HISTORY_MAX_MESSAGES,
+                  }
+                : undefined,
           );
           if (rolloutHistory.rolloutPath) {
             appServerRolloutPathsByThreadId.set(threadId, rolloutHistory.rolloutPath);
           }
           if (rolloutHistory.messages.length > 0) {
-            messages = mergeThreadMessagePages(rolloutHistory.messages, cachedMessages);
+            messages = mergeRolloutThreadMessagePages(rolloutHistory.messages, cachedMessages);
             responseThread = rememberRolloutThreadMessages(
               threads,
               responseThread,
@@ -2154,7 +2349,11 @@ export function createApp(options: AppOptions = {}) {
     }
 
     const cachedMessages = messagesByThreadId.get(threadId) ?? [];
-    const rolloutHistory = readRolloutThreadMessages(threadId, workspacePath);
+    const rolloutHistory = readRolloutThreadMessages(threadId, workspacePath, undefined, {
+      allowPaginated: true,
+      maxBytes: RUNNING_ROLLOUT_HISTORY_MAX_BYTES,
+      maxMessages: PAGINATED_ROLLOUT_HISTORY_MAX_MESSAGES,
+    });
     const baseThread =
       threads.get(threadId) ??
       knownThread ??
@@ -2167,7 +2366,7 @@ export function createApp(options: AppOptions = {}) {
     if (baseThread && (cachedMessages.length > 0 || rolloutHistory.messages.length > 0)) {
       const messages =
         rolloutHistory.messages.length > 0
-          ? mergeThreadMessagePages(rolloutHistory.messages, cachedMessages)
+          ? mergeRolloutThreadMessagePages(rolloutHistory.messages, cachedMessages)
           : dedupeThreadMessages(cachedMessages);
       const responseThread = rememberRolloutThreadMessages(
         threads,
@@ -3017,6 +3216,7 @@ export function createApp(options: AppOptions = {}) {
         400,
       );
     }
+    const keepAlive = "watch" in parsed.data && parsed.data.watch === true;
     if (!parsed.data.prompt && !appServer) {
       relayDebugLog("thread.stream.rejected", {
         reason: "attach_requires_app_server",
@@ -3043,6 +3243,10 @@ export function createApp(options: AppOptions = {}) {
     });
     const encoder = new TextEncoder();
     const secureSession = getSecureSessionForRequest(c, options.pairing, secureSessionsByTokenHash);
+    const streamEventContext: ThreadStreamSseContext = {
+      eventCaches: threadStreamEventCaches,
+      threadId,
+    };
     let streamSettled = false;
     let closeStream = () => {};
     const stream = new ReadableStream<Uint8Array>({
@@ -3050,6 +3254,7 @@ export function createApp(options: AppOptions = {}) {
         const attachmentAbortController = new AbortController();
         let closed = false;
         let stopPreviewMonitor = () => {};
+        threadStreamSseContextsByController.set(controller, streamEventContext);
         closeStream = () => {
           if (closed) {
             return;
@@ -3058,6 +3263,7 @@ export function createApp(options: AppOptions = {}) {
           stopPreviewMonitor();
           attachmentAbortController.abort();
           activeStreamControllers.delete(controller);
+          threadStreamSseContextsByController.delete(controller);
           closeSseController(controller);
         };
         activeStreamControllers.set(controller, closeStream);
@@ -3075,6 +3281,23 @@ export function createApp(options: AppOptions = {}) {
             });
           },
         });
+        if (
+          !runOptions.prompt &&
+          appServer &&
+          parsed.data.since !== undefined &&
+          !replayThreadStreamEvents({
+            controller,
+            encoder,
+            secureSession,
+            since: parsed.data.since,
+            threadId,
+          })
+        ) {
+          streamSettled = true;
+          relayDebugLog("thread.stream.finished", { mode: "replay_failed", threadId });
+          closeStream();
+          return;
+        }
         if (!runOptions.prompt && appServer) {
           void streamRunningAppServerThread({
             appServer,
@@ -3086,6 +3309,8 @@ export function createApp(options: AppOptions = {}) {
             signal: attachmentAbortController.signal,
             threadId,
             threads,
+            keepAlive,
+            workspacePath: knownThread.cwd ?? workspacePath,
           }).finally(() => {
             streamSettled = true;
             relayDebugLog("thread.stream.finished", { mode: "attach", threadId });
@@ -3853,6 +4078,8 @@ async function streamRunningAppServerThread(input: {
   signal: AbortSignal;
   threadId: string;
   threads: Map<string, ThreadMetadata>;
+  keepAlive: boolean;
+  workspacePath: string;
 }) {
   let activeTurnId: string | undefined;
   let assistantMessageId: string | undefined;
@@ -3865,6 +4092,60 @@ async function streamRunningAppServerThread(input: {
   let cleanupRequestHandler = (): void => undefined;
   let handlersCleaned = false;
   let streamFinished = false;
+  const streamedMessageSignatures = new Map<string, string>();
+
+  const sendThreadMessage = (
+    type: "thread.message.created" | "thread.message.completed",
+    thread: ThreadMetadata,
+    message: ChatMessage,
+  ) => {
+    const signature = JSON.stringify({
+      content: message.content,
+      details: message.details,
+      kind: message.kind,
+      role: message.role,
+      state: message.state,
+      turnId: message.turnId,
+    });
+    if (streamedMessageSignatures.get(message.id) === signature) {
+      return;
+    }
+    streamedMessageSignatures.set(message.id, signature);
+    sendSse(input.controller, input.encoder, input.secureSession, {
+      type,
+      thread,
+      message,
+    });
+  };
+
+  if ((input.messagesByThreadId.get(input.threadId) ?? []).length === 0) {
+    const rolloutHistory = readRolloutThreadMessages(
+      input.threadId,
+      input.workspacePath,
+      undefined,
+      {
+        allowPaginated: true,
+        maxBytes: RUNNING_ROLLOUT_HISTORY_MAX_BYTES,
+        maxMessages: PAGINATED_ROLLOUT_HISTORY_MAX_MESSAGES,
+      },
+    );
+    if (rolloutHistory.messages.length > 0) {
+      const messages = mergeRolloutThreadMessagePages(
+        rolloutHistory.messages,
+        input.messagesByThreadId.get(input.threadId) ?? [],
+      );
+      input.messagesByThreadId.set(input.threadId, messages);
+      const currentThread = input.threads.get(input.threadId);
+      if (currentThread) {
+        threadSummary = rememberRolloutThreadMessages(
+          input.threads,
+          currentThread,
+          messages,
+          rolloutHistory.messageCountLowerBound,
+        );
+      }
+    }
+  }
 
   const cleanupHandlers = () => {
     if (handlersCleaned) {
@@ -3935,11 +4216,7 @@ async function streamRunningAppServerThread(input: {
     threadSummary = updateThread(input.threads, input.messagesByThreadId, input.threadId, {
       state: "running",
     });
-    sendSse(input.controller, input.encoder, input.secureSession, {
-      type: "thread.message.created",
-      thread: threadSummary,
-      message,
-    });
+    sendThreadMessage("thread.message.created", threadSummary, message);
   });
 
   const completed = new Promise<void>((resolve, reject) => {
@@ -3998,7 +4275,7 @@ async function streamRunningAppServerThread(input: {
               type: "thread.state.changed",
               thread: threadSummary,
             });
-            if (state !== "running") {
+            if (state !== "running" && !input.keepAlive) {
               finish();
             }
             return;
@@ -4062,14 +4339,13 @@ async function streamRunningAppServerThread(input: {
                 ? { lastResult: message.content }
                 : {}),
             });
-            sendSse(input.controller, input.encoder, input.secureSession, {
-              type:
-                notification.method === "item/completed" && message.role === "assistant"
-                  ? "thread.message.completed"
-                  : "thread.message.created",
-              thread: threadSummary,
+            sendThreadMessage(
+              notification.method === "item/completed" && message.role === "assistant"
+                ? "thread.message.completed"
+                : "thread.message.created",
+              threadSummary,
               message,
-            });
+            );
             return;
           }
           case "item/agentMessage/delta": {
@@ -4097,11 +4373,7 @@ async function streamRunningAppServerThread(input: {
                 input.threadId,
                 { state: "running" },
               );
-              sendSse(input.controller, input.encoder, input.secureSession, {
-                type: "thread.message.created",
-                thread: threadSummary,
-                message: createdMessage,
-              });
+              sendThreadMessage("thread.message.created", threadSummary, createdMessage);
             }
             const isAsyncAgentMessage = asyncAgentMessageIds.has(itemId);
             if (!isAsyncAgentMessage) {
@@ -4144,11 +4416,7 @@ async function streamRunningAppServerThread(input: {
             threadSummary = updateThread(input.threads, input.messagesByThreadId, input.threadId, {
               state: "running",
             });
-            sendSse(input.controller, input.encoder, input.secureSession, {
-              type: "thread.message.created",
-              thread: threadSummary,
-              message,
-            });
+            sendThreadMessage("thread.message.created", threadSummary, message);
             return;
           }
           case "turn/aborted":
@@ -4191,14 +4459,13 @@ async function streamRunningAppServerThread(input: {
                       : {}),
                   },
                 );
-                sendSse(input.controller, input.encoder, input.secureSession, {
-                  type:
-                    message.role === "assistant"
-                      ? "thread.message.completed"
-                      : "thread.message.created",
-                  thread: threadSummary,
+                sendThreadMessage(
+                  message.role === "assistant"
+                    ? "thread.message.completed"
+                    : "thread.message.created",
+                  threadSummary,
                   message,
-                });
+                );
               }
             }
             relayDebugLog("app_server.turn.terminal", {
@@ -4217,7 +4484,11 @@ async function streamRunningAppServerThread(input: {
                 threadId: input.threadId,
                 threads: input.threads,
               });
-              finish();
+              if (input.keepAlive) {
+                resetObservedTurnState();
+              } else {
+                finish();
+              }
               return;
             }
             const assistantMessage = assistantMessageId
@@ -4232,11 +4503,11 @@ async function streamRunningAppServerThread(input: {
                 assistantMessageId,
                 { state: "completed" },
               );
-              sendSse(input.controller, input.encoder, input.secureSession, {
-                type: "thread.message.completed",
-                thread: threadSummary ?? input.threads.get(input.threadId)!,
-                message: completedMessage,
-              });
+              sendThreadMessage(
+                "thread.message.completed",
+                threadSummary ?? input.threads.get(input.threadId)!,
+                completedMessage,
+              );
             }
             threadSummary = updateThread(input.threads, input.messagesByThreadId, input.threadId, {
               state,
@@ -4257,18 +4528,18 @@ async function streamRunningAppServerThread(input: {
                 state: "failed",
                 turnId: activeTurnId,
               });
-              sendSse(input.controller, input.encoder, input.secureSession, {
-                type: "thread.message.created",
-                thread: threadSummary,
-                message,
-              });
+              sendThreadMessage("thread.message.created", threadSummary, message);
               sendSse(input.controller, input.encoder, input.secureSession, {
                 type: "thread.error",
                 thread: threadSummary,
                 error: errorBody.error,
               });
             }
-            finish();
+            if (input.keepAlive) {
+              resetObservedTurnState();
+            } else {
+              finish();
+            }
             return;
           }
         }
@@ -4277,6 +4548,16 @@ async function streamRunningAppServerThread(input: {
       }
     });
   });
+
+  function resetObservedTurnState() {
+    activeTurnId = undefined;
+    assistantMessageId = undefined;
+    observedInputRequest = false;
+    observedTurnActivity = false;
+    producedTurnOutput = false;
+    asyncAgentMessageIds.clear();
+  }
+
   let removeAbortListener = () => {};
   const aborted = new Promise<void>((resolve) => {
     const onAbort = () => {
@@ -4291,13 +4572,86 @@ async function streamRunningAppServerThread(input: {
     removeAbortListener = () => input.signal.removeEventListener("abort", onAbort);
   });
 
+  const emitAppServerThreadSnapshot = (appServerThread: AppServerThread) => {
+    threadSummary = rememberAppServerThread(input.threads, appServerThread);
+    const runningTurn = [...(appServerThread.turns ?? [])]
+      .reverse()
+      .find((turn) => mapAppServerThreadState(turn.status) === "running");
+    if (runningTurn) {
+      activeTurnId = runningTurn.id;
+      observedTurnActivity = true;
+    }
+
+    for (const turn of appServerThread.turns ?? []) {
+      const turnIsRunning = mapAppServerThreadState(turn.status) === "running";
+      for (const item of turn.items ?? []) {
+        let message = upsertAppServerItemMessage(
+          input.messagesByThreadId,
+          input.threadId,
+          turn.id,
+          item,
+        );
+        if (!message) {
+          continue;
+        }
+        const isAsyncAgentMessage = isAsyncAppServerAgentMessage(item);
+        if (isAsyncAgentMessage) {
+          asyncAgentMessageIds.add(message.id);
+        }
+        if (turnIsRunning) {
+          observedTurnActivity = true;
+        }
+        if (message.role !== "user" && !isAsyncAgentMessage) {
+          producedTurnOutput = true;
+        }
+        if (message.role === "assistant" && !isAsyncAgentMessage) {
+          assistantMessageId = message.id;
+          if (turnIsRunning) {
+            message = updateMessage(input.messagesByThreadId, input.threadId, message.id, {
+              state: "streaming",
+            });
+          }
+        }
+        threadSummary = updateThread(input.threads, input.messagesByThreadId, input.threadId, {
+          state:
+            threadSummary.state === "running" || turnIsRunning ? "running" : threadSummary.state,
+          ...(message.role === "assistant" && !isAsyncAgentMessage
+            ? { lastResult: message.content }
+            : {}),
+        });
+        sendThreadMessage(
+          message.role === "assistant" && message.state === "completed"
+            ? "thread.message.completed"
+            : "thread.message.created",
+          threadSummary,
+          message,
+        );
+      }
+    }
+    return threadSummary;
+  };
+
   try {
-    const appServerThread = await Promise.race([
-      typeof input.appServer.resumeThread === "function"
-        ? input.appServer.resumeThread({ excludeTurns: true, threadId: input.threadId })
-        : input.appServer.readThread(input.threadId, { includeTurns: false }),
-      aborted.then(() => undefined),
-    ]);
+    const readOrResume = async () => {
+      if (typeof input.appServer.resumeThread === "function") {
+        try {
+          return await input.appServer.resumeThread({
+            excludeTurns: true,
+            threadId: input.threadId,
+          });
+        } catch (error) {
+          if (!isActiveWriterConflict(error)) {
+            throw error;
+          }
+          relayDebugLog("thread.stream.resume_fallback", {
+            reason: "active_writer",
+            threadId: input.threadId,
+          });
+        }
+      }
+      return input.appServer.readThread(input.threadId, { includeTurns: false });
+    };
+    const appServerThread = await Promise.race([readOrResume(), aborted.then(() => undefined)]);
     if (!appServerThread || input.signal.aborted) {
       return;
     }
@@ -4305,12 +4659,12 @@ async function streamRunningAppServerThread(input: {
       await completed;
       return;
     }
-    threadSummary = rememberAppServerThread(input.threads, appServerThread);
+    threadSummary = emitAppServerThreadSnapshot(appServerThread);
     sendSse(input.controller, input.encoder, input.secureSession, {
       type: "thread.state.changed",
       thread: threadSummary,
     });
-    if (threadSummary.state !== "running") {
+    if (threadSummary.state !== "running" && !input.keepAlive) {
       return;
     }
     await Promise.race([completed, aborted]);
@@ -6115,38 +6469,114 @@ function updateThread(
   return next;
 }
 
+function replayThreadStreamEvents(input: {
+  controller: ReadableStreamDefaultController<Uint8Array>;
+  encoder: TextEncoder;
+  secureSession: SecureSessionHandle | undefined;
+  since: number;
+  threadId: string;
+}) {
+  const context = threadStreamSseContextsByController.get(input.controller);
+  if (!context) {
+    return false;
+  }
+  const cache = context.eventCaches.get(input.threadId);
+  const first = cache?.events[0];
+  const latest = cache?.events.at(-1);
+  if (!first || !latest) {
+    return sendSse(input.controller, input.encoder, input.secureSession, {
+      type: "thread.stream.replay_unavailable",
+      threadId: input.threadId,
+      since: input.since,
+      earliestSequence: null,
+      reason: "no_cache",
+    });
+  }
+
+  if (input.since < first.sequence - 1 || input.since > latest.sequence) {
+    if (
+      !sendSse(input.controller, input.encoder, input.secureSession, {
+        type: "thread.stream.replay_unavailable",
+        threadId: input.threadId,
+        since: input.since,
+        earliestSequence: first.sequence,
+        reason: "expired",
+      })
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  for (const record of cache.events) {
+    if (record.sequence <= input.since) {
+      continue;
+    }
+    if (
+      !sendSse(input.controller, input.encoder, input.secureSession, record.event, {
+        sequence: record.sequence,
+      })
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function appendThreadStreamEvent(context: ThreadStreamSseContext, event: StreamThreadRunEvent) {
+  const cache = context.eventCaches.get(context.threadId) ?? {
+    events: [],
+    nextSequence: 0,
+  };
+  const sequence = cache.nextSequence + 1;
+  cache.nextSequence = sequence;
+  cache.events.push({ event, sequence });
+  if (cache.events.length > maxThreadStreamEventCacheSize) {
+    cache.events.splice(0, cache.events.length - maxThreadStreamEventCacheSize);
+  }
+  context.eventCaches.set(context.threadId, cache);
+  return sequence;
+}
+
 function sendSse(
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
   secureSession: SecureSessionHandle | undefined,
   event: StreamThreadRunEvent,
+  options: { sequence?: number } = {},
 ): boolean {
   const parsed = StreamThreadRunEventSchema.parse(event);
-  const threadId = threadIdFromStreamEvent(parsed);
+  const context = threadStreamSseContextsByController.get(controller);
+  const sequence =
+    options.sequence ?? (context ? appendThreadStreamEvent(context, parsed) : undefined);
+  const sequencedEvent =
+    sequence === undefined ? parsed : StreamThreadRunEventSchema.parse({ ...parsed, sequence });
+  const threadId = threadIdFromStreamEvent(sequencedEvent);
   relayDebugLog("thread.stream.sse", {
     direction: "server_to_mobile",
-    eventType: parsed.type,
+    eventType: sequencedEvent.type,
     threadId,
-    payload: parsed,
+    payload: sequencedEvent,
   });
   const data = secureSession
-    ? EncryptedPayloadSchema.parse(encryptForMobile(secureSession.session, JSON.stringify(parsed)))
-    : parsed;
+    ? EncryptedPayloadSchema.parse(
+        encryptForMobile(secureSession.session, JSON.stringify(sequencedEvent)),
+      )
+    : sequencedEvent;
   if (secureSession) {
     void secureSession.persist().catch(() => undefined);
   }
-  if (!enqueueSseChunk(controller, encoder.encode(`event: ${parsed.type}\n`))) {
+  const sseChunk = [
+    `event: ${sequencedEvent.type}`,
+    ...(sequence === undefined ? [] : [`id: ${String(sequence)}`]),
+    `data: ${JSON.stringify(data)}`,
+    "",
+    "",
+  ].join("\n");
+  if (!enqueueSseChunk(controller, encoder.encode(sseChunk))) {
     relayDebugLog("thread.stream.sse.enqueue_failed", {
-      eventType: parsed.type,
+      eventType: sequencedEvent.type,
       stage: "event",
-      threadId,
-    });
-    return false;
-  }
-  if (!enqueueSseChunk(controller, encoder.encode(`data: ${JSON.stringify(data)}\n\n`))) {
-    relayDebugLog("thread.stream.sse.enqueue_failed", {
-      eventType: parsed.type,
-      stage: "data",
       threadId,
     });
     return false;
@@ -6748,7 +7178,11 @@ function mergeAppServerMessagesWithLocalStatus(
   );
 }
 
-function mergeThreadMessagePages(incomingMessages: ChatMessage[], cachedMessages: ChatMessage[]) {
+function mergeThreadMessagePages(
+  incomingMessages: ChatMessage[],
+  cachedMessages: ChatMessage[],
+  maxMessages?: number,
+) {
   const byId = new Map<string, ChatMessage>();
   for (const message of cachedMessages) {
     byId.set(message.id, message);
@@ -6756,7 +7190,21 @@ function mergeThreadMessagePages(incomingMessages: ChatMessage[], cachedMessages
   for (const message of incomingMessages) {
     byId.set(message.id, message);
   }
-  return dedupeThreadMessages(Array.from(byId.values()));
+  const messages = dedupeThreadMessages(Array.from(byId.values()));
+  return maxMessages !== undefined && messages.length > maxMessages
+    ? messages.slice(-maxMessages)
+    : messages;
+}
+
+function mergeRolloutThreadMessagePages(
+  incomingMessages: ChatMessage[],
+  cachedMessages: ChatMessage[],
+) {
+  return mergeThreadMessagePages(
+    incomingMessages,
+    cachedMessages,
+    PAGINATED_ROLLOUT_HISTORY_MAX_MESSAGES,
+  );
 }
 
 function dedupeThreadMessages(messages: ChatMessage[]) {
@@ -6971,6 +7419,7 @@ function readRolloutThreadMessages(
   threadId: string,
   workspacePath = defaultWorkspacePath,
   selectedRolloutPath?: string,
+  options: { allowPaginated?: boolean; maxBytes?: number; maxMessages?: number } = {},
 ) {
   const rolloutPath =
     selectedRolloutPath && selectedRolloutPath.endsWith(".jsonl") && existsSync(selectedRolloutPath)
@@ -6979,7 +7428,8 @@ function readRolloutThreadMessages(
   if (!rolloutPath) {
     return { messageCountLowerBound: 0, messages: [], rolloutPath };
   }
-  if (isPaginatedRolloutFile(rolloutPath)) {
+  const isPaginated = isPaginatedRolloutFile(rolloutPath);
+  if (isPaginated && !options.allowPaginated) {
     return { messageCountLowerBound: 0, messages: [], rolloutPath };
   }
 
@@ -6988,7 +7438,11 @@ function readRolloutThreadMessages(
   const handledApplyPatchCallIds = new Set<string>();
   const pendingApplyPatchChanges: RolloutPatchChange[] = [];
   let activeTurnId: string | undefined;
-  const lines = readFileSync(rolloutPath, "utf8").split("\n");
+  // Paginated files can contain a small number of user/assistant messages
+  // surrounded by hundreds of megabytes of tool output. Reading only the tail
+  // can therefore return a valid JSON fragment with no visible conversation.
+  // Scan the complete paginated file, then cap the API payload below.
+  const lines = readRolloutLines(rolloutPath, isPaginated ? undefined : options.maxBytes);
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!;
     const lineNumber = index + 1;
@@ -7053,11 +7507,34 @@ function readRolloutThreadMessages(
       // Ignore corrupt/incomplete JSONL lines; the active writer can append while we read.
     }
   }
+  const messages =
+    options.maxMessages !== undefined && collected.length > options.maxMessages
+      ? collected.slice(-options.maxMessages)
+      : collected;
   return {
-    messageCountLowerBound: collected.length,
-    messages: collected,
+    messageCountLowerBound: isPaginated || options.maxBytes === undefined ? collected.length : 0,
+    messages,
     rolloutPath,
   };
+}
+
+function readRolloutLines(rolloutPath: string, maxBytes?: number) {
+  if (!maxBytes || statSync(rolloutPath).size <= maxBytes) {
+    return readFileSync(rolloutPath, "utf8").split("\n");
+  }
+
+  const fileSize = statSync(rolloutPath).size;
+  const start = Math.max(0, fileSize - maxBytes);
+  const descriptor = openSync(rolloutPath, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(fileSize - start);
+    const bytesRead = readSync(descriptor, buffer, 0, buffer.length, start);
+    const text = buffer.toString("utf8", 0, bytesRead);
+    const firstNewline = text.indexOf("\n");
+    return (firstNewline === -1 ? "" : text.slice(firstNewline + 1)).split("\n");
+  } finally {
+    closeSync(descriptor);
+  }
 }
 
 function isPaginatedRolloutFile(rolloutPath: string) {
@@ -7095,6 +7572,8 @@ function findRolloutFileForThread(threadId: string) {
     return undefined;
   }
   const stack = [sessionsRoot];
+  let newestPath: string | undefined;
+  let newestMtime = -Infinity;
   while (stack.length > 0) {
     const current = stack.pop()!;
     for (const entry of readdirSync(current, { withFileTypes: true })) {
@@ -7104,11 +7583,19 @@ function findRolloutFileForThread(threadId: string) {
         continue;
       }
       if (entry.isFile() && entry.name.includes(threadId) && entry.name.endsWith(".jsonl")) {
-        return entryPath;
+        try {
+          const mtime = statSync(entryPath).mtimeMs;
+          if (mtime > newestMtime) {
+            newestMtime = mtime;
+            newestPath = entryPath;
+          }
+        } catch {
+          // Ignore rollout files that disappear while the app-server writes them.
+        }
       }
     }
   }
-  return undefined;
+  return newestPath;
 }
 
 function isRolloutTaskComplete(record: { payload?: Record<string, unknown>; type?: unknown }) {
@@ -9751,4 +10238,8 @@ function apiError(code: string, message: string, issues?: string[]): ErrorRespon
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Codex run failed.";
+}
+
+function isActiveWriterConflict(error: unknown) {
+  return /active\s+writer|already\s+has\s+an\s+active\s+writer/i.test(errorMessage(error));
 }

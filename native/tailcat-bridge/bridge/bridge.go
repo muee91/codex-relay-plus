@@ -26,6 +26,9 @@ const (
 
 type proxyState struct {
 	client     *tailcat.Client
+	clientMu   sync.RWMutex
+	serverAddr tailcat.Addr
+	clientKey  key.NodePrivate
 	done       chan struct{}
 	keyPath    string
 	listener   net.Listener
@@ -96,8 +99,7 @@ func ConfigureProxy(serverAddr string, remotePort int64, lanTargetsJSON, mode, k
 	if err != nil {
 		return "", err
 	}
-	client := tailcat.NewClient(addr)
-	client.Key = clientKey
+	client := newTailcatClient(addr, clientKey)
 	listener, err := net.Listen("tcp", loopbackListenAddress)
 	if err != nil {
 		_ = client.Close()
@@ -109,6 +111,8 @@ func ConfigureProxy(serverAddr string, remotePort int64, lanTargetsJSON, mode, k
 	}
 	p := &proxyState{
 		client:        client,
+		serverAddr:    addr,
+		clientKey:     clientKey,
 		done:          make(chan struct{}),
 		keyPath:       keyPath,
 		listener:      listener,
@@ -179,7 +183,7 @@ func stopProxyLocked() {
 	p.stopOnce.Do(func() {
 		close(p.done)
 		_ = p.listener.Close()
-		_ = p.client.Close()
+		_ = p.closeTailcatClient()
 	})
 }
 
@@ -244,10 +248,17 @@ func (p *proxyState) proxyConnection(local net.Conn) {
 		p.selectRemote()
 	}
 
+	client := p.currentTailcatClient()
+	if client == nil {
+		setStatus(pathStatus{Path: "offline", Error: "Tailcat client is unavailable"})
+		_ = local.Close()
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	remote, err := p.client.DialTCPPort(ctx, p.remotePort)
+	remote, err := client.DialTCPPort(ctx, p.remotePort)
 	cancel()
 	if err != nil {
+		p.replaceTailcatClient(client)
 		setStatus(pathStatus{Path: "offline", Error: err.Error()})
 		_ = local.Close()
 		return
@@ -290,10 +301,21 @@ func (p *proxyState) refreshRouteStatus() {
 }
 
 func (p *proxyState) probeTailcatPath() {
+	client := p.currentTailcatClient()
+	if client == nil {
+		setStatus(pathStatus{Path: "offline", Error: "Tailcat client is unavailable"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	result, err := p.client.DiscoPing(ctx)
+	result, err := client.DiscoPing(ctx)
 	if err != nil {
+		// tailcat.Client only performs the meow registration once. If the
+		// DERP session is recreated after a network change, the old client
+		// can keep probing a peer route that the server no longer knows. A
+		// fresh client preserves the identity but re-runs registration on
+		// its next probe/dial. The loopback listener stays untouched.
+		p.replaceTailcatClient(client)
 		setStatus(pathStatus{Path: "offline", Error: err.Error()})
 		return
 	}
@@ -310,6 +332,51 @@ func (p *proxyState) probeTailcatPath() {
 		}
 	}
 	setStatus(status)
+}
+
+func newTailcatClient(serverAddr tailcat.Addr, clientKey key.NodePrivate) *tailcat.Client {
+	client := tailcat.NewClient(serverAddr)
+	client.Key = clientKey
+	return client
+}
+
+func (p *proxyState) currentTailcatClient() *tailcat.Client {
+	p.clientMu.RLock()
+	defer p.clientMu.RUnlock()
+	return p.client
+}
+
+func (p *proxyState) closeTailcatClient() error {
+	p.clientMu.Lock()
+	client := p.client
+	p.client = nil
+	p.clientMu.Unlock()
+	if client == nil {
+		return nil
+	}
+	return client.Close()
+}
+
+// replaceTailcatClient swaps a failed client while retaining its node key.
+// The expected pointer prevents a slower probe from closing a newer client.
+func (p *proxyState) replaceTailcatClient(expected *tailcat.Client) bool {
+	p.clientMu.Lock()
+	if expected == nil || p.client != expected {
+		p.clientMu.Unlock()
+		return false
+	}
+	select {
+	case <-p.done:
+		p.clientMu.Unlock()
+		return false
+	default:
+	}
+	next := newTailcatClient(p.serverAddr, p.clientKey)
+	p.client = next
+	p.clientMu.Unlock()
+
+	_ = expected.Close()
+	return true
 }
 
 func (p *proxyState) routeSnapshot() (mode, route string, targets []string) {

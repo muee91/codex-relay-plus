@@ -2,10 +2,15 @@ import { createMMKV } from "react-native-mmkv";
 
 import {
   configureNativeRelayProxySync,
+  getPersistedNativeRelayProxyConfig,
   isNativeTailcatAvailable,
 } from "./transport/native-tailcat";
 
 const defaultServerUrl = "http://localhost:8787";
+// The desktop Relay and its Tailcat server share the fixed mobile transport
+// port. A network change may replace the address, but it must not replace this
+// port or make an old LAN URL the preferred route.
+export const defaultTailcatRemotePort = 8787;
 export const nativeTransportServerUrl = "http://127.0.0.1:39127";
 const connectionModeStorageKey = "codex-relay.connection-mode";
 const serverUrlCandidatesStorageKey = "codex-relay.server-url-candidates";
@@ -46,7 +51,9 @@ export function getCodexRelayServerUrl() {
   if (getCodexRelayConnectionMode() === "local") {
     return firstStoredLocalServerUrl() ?? stored;
   }
-  return isNativeRelayTransportConfigured() ? nativeTransportServerUrl : stored;
+  return isNativeRelayTransportConfigured() || getTailcatBootstrapCandidate()
+    ? nativeTransportServerUrl
+    : stored;
 }
 
 export function getCodexRelayServerUrlCandidates(): CodexRelayServerUrlCandidate[] {
@@ -106,6 +113,15 @@ export function getTailcatBootstrapCandidate(): TailcatBootstrapCandidate | unde
 
   for (const value of readStoredServerUrlCandidates()) {
     const candidate = tailcatBootstrapCandidateFromUrl(value);
+    if (candidate) {
+      persistTailcatBootstrap(candidate);
+      return candidate;
+    }
+  }
+
+  const nativeConfig = getPersistedNativeRelayProxyConfig();
+  if (nativeConfig) {
+    const candidate = validTailcatBootstrap(nativeConfig.serverAddr, nativeConfig.remotePort);
     if (candidate) {
       persistTailcatBootstrap(candidate);
       return candidate;
@@ -280,7 +296,7 @@ function validTailcatBootstrap(address: unknown, remotePort: unknown) {
     remotePort >= 1 &&
     remotePort <= 65535
   ) {
-    return { address, remotePort };
+    return { address, remotePort: defaultTailcatRemotePort };
   }
   return undefined;
 }

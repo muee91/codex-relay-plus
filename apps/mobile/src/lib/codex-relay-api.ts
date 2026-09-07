@@ -128,7 +128,11 @@ const skillsRequestTimeoutMs = 8000;
 const clientSessionIdStorageKey = "codex-relay.client-session-id";
 const legacyClientTokenExpiresAtStorageKey = "codex-relay.client-token-expires-at";
 const clientTokenStorageKey = "codex-relay.client-token";
-const pairingConnectTimeoutMs = 2500;
+// The first remote pairing request may need to bring up the Tailcat DERP path
+// and complete its WireGuard handshake before the loopback proxy can forward
+// HTTP. Keep this aligned with the native bridge's DialTCPPort timeout instead
+// of failing during the normal cellular/DERP startup window.
+const pairingConnectTimeoutMs = 15_000;
 const streamRequestTimeoutMs = 10 * 60 * 1000;
 const terminalStreamRequestTimeoutMs = 24 * 60 * 60 * 1000;
 

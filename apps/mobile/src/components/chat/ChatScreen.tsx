@@ -173,6 +173,7 @@ const MAX_IMAGE_ATTACHMENTS = 3;
 const MAX_ATTACHMENT_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const CHAT_INPUT_NATIVE_ID = "chat-composer-input";
 const CONNECTION_HEALTH_CHECK_MS = 5000;
+const ACTIVE_THREAD_LIVE_SYNC_MS = 1500;
 const CONNECTION_RETRY_MS = 2500;
 const STREAM_STALL_RECONNECT_MS = 45_000;
 const STREAM_WATCHDOG_INTERVAL_MS = 10_000;
@@ -404,10 +405,14 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const previewResizeStartWidthRef = useRef(DEFAULT_PREVIEW_PANE_WIDTH);
   const scanPairingGenerationRef = useRef(0);
   const closeStreamRef = useRef<(() => void) | undefined>(undefined);
+  const closeThreadWatchStreamRef = useRef<(() => void) | undefined>(undefined);
+  const watchedThreadIdRef = useRef<string | undefined>(undefined);
   const refreshPromiseRef = useRef<Promise<void> | undefined>(undefined);
   const lastStreamActivityAtRef = useRef(0);
   const streamGenerationRef = useRef(0);
+  const threadWatchGenerationRef = useRef(0);
   const threadStatusPollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastThreadStreamSequenceByThreadIdRef = useRef(new Map<string, number>());
   const activeThreadId = useSelector(() => chatStore$.activeThreadId.get());
   const connection = useSelector(() => chatStore$.connection.get());
   const error = useSelector(() => chatStore$.error.get());
@@ -490,11 +495,22 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const activeThread =
     activeThreadDetailQuery.data?.thread ??
     (activeThreadId ? threadsById[activeThreadId] : undefined);
+  const canStreamThread = useCallback(
+    (thread: ThreadSummary | undefined) =>
+      Boolean(
+        thread &&
+        (thread.source === "app" ||
+          thread.source === "app-server" ||
+          threadsQuery.data?.source === "app-server"),
+      ),
+    [threadsQuery.data?.source],
+  );
   const canMutateActiveThread =
     statusQuery.data?.appServerAvailable === true &&
     threadsQuery.data?.source === "app-server" &&
     Boolean(activeThreadId && threadsById[activeThreadId]);
-  const isRunningAppThread = activeThread?.source === "app" && activeThread.state === "running";
+  const canStreamActiveThread = canStreamThread(activeThread);
+  const isRunningStreamThread = canStreamActiveThread && activeThread?.state === "running";
   const activeWorkspacePath = activeThread?.cwd ?? workspacePath;
   const skillsQuery = useQuery({
     queryKey: ["codex-relay-skills", serverUrl, activeWorkspacePath ?? null],
@@ -553,7 +569,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     !!activeThreadId &&
     !activeThreadDetailQuery.data &&
     !activeThreadDetailQuery.isError &&
-    !isRunningAppThread &&
+    !isRunningStreamThread &&
     (isLoadingSelectedThreadMessages || (activeThread?.messageCount ?? 0) > 0);
   const contextWindowUsage = contextWindowQuery.data?.usage ?? undefined;
   const queuedPrompts = useMemo(
@@ -634,8 +650,12 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
 
   const detachCurrentStream = useCallback(() => {
     streamGenerationRef.current += 1;
+    threadWatchGenerationRef.current += 1;
     closeStreamRef.current?.();
     closeStreamRef.current = undefined;
+    closeThreadWatchStreamRef.current?.();
+    closeThreadWatchStreamRef.current = undefined;
+    watchedThreadIdRef.current = undefined;
   }, []);
 
   const markStreamActivity = useCallback(() => {
@@ -673,6 +693,22 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     },
     [queryClient, syncPairedSessionState],
   );
+
+  const acceptThreadStreamEvent = useCallback((threadId: string, event: StreamThreadRunEvent) => {
+    if (event.type === "thread.stream.replay_unavailable") {
+      lastThreadStreamSequenceByThreadIdRef.current.delete(threadId);
+      return true;
+    }
+    if (event.sequence === undefined) {
+      return true;
+    }
+    const previousSequence = lastThreadStreamSequenceByThreadIdRef.current.get(threadId);
+    if (previousSequence !== undefined && event.sequence <= previousSequence) {
+      return false;
+    }
+    lastThreadStreamSequenceByThreadIdRef.current.set(threadId, event.sequence);
+    return true;
+  }, []);
 
   const scheduleThreadStatusPoll = useCallback(
     (threadId: string) => {
@@ -835,7 +871,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         const thread = queryClient.getQueryData<
           Awaited<ReturnType<typeof serverStateQueryFns.thread>>
         >(serverStateKeys.thread(threadId))?.thread;
-        if (thread?.source === "app") {
+        if (canStreamThread(thread)) {
           requestThreadStreamReconnect(threadId);
           return;
         }
@@ -850,6 +886,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     },
     [
       clearThreadStatusPoll,
+      canStreamThread,
       queryClient,
       scheduleThreadStatusPoll,
       syncPairedSessionState,
@@ -895,10 +932,22 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
 
       closeStreamRef.current = streamThreadRun(
         threadId,
-        {},
+        {
+          since: lastThreadStreamSequenceByThreadIdRef.current.get(threadId),
+        },
         {
           onEvent(event) {
             if (streamGeneration !== streamGenerationRef.current) {
+              return;
+            }
+            if (!acceptThreadStreamEvent(threadId, event)) {
+              return;
+            }
+            if (event.type === "thread.stream.replay_unavailable") {
+              void syncThreadSnapshot(threadId, {
+                refresh: true,
+                setOfflineOnError: false,
+              });
               return;
             }
             const reconciledEvent = reconcileThreadRunEventAfterTerminal(
@@ -985,7 +1034,88 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       recoverThreadAfterStreamLoss,
       refreshUsageStatus,
       queryClient,
+      acceptThreadStreamEvent,
+      syncThreadSnapshot,
     ],
+  );
+
+  const attachThreadWatchStream = useCallback(
+    (threadId: string) => {
+      if (
+        closeStreamRef.current ||
+        (watchedThreadIdRef.current === threadId && closeThreadWatchStreamRef.current)
+      ) {
+        return;
+      }
+
+      closeThreadWatchStreamRef.current?.();
+      threadWatchGenerationRef.current += 1;
+      const watchGeneration = threadWatchGenerationRef.current;
+      watchedThreadIdRef.current = threadId;
+
+      const clearWatch = () => {
+        if (watchGeneration !== threadWatchGenerationRef.current) {
+          return;
+        }
+        closeThreadWatchStreamRef.current = undefined;
+        watchedThreadIdRef.current = undefined;
+      };
+
+      let closeWatch: (() => void) | undefined;
+      closeWatch = streamThreadRun(
+        threadId,
+        {
+          since: lastThreadStreamSequenceByThreadIdRef.current.get(threadId),
+          watch: true,
+        },
+        {
+          onEvent(event) {
+            if (watchGeneration !== threadWatchGenerationRef.current) {
+              return;
+            }
+            if (!acceptThreadStreamEvent(threadId, event)) {
+              return;
+            }
+            if (event.type === "thread.stream.replay_unavailable") {
+              void syncThreadSnapshot(threadId, {
+                refresh: true,
+                setOfflineOnError: false,
+              });
+              return;
+            }
+            markStreamActivity();
+            handleThreadRunStreamEvent(event, {
+              applyEvent: (streamEvent) => {
+                applyStreamEventToServerState(queryClient, streamEvent);
+              },
+              fallbackThreadId: threadId,
+              onPreviewTarget(previewThreadId, target) {
+                setWebPreviewTargetsByThreadId((current) => ({
+                  ...current,
+                  [previewThreadId]: target,
+                }));
+              },
+            });
+
+            if (event.type === "thread.state.changed" && event.thread.state === "running") {
+              clearWatch();
+              closeWatch?.();
+              requestThreadStreamReconnect(threadId);
+            }
+          },
+          onError() {
+            if (watchGeneration !== threadWatchGenerationRef.current) {
+              return;
+            }
+            clearWatch();
+            closeWatch?.();
+          },
+          onClose: clearWatch,
+        },
+      );
+      closeThreadWatchStreamRef.current = closeWatch;
+    },
+    [acceptThreadStreamEvent, markStreamActivity, queryClient, syncThreadSnapshot],
   );
 
   useEffect(() => {
@@ -1000,15 +1130,44 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     if (
       !activeThreadId ||
       activeThread?.state !== "running" ||
-      activeThread.source !== "app" ||
+      !canStreamThread(activeThread) ||
       closeStreamRef.current ||
+      closeThreadWatchStreamRef.current ||
       threadStreamReconnectRequest
     ) {
       return;
     }
 
     requestThreadStreamReconnect(activeThreadId);
-  }, [activeThread?.source, activeThread?.state, activeThreadId, threadStreamReconnectRequest]);
+  }, [activeThread, activeThreadId, canStreamThread, threadStreamReconnectRequest]);
+
+  useEffect(() => {
+    if (
+      !activeThreadId ||
+      connection !== "connected" ||
+      isRunning ||
+      statusQuery.data?.appServerAvailable !== true ||
+      !canStreamActiveThread
+    ) {
+      return undefined;
+    }
+
+    attachThreadWatchStream(activeThreadId);
+    return () => {
+      threadWatchGenerationRef.current += 1;
+      closeThreadWatchStreamRef.current?.();
+      closeThreadWatchStreamRef.current = undefined;
+      watchedThreadIdRef.current = undefined;
+    };
+  }, [
+    activeThreadId,
+    attachThreadWatchStream,
+    canStreamActiveThread,
+    connection,
+    isRunning,
+    statusQuery.data?.appServerAvailable,
+    threadsQuery.data?.source,
+  ]);
 
   const loadWorkspaceChanges = useCallback(
     async (options: { staleTime?: number } = {}) => {
@@ -1252,6 +1411,91 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     }, CONNECTION_HEALTH_CHECK_MS);
     return () => clearInterval(healthCheck);
   }, [connection, isRunning, keepConnectionIfSessionIsValid]);
+
+  // The run stream only exists while a thread is running. When the desktop
+  // starts a new turn after the mobile view has been left on a completed
+  // thread, there is no stream to wake the mobile client up. Keep this
+  // content-sync probe separate from the upstream connection health check:
+  // the latter only verifies /status, while this one discovers a new turn and
+  // lets the existing SSE stream take over as soon as the thread is running.
+  // Poll only the thread summaries here. Fetching the full detail response on
+  // every tick re-serializes large histories and can create enough native
+  // pressure on a phone to stall the UI and make messages appear stale.
+  useEffect(() => {
+    if (!activeThreadId || connection !== "connected" || isRunning) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastSummarySignature: string | undefined;
+
+    const syncActiveThread = async () => {
+      if (cancelled || AppState.currentState !== "active") {
+        return;
+      }
+
+      try {
+        const response = await fetchThreadsState(queryClient);
+        if (cancelled || AppState.currentState !== "active") {
+          return;
+        }
+
+        setThreadsState(queryClient, response.threads, response.source);
+        const summary = response.threads.find((thread) => thread.id === activeThreadId);
+        const current = queryClient.getQueryData<
+          Awaited<ReturnType<typeof serverStateQueryFns.thread>>
+        >(serverStateKeys.thread(activeThreadId));
+        const currentThread = current?.thread;
+        const summarySignature = summary
+          ? [
+              summary.state,
+              summary.updatedAt,
+              summary.messageCount,
+              summary.lastMessagePreview ?? "",
+            ].join("\u0000")
+          : undefined;
+        const summaryChanged = Boolean(
+          summary &&
+          summarySignature !== lastSummarySignature &&
+          (!currentThread ||
+            currentThread.state !== summary.state ||
+            currentThread.updatedAt !== summary.updatedAt ||
+            currentThread.messageCount !== summary.messageCount ||
+            currentThread.lastMessagePreview !== summary.lastMessagePreview),
+        );
+        lastSummarySignature = summarySignature;
+
+        if (summaryChanged) {
+          const state = await syncThreadSnapshot(activeThreadId, {
+            refresh: true,
+            setOfflineOnError: false,
+          });
+          if (state === "running" && chatStore$.activeThreadId.peek() === activeThreadId) {
+            requestThreadStreamReconnect(activeThreadId);
+          }
+        }
+      } catch {
+        // The normal health loop owns connection state. Keep this discovery
+        // probe quiet so a transient summary request does not flap the UI.
+      }
+      if (cancelled || AppState.currentState !== "active") {
+        return;
+      }
+      timer = setTimeout(() => {
+        timer = undefined;
+        void syncActiveThread();
+      }, ACTIVE_THREAD_LIVE_SYNC_MS);
+    };
+
+    void syncActiveThread();
+    return () => {
+      cancelled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [activeThreadId, connection, isRunning, queryClient, syncThreadSnapshot]);
 
   async function openScanner() {
     if (!cameraPermission?.granted) {
@@ -1525,7 +1769,11 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
           setQueuedInputsState(queryClient, activeThreadId, visibleQueue, response.queueLength);
         }
         setConnection("connected");
-        if (!closeStreamRef.current && activeThread?.source === "app") {
+        if (
+          !closeStreamRef.current &&
+          !closeThreadWatchStreamRef.current &&
+          activeThread?.source === "app"
+        ) {
           requestThreadStreamReconnect(activeThreadId);
         }
       } catch (caught) {
@@ -1621,6 +1869,16 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         {
           onEvent(event) {
             if (streamGeneration !== streamGenerationRef.current) {
+              return;
+            }
+            if (!acceptThreadStreamEvent(runThreadId, event)) {
+              return;
+            }
+            if (event.type === "thread.stream.replay_unavailable") {
+              void syncThreadSnapshot(runThreadId, {
+                refresh: true,
+                setOfflineOnError: false,
+              });
               return;
             }
             const reconciledEvent = reconcileThreadRunEventAfterTerminal(
@@ -1749,7 +2007,11 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       });
       removePendingInputRequestState(queryClient, request.threadId, request.id);
       setConnection("connected");
-      if (!closeStreamRef.current && chatStore$.activeThreadId.peek() === request.threadId) {
+      if (
+        !closeStreamRef.current &&
+        !closeThreadWatchStreamRef.current &&
+        chatStore$.activeThreadId.peek() === request.threadId
+      ) {
         requestThreadStreamReconnect(request.threadId);
       }
     } catch (caught) {
@@ -1766,7 +2028,11 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       });
       removePendingInputRequestState(queryClient, request.threadId, request.id);
       setConnection("connected");
-      if (!closeStreamRef.current && chatStore$.activeThreadId.peek() === request.threadId) {
+      if (
+        !closeStreamRef.current &&
+        !closeThreadWatchStreamRef.current &&
+        chatStore$.activeThreadId.peek() === request.threadId
+      ) {
         requestThreadStreamReconnect(request.threadId);
       }
     } catch (caught) {

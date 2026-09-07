@@ -185,28 +185,28 @@ pnpm changeset
 
 ## 常用命令
 
-| 命令 | 作用 |
-| --- | --- |
-| `npx codex-relay@latest` | 启动 Relay 并输出配对二维码。 |
-| `npx codex-relay@latest --bg` | 让 Relay 在后台持续运行。 |
-| `npx codex-relay@latest --shared-app-server` | 与已连接的终端 TUI 共享实时会话。 |
-| `npx codex-relay@latest qr` | 为当前运行中的 Relay 输出配对二维码。 |
-| `npx codex-relay@latest approve XXXX-XXXX` | 批准待处理的移动端配对请求。 |
-| `npx codex-relay@latest clear` | 注销所有已配对的移动端。 |
+| 命令                                         | 作用                                  |
+| -------------------------------------------- | ------------------------------------- |
+| `npx codex-relay@latest`                     | 启动 Relay 并输出配对二维码。         |
+| `npx codex-relay@latest --bg`                | 让 Relay 在后台持续运行。             |
+| `npx codex-relay@latest --shared-app-server` | 与已连接的终端 TUI 共享实时会话。     |
+| `npx codex-relay@latest qr`                  | 为当前运行中的 Relay 输出配对二维码。 |
+| `npx codex-relay@latest approve XXXX-XXXX`   | 批准待处理的移动端配对请求。          |
+| `npx codex-relay@latest clear`               | 注销所有已配对的移动端。              |
 
 ## 配置
 
 Relay 默认监听 `0.0.0.0:8787`。
 
-| 变量 | 用途 |
-| --- | --- |
-| `PORT` | 服务端口，默认 `8787`。 |
-| `HOST` | 监听地址，默认 `0.0.0.0`。 |
-| `CODEX_RELAY_WORKSPACE_PATH` | Codex 使用的工作区路径，默认当前目录。 |
-| `CODEX_RELAY_AUTH_DB_PATH` | 配对和会话数据库路径。 |
+| 变量                          | 用途                                             |
+| ----------------------------- | ------------------------------------------------ |
+| `PORT`                        | 服务端口，默认 `8787`。                          |
+| `HOST`                        | 监听地址，默认 `0.0.0.0`。                       |
+| `CODEX_RELAY_WORKSPACE_PATH`  | Codex 使用的工作区路径，默认当前目录。           |
+| `CODEX_RELAY_AUTH_DB_PATH`    | 配对和会话数据库路径。                           |
 | `CODEX_RELAY_APP_SERVER_MODE` | `socket` 表示共享终端/移动端会话；默认 `stdio`。 |
-| `CODEX_BIN` | Codex CLI 可执行文件路径。 |
-| `CODEX_HOME` | 用于读取本地会话元数据的 Codex home 目录。 |
+| `CODEX_BIN`                   | Codex CLI 可执行文件路径。                       |
+| `CODEX_HOME`                  | 用于读取本地会话元数据的 Codex home 目录。       |
 
 桌面 Host 还会向 Relay runtime 注入内置 Tailcat 状态路径和 Relay 端口。这些属于 Host 内部传输变量，而不是用户需要配置的字段。
 

@@ -12,7 +12,7 @@ import * as Notifications from "expo-notifications";
 import { router, Stack } from "expo-router";
 import { DarkTheme, ThemeProvider } from "expo-router/react-navigation";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect } from "react";
 import { Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -28,6 +28,7 @@ import {
   notificationResponseThreadId,
   supportsPushNotifications,
 } from "@/lib/push-notifications";
+import { hasCodexRelaySession } from "@/lib/codex-relay-api";
 import {
   persistedQueryMaxAgeMs,
   queryClientPersister,
@@ -85,7 +86,7 @@ function TabLayout() {
   useInitialPushNotificationRegistration();
   const connection = useSelector(() => chatStore$.connection.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
-  const nativePrimeRequestedRef = useRef(false);
+  const hasStoredPairedSession = hasCodexRelaySession();
   const [fontsLoaded] = useFonts({
     GeistMono: require("../../assets/fonts/GeistMono-Regular.ttf"),
     "GeistMono-Medium": require("../../assets/fonts/GeistMono-Medium.ttf"),
@@ -99,36 +100,16 @@ function TabLayout() {
 
   useEffect(() => {
     if (!hasPairedSession) {
-      nativePrimeRequestedRef.current = false;
-      void teardownCodexRelayNativeTransport();
+      // Native transport restores its persisted proxy before React hydration.
+      // Do not tear it down during the brief window before ChatScreen mirrors
+      // the stored pairing token into the observable state.
+      if (!hasStoredPairedSession) {
+        void teardownCodexRelayNativeTransport();
+      }
       return;
     }
 
     let cancelled = false;
-
-    // Prime the fixed loopback transport once as soon as a secure pairing
-    // exists. Failure must not disrupt an already-working LAN connection; the
-    // offline retry loop below remains authoritative after connectivity loss.
-    if (connection !== "offline") {
-      if (nativePrimeRequestedRef.current) {
-        return;
-      }
-      nativePrimeRequestedRef.current = true;
-      void reconcileCodexRelayConnection()
-        .then((reconciled) => {
-          if (cancelled || !chatStore$.hasPairedSession.peek()) {
-            return;
-          }
-          setServerUrl(reconciled.serverUrl);
-          setStatusState(queryClient, reconciled.status);
-          setConnection("connected");
-          void queryClient.invalidateQueries();
-        })
-        .catch(() => undefined);
-      return () => {
-        cancelled = true;
-      };
-    }
 
     void (async () => {
       let attempt = 0;
@@ -167,7 +148,7 @@ function TabLayout() {
     return () => {
       cancelled = true;
     };
-  }, [connection, hasPairedSession]);
+  }, [connection, hasPairedSession, hasStoredPairedSession]);
 
   useEffect(() => {
     if (!supportsPushNotifications()) {

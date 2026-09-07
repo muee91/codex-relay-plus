@@ -262,8 +262,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       return
     }
 
+    stopStaleRelayLauncherIfNeeded()
     guard let ports = reservePorts() else {
-      fail("未能找到可用的本机 Relay 端口。")
+      fail("固定 Relay 端口 8787 或控制端口 8789 已被占用。")
       return
     }
     relayPort = ports.0
@@ -494,19 +495,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   }
 
   private func reservePorts() -> (Int, Int)? {
-    for relay in C.relayPort...(C.relayPort + 40) {
-      let control = relay + C.controlOffset
-      if canBind(relay) && canBind(control) {
-        return (relay, control)
-      }
+    let relay = C.relayPort
+    let control = relay + C.controlOffset
+    if canBind(relay) && canBind(control) {
+      return (relay, control)
     }
     return nil
+  }
+
+  private func stopStaleRelayLauncherIfNeeded() {
+    guard
+      let support = try? supportURL(),
+      let text = try? String(
+        contentsOf: support.appendingPathComponent("desktop-relay-launcher.pid"),
+        encoding: .utf8
+      ),
+      let pidValue = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+      pidValue > 0,
+      pidValue != getpid(),
+      kill(pidValue, 0) == 0
+    else {
+      return
+    }
+
+    let commandPipe = Pipe()
+    let command = Process()
+    command.executableURL = URL(fileURLWithPath: "/bin/ps")
+    command.arguments = ["-p", String(pidValue), "-o", "command="]
+    command.standardOutput = commandPipe
+    command.standardError = FileHandle.nullDevice
+
+    do {
+      try command.run()
+      command.waitUntilExit()
+    } catch {
+      return
+    }
+
+    let commandLine = String(
+      data: commandPipe.fileHandleForReading.readDataToEndOfFile(),
+      encoding: .utf8
+    ) ?? ""
+    guard commandLine.contains("/relay-launcher.sh") || commandLine.contains("/runtime/node") else {
+      return
+    }
+
+    _ = Darwin.kill(-pidValue, SIGTERM)
+    let deadline = Date().addingTimeInterval(2)
+    while kill(pidValue, 0) == 0 && Date() < deadline {
+      _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+    if kill(pidValue, 0) == 0 {
+      _ = Darwin.kill(-pidValue, SIGKILL)
+    }
+
+    let portDeadline = Date().addingTimeInterval(15)
+    while Date() < portDeadline &&
+      (!canBind(C.relayPort) || !canBind(C.relayPort + C.controlOffset))
+    {
+      _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+
+    try? FileManager.default.removeItem(
+      at: support.appendingPathComponent("desktop-relay-launcher.pid")
+    )
   }
 
   private func canBind(_ port: Int) -> Bool {
     let fd = socket(AF_INET, SOCK_STREAM, 0)
     guard fd >= 0 else { return false }
     defer { close(fd) }
+
+    var reuseAddress: Int32 = 1
+    _ = setsockopt(
+      fd,
+      SOL_SOCKET,
+      SO_REUSEADDR,
+      &reuseAddress,
+      socklen_t(MemoryLayout<Int32>.size)
+    )
 
     var address = sockaddr_in()
     address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)

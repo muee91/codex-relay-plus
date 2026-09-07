@@ -22,10 +22,16 @@ type CodexRelayTransportNativeModule = {
     mode: "auto" | "local" | "remote",
   ): string;
   discoverLocalRelay(timeoutMs: number): Promise<string | null>;
+  getPersistedRelayProxyConfig?(): string | null;
   refreshTailcatPath(): Promise<string>;
   startTailcatProxy(serverAddr: string, remotePort: number): Promise<string>;
   stopTailcatProxy(): Promise<void>;
   tailcatStatus(): Promise<string>;
+};
+
+export type NativeRelayProxyConfig = {
+  serverAddr: string;
+  remotePort: number;
 };
 
 // Accessing NativeModules here eagerly instantiates the mobile bridge. Both the
@@ -42,6 +48,29 @@ function nativeModule() {
 
 export function isNativeTailcatAvailable() {
   return Boolean(nativeModule());
+}
+
+export function getPersistedNativeRelayProxyConfig(): NativeRelayProxyConfig | undefined {
+  const raw = nativeModule()?.getPersistedRelayProxyConfig?.();
+  if (typeof raw !== "string" || !raw.trim()) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<NativeRelayProxyConfig>;
+    if (
+      typeof parsed.serverAddr !== "string" ||
+      !parsed.serverAddr.startsWith("tc") ||
+      typeof parsed.remotePort !== "number" ||
+      !Number.isSafeInteger(parsed.remotePort) ||
+      parsed.remotePort < 1 ||
+      parsed.remotePort > 65535
+    ) {
+      return undefined;
+    }
+    return { serverAddr: parsed.serverAddr, remotePort: parsed.remotePort };
+  } catch {
+    return undefined;
+  }
 }
 
 export async function configureNativeRelayProxy(input: {

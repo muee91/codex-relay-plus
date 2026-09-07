@@ -7,6 +7,7 @@ static NSString *const kServerAddrKey = @"serverAddr";
 static NSString *const kRemotePortKey = @"remotePort";
 static NSString *const kLanTargetsKey = @"lanTargetsJson";
 static NSString *const kModeKey = @"mode";
+static const long long kFixedRelayRemotePort = 8787;
 
 @interface CodexRelayTransportModule : NSObject <RCTBridgeModule>
 @property(nonatomic, strong) NSUserDefaults *defaults;
@@ -19,6 +20,19 @@ RCT_EXPORT_MODULE(CodexRelayTransport)
 
 + (BOOL)requiresMainQueueSetup {
   return NO;
+}
+
+RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(getPersistedRelayProxyConfig) {
+  NSString *serverAddr = [self.defaults stringForKey:kServerAddrKey];
+  NSNumber *remotePort = [self.defaults objectForKey:kRemotePortKey];
+  if (serverAddr.length == 0 || remotePort == nil || remotePort.longLongValue < 1 || remotePort.longLongValue > 65535) {
+    return @"";
+  }
+  NSDictionary *config = @{ @"serverAddr": serverAddr, @"remotePort": @(kFixedRelayRemotePort) };
+  NSError *error = nil;
+  NSData *data = [NSJSONSerialization dataWithJSONObject:config options:0 error:&error];
+  if (error != nil || data == nil) return @"";
+  return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
 }
 
 - (instancetype)init {
@@ -141,7 +155,7 @@ RCT_REMAP_METHOD(discoverLocalRelay,
                            error:(NSError **)error {
   NSString *localURL = GoBridgeConfigureProxy(
       serverAddr,
-      remotePort,
+      kFixedRelayRemotePort,
       lanTargetsJson,
       mode,
       [self clientKeyPath],
@@ -151,7 +165,7 @@ RCT_REMAP_METHOD(discoverLocalRelay,
   }
 
   [self.defaults setObject:serverAddr forKey:kServerAddrKey];
-  [self.defaults setObject:@(remotePort) forKey:kRemotePortKey];
+  [self.defaults setObject:@(kFixedRelayRemotePort) forKey:kRemotePortKey];
   [self.defaults setObject:lanTargetsJson forKey:kLanTargetsKey];
   [self.defaults setObject:mode forKey:kModeKey];
   [self.defaults synchronize];
@@ -164,16 +178,20 @@ RCT_REMAP_METHOD(discoverLocalRelay,
   if (serverAddr.length == 0 || remotePort == nil || remotePort.longLongValue < 1 || remotePort.longLongValue > 65535) {
     return;
   }
-  NSString *lanTargets = [self.defaults stringForKey:kLanTargetsKey] ?: @"[]";
   NSString *mode = [self.defaults stringForKey:kModeKey] ?: @"auto";
+  if ([mode isEqualToString:@"local"]) return;
   NSError *error = nil;
   (void)GoBridgeConfigureProxy(
       serverAddr,
-      remotePort.longLongValue,
-      lanTargets,
-      mode,
+      kFixedRelayRemotePort,
+      @"[]",
+      @"remote",
       [self clientKeyPath],
       &error);
+  [self.defaults setObject:@(kFixedRelayRemotePort) forKey:kRemotePortKey];
+  [self.defaults setObject:@"[]" forKey:kLanTargetsKey];
+  [self.defaults setObject:@"remote" forKey:kModeKey];
+  [self.defaults synchronize];
 }
 
 - (NSString *)clientKeyPath {

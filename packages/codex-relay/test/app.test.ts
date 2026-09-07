@@ -26,6 +26,15 @@ const execFileAsync = promisify(execFile);
 const requirePackage = createRequire(import.meta.url);
 const relayPackage = requirePackage("../package.json") as { version: string };
 
+function parseSseEvents(body: string) {
+  return body.split(/\r?\n\r?\n/).flatMap((chunk) =>
+    chunk
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data: "))
+      .map((line) => JSON.parse(line.slice("data: ".length)) as Record<string, unknown>),
+  );
+}
+
 function createMockCodex(handlers?: {
   onResumeThread?: (threadId: string, options: Parameters<CodexClient["resumeThread"]>[1]) => void;
   onStartThread?: (options: Parameters<CodexClient["startThread"]>[0]) => void;
@@ -1773,6 +1782,18 @@ describe("Codex Relay server routes", () => {
   it("archives app-server threads through the Codex app-server", async () => {
     const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
     const now = Date.now() / 1000;
+    const archivedThread = {
+      id: "app-thread-archive",
+      preview: "Archived thread",
+      createdAt: now,
+      updatedAt: now,
+      status: { type: "idle" },
+      cwd: workspacePath,
+      source: "app-server",
+      modelProvider: "openai",
+      name: "Archived thread",
+      turns: [],
+    };
     const remainingThread = {
       id: "app-thread-remaining",
       preview: "Remaining thread",
@@ -1797,7 +1818,7 @@ describe("Codex Relay server routes", () => {
       onRequest() {
         return () => undefined;
       },
-      readThread: vi.fn<() => Promise<unknown>>(async () => remainingThread),
+      readThread: vi.fn<() => Promise<unknown>>(async () => archivedThread),
       startThread: vi.fn<() => Promise<unknown>>(async () => remainingThread),
     };
     const app = createApp({
@@ -1805,6 +1826,19 @@ describe("Codex Relay server routes", () => {
       codex: createMockCodex(),
       workspacePath,
     });
+
+    const firstStreamResponse = await app.request("/v1/threads/app-thread-archive/runs/stream", {
+      method: "POST",
+      body: JSON.stringify({ watch: true }),
+      headers: { "content-type": "application/json" },
+    });
+    const firstStreamReader = firstStreamResponse.body?.getReader();
+    expect(firstStreamReader).toBeDefined();
+    const firstStreamChunk = await firstStreamReader!.read();
+    expect(firstStreamChunk.done).toBe(false);
+    expect(parseSseEvents(new TextDecoder().decode(firstStreamChunk.value))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ sequence: 1 })]),
+    );
 
     const response = await app.request("/v1/threads/app-thread-archive", { method: "DELETE" });
     const body = await response.json();
@@ -1820,6 +1854,22 @@ describe("Codex Relay server routes", () => {
       id: "app-thread-remaining",
       title: "Remaining thread",
     });
+    expect((await firstStreamReader!.read()).done).toBe(true);
+
+    const replayResponse = await app.request("/v1/threads/app-thread-archive/runs/stream", {
+      method: "POST",
+      body: JSON.stringify({ since: 0, watch: true }),
+      headers: { "content-type": "application/json" },
+    });
+    const replayReader = replayResponse.body?.getReader();
+    expect(replayReader).toBeDefined();
+    const replayChunk = await replayReader!.read();
+    expect(replayChunk.done).toBe(false);
+    expect(parseSseEvents(new TextDecoder().decode(replayChunk.value))[0]).toMatchObject({
+      reason: "no_cache",
+      type: "thread.stream.replay_unavailable",
+    });
+    await replayReader!.cancel("verify archive cache cleanup");
   });
 
   it("renames an app-server thread", async () => {
@@ -2105,6 +2155,238 @@ describe("Codex Relay server routes", () => {
     ]);
   });
 
+  it("serves refresh from rollout history before a slow app-server full read", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const codexHome = await mkdtemp(join(tmpdir(), "codex-relay-home-"));
+    const sessionsDir = join(codexHome, "sessions", "2026", "09", "07");
+    await mkdir(sessionsDir, { recursive: true });
+    const threadId = "app-thread-refresh-rollout-tail";
+    await writeFile(
+      join(sessionsDir, `rollout-2026-09-07T00-00-00-${threadId}.jsonl`),
+      [
+        JSON.stringify({
+          payload: { turn_id: "turn-refresh-rollout", type: "task_started" },
+          timestamp: "2026-09-07T00:00:00.000Z",
+          type: "event_msg",
+        }),
+        JSON.stringify({
+          payload: { message: "latest mobile prompt", type: "user_message" },
+          timestamp: "2026-09-07T00:00:01.000Z",
+          type: "event_msg",
+        }),
+        JSON.stringify({
+          payload: { message: "latest desktop output", type: "agent_message" },
+          timestamp: "2026-09-07T00:00:02.000Z",
+          type: "event_msg",
+        }),
+      ].join("\n"),
+    );
+
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    const now = Date.now() / 1000;
+    const appThread = {
+      id: threadId,
+      createdAt: now,
+      cwd: workspacePath,
+      modelProvider: "gpt-5.5",
+      name: "Refresh rollout tail",
+      preview: "latest desktop output",
+      source: "app",
+      status: { type: "idle" },
+      updatedAt: now,
+    };
+    const readThread = vi.fn<() => Promise<unknown>>(() => new Promise(() => undefined));
+    const appServer = {
+      listThreads: vi.fn<() => Promise<unknown[]>>(async () => [appThread]),
+      onNotification() {
+        return () => undefined;
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread,
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    try {
+      await app.request("/v1/threads");
+      const response = await app.request(`/v1/threads/${threadId}?refresh=true`);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.messages.map((message: { content: string }) => message.content)).toEqual([
+        "latest mobile prompt",
+        "latest desktop output",
+      ]);
+      expect(readThread).toHaveBeenCalledWith(threadId, { includeTurns: true });
+    } finally {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  it("serves an unknown paginated thread from the latest rollout tail when app-server history is unavailable", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const codexHome = await mkdtemp(join(tmpdir(), "codex-relay-home-"));
+    const sessionsDir = join(codexHome, "sessions", "2026", "09", "07");
+    await mkdir(sessionsDir, { recursive: true });
+    const threadId = "app-thread-unknown-paginated-tail";
+    await writeFile(
+      join(sessionsDir, `rollout-2026-09-07T00-00-00-${threadId}-old.jsonl`),
+      JSON.stringify({
+        payload: { message: "old answer", type: "agent_message" },
+        timestamp: "2026-09-07T00:00:00.000Z",
+        type: "event_msg",
+      }),
+    );
+    await writeFile(
+      join(sessionsDir, `rollout-2026-09-07T00-01-00-${threadId}-latest.jsonl`),
+      [
+        JSON.stringify({
+          payload: { history_mode: "paginated", id: threadId },
+          timestamp: "2026-09-07T00:01:00.000Z",
+          type: "session_meta",
+        }),
+        JSON.stringify({
+          payload: { message: "latest mobile prompt", type: "user_message" },
+          timestamp: "2026-09-07T00:01:01.000Z",
+          type: "event_msg",
+        }),
+        JSON.stringify({
+          payload: { message: "latest desktop output", type: "agent_message" },
+          timestamp: "2026-09-07T00:01:02.000Z",
+          type: "event_msg",
+        }),
+        JSON.stringify({
+          payload: {
+            aggregated_output: "x".repeat(5 * 1024 * 1024),
+            call_id: "call-noisy-output",
+            command: ["/bin/zsh", "-lc", "large-output"],
+            exit_code: 0,
+            type: "exec_command_end",
+          },
+          timestamp: "2026-09-07T00:01:03.000Z",
+          type: "event_msg",
+        }),
+      ].join("\n"),
+    );
+
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    const readThread = vi.fn<() => Promise<unknown>>(() =>
+      Promise.reject(new Error("Max payload size exceeded")),
+    );
+    const appServer = {
+      onNotification() {
+        return () => undefined;
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread,
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    try {
+      const response = await app.request(`/v1/threads/${threadId}?refresh=true`);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(
+        body.messages
+          .filter(
+            (message: { role: string }) => message.role === "user" || message.role === "assistant",
+          )
+          .map((message: { content: string }) => message.content),
+      ).toEqual(["latest mobile prompt", "latest desktop output"]);
+      expect(body.messages).toHaveLength(3);
+      expect(readThread).toHaveBeenCalledWith(threadId, { includeTurns: true });
+    } finally {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  it("returns a running known thread from rollout history without waiting for app-server reads", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const codexHome = await mkdtemp(join(tmpdir(), "codex-relay-home-"));
+    const sessionsDir = join(codexHome, "sessions", "2026", "09", "07");
+    await mkdir(sessionsDir, { recursive: true });
+    const threadId = "app-thread-running-rollout-fast-path";
+    await writeFile(
+      join(sessionsDir, `rollout-2026-09-07T00-00-00-${threadId}.jsonl`),
+      [
+        JSON.stringify({
+          payload: { turn_id: "turn-running-rollout", type: "task_started" },
+          timestamp: "2026-09-07T00:00:00.000Z",
+          type: "event_msg",
+        }),
+        JSON.stringify({
+          payload: { message: "new mobile prompt", type: "user_message" },
+          timestamp: "2026-09-07T00:00:01.000Z",
+          type: "event_msg",
+        }),
+        JSON.stringify({
+          payload: { message: "new desktop output", type: "agent_message" },
+          timestamp: "2026-09-07T00:00:02.000Z",
+          type: "event_msg",
+        }),
+      ].join("\n"),
+    );
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    const now = Date.now() / 1000;
+    const runningThread = {
+      id: threadId,
+      createdAt: now,
+      cwd: workspacePath,
+      modelProvider: "gpt-5.5",
+      name: "Running rollout fast path",
+      preview: "new desktop output",
+      source: "app",
+      status: { type: "active" },
+      updatedAt: now,
+    };
+    const appServer = {
+      listThreads: vi.fn<() => Promise<unknown[]>>(async () => [runningThread]),
+      onNotification() {
+        return () => undefined;
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread: vi.fn<() => Promise<unknown>>(() => new Promise(() => undefined)),
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    try {
+      await app.request("/v1/threads");
+      const response = await app.request(`/v1/threads/${threadId}?refresh=true`);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(appServer.readThread).not.toHaveBeenCalled();
+      expect(body.thread).toMatchObject({ id: threadId, state: "running" });
+      expect(body.messages.map((message: { content: string }) => message.content)).toEqual([
+        "new mobile prompt",
+        "new desktop output",
+      ]);
+    } finally {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
   it("reads an app-server thread goal", async () => {
     const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
     const now = Date.now() / 1000;
@@ -2342,6 +2624,12 @@ describe("Codex Relay server routes", () => {
       body: JSON.stringify({}),
       headers: { "content-type": "application/json" },
     });
+    for (const handler of notificationHandlers) {
+      handler({
+        method: "thread/status/changed",
+        params: { status: { type: "idle" }, threadId: "app-thread-empty-stream" },
+      });
+    }
     const body = await response.text();
     const stateEvents = body
       .split("\n")
@@ -2350,9 +2638,8 @@ describe("Codex Relay server routes", () => {
       .filter((event) => event.type === "thread.state.changed");
 
     expect(response.status).toBe(200);
-    expect(appServer.resumeThread).toHaveBeenCalledWith({
-      excludeTurns: true,
-      threadId: "app-thread-empty-stream",
+    expect(appServer.readThread).toHaveBeenCalledWith("app-thread-empty-stream", {
+      includeTurns: false,
     });
     expect(body).toContain('"state":"idle"');
     expect((stateEvents.at(-1)?.thread as { state?: string } | undefined)?.state).toBe("idle");
@@ -2387,6 +2674,482 @@ describe("Codex Relay server routes", () => {
         role: "tool",
       }),
     );
+  });
+
+  it("replays the current app-server turn when attaching after it has started", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const notificationHandlers = new Set<(notification: unknown) => void>();
+    const now = Date.now() / 1000;
+    const appThread = {
+      id: "app-thread-snapshot-stream",
+      createdAt: now,
+      cwd: workspacePath,
+      modelProvider: "gpt-5.5",
+      name: "Snapshot stream",
+      preview: "Snapshot stream",
+      source: "app",
+      status: { type: "active" },
+      turns: [],
+      updatedAt: now,
+    };
+    const runningThread = {
+      ...appThread,
+      turns: [
+        {
+          id: "turn-snapshot-stream",
+          items: [
+            {
+              content: [{ text: "Continue the desktop task", text_elements: [], type: "text" }],
+              id: "user-snapshot-stream",
+              type: "userMessage",
+            },
+            {
+              id: "assistant-snapshot-stream",
+              text: "Already visible from the desktop",
+              type: "agentMessage",
+            },
+          ],
+          startedAt: now,
+          completedAt: null,
+          status: "inProgress",
+        },
+      ],
+    };
+    const appServer = {
+      onNotification(handler: (notification: unknown) => void) {
+        notificationHandlers.add(handler);
+        return () => notificationHandlers.delete(handler);
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread: vi.fn<() => Promise<unknown>>(async () => appThread),
+      resumeThread: vi.fn<() => Promise<unknown>>(async () => runningThread),
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    const response = await app.request("/v1/threads/app-thread-snapshot-stream/runs/stream", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "content-type": "application/json" },
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    const decoder = new TextDecoder();
+    let body = "";
+    for (let readCount = 0; readCount < 4 && !body.includes("Already visible from the desktop"); ) {
+      const result = await reader!.read();
+      expect(result.done).toBe(false);
+      body += decoder.decode(result.value, { stream: true });
+      readCount += 1;
+    }
+
+    expect(body).toContain("Already visible from the desktop");
+    expect(body).toContain('"type":"thread.message.created"');
+    expect(body).toContain('"state":"streaming"');
+
+    for (const handler of notificationHandlers) {
+      handler({
+        method: "turn/completed",
+        params: {
+          threadId: appThread.id,
+          turn: {
+            ...runningThread.turns[0],
+            completedAt: now,
+            status: "completed",
+          },
+        },
+      });
+    }
+    while (true) {
+      const result = await reader!.read();
+      if (result.done) {
+        break;
+      }
+      body += decoder.decode(result.value, { stream: true });
+    }
+
+    const events = body
+      .split("\n")
+      .filter((line) => line.startsWith("data: "))
+      .map((line) => JSON.parse(line.slice("data: ".length)) as Record<string, unknown>);
+    const assistantEvents = events.filter(
+      (event) =>
+        (event.type === "thread.message.created" || event.type === "thread.message.completed") &&
+        (event.message as { id?: string } | undefined)?.id === "assistant-snapshot-stream",
+    );
+
+    expect(response.status).toBe(200);
+    expect(assistantEvents.map((event) => event.type)).toEqual([
+      "thread.message.created",
+      "thread.message.completed",
+    ]);
+    expect(appServer.resumeThread).toHaveBeenCalledWith({
+      excludeTurns: true,
+      threadId: appThread.id,
+    });
+    expect(appServer.readThread).toHaveBeenCalledWith(appThread.id, { includeTurns: false });
+  });
+
+  it("falls back to a read-only snapshot when the desktop owns the active writer", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const notificationHandlers = new Set<(notification: unknown) => void>();
+    const now = Date.now() / 1000;
+    const appThread = {
+      id: "app-thread-active-writer-fallback",
+      createdAt: now,
+      cwd: workspacePath,
+      modelProvider: "gpt-5.5",
+      name: "Active writer fallback",
+      preview: "Active writer fallback",
+      source: "app",
+      status: { type: "active" },
+      turns: [],
+      updatedAt: now,
+    };
+    const runningTurn = {
+      id: "turn-active-writer-fallback",
+      items: [
+        {
+          content: [{ text: "Desktop prompt", text_elements: [], type: "text" }],
+          id: "user-active-writer-fallback",
+          type: "userMessage",
+        },
+        {
+          id: "assistant-active-writer-fallback",
+          text: "Desktop output already exists",
+          type: "agentMessage",
+        },
+      ],
+      startedAt: now,
+      completedAt: null,
+      status: "inProgress",
+    };
+    const appServer = {
+      onNotification(handler: (notification: unknown) => void) {
+        notificationHandlers.add(handler);
+        return () => notificationHandlers.delete(handler);
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread: vi.fn<() => Promise<unknown>>(async () => ({
+        ...appThread,
+        turns: [runningTurn],
+      })),
+      resumeThread: vi.fn<() => Promise<unknown>>(async () => {
+        throw new Error("-32600: thread already has an active writer");
+      }),
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    const response = await app.request(
+      "/v1/threads/app-thread-active-writer-fallback/runs/stream",
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+        headers: { "content-type": "application/json" },
+      },
+    );
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    const decoder = new TextDecoder();
+    let body = "";
+    for (let readCount = 0; readCount < 4 && !body.includes("Desktop output already exists"); ) {
+      const result = await reader!.read();
+      expect(result.done).toBe(false);
+      body += decoder.decode(result.value, { stream: true });
+      readCount += 1;
+    }
+
+    expect(response.status).toBe(200);
+    expect(appServer.resumeThread).toHaveBeenCalledWith({
+      excludeTurns: true,
+      threadId: appThread.id,
+    });
+    expect(appServer.readThread).toHaveBeenCalledWith(appThread.id, { includeTurns: false });
+    expect(body).toContain("Desktop output already exists");
+    expect(body).toContain('"state":"streaming"');
+
+    for (const handler of notificationHandlers) {
+      handler({
+        method: "turn/completed",
+        params: {
+          threadId: appThread.id,
+          turn: {
+            ...runningTurn,
+            completedAt: now,
+            status: "completed",
+          },
+        },
+      });
+    }
+    while (true) {
+      const result = await reader!.read();
+      if (result.done) {
+        break;
+      }
+      body += decoder.decode(result.value, { stream: true });
+    }
+
+    expect(body).toContain('"type":"thread.message.completed"');
+    expect(body).toContain('"type":"thread.state.changed"');
+  });
+
+  it("keeps a watch stream open across turns and forwards a later desktop turn", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const notificationHandlers = new Set<(notification: unknown) => void>();
+    const now = Date.now() / 1000;
+    const appThread = {
+      id: "app-thread-watch-stream",
+      createdAt: now,
+      cwd: workspacePath,
+      modelProvider: "gpt-5.5",
+      name: "Watch stream",
+      preview: "Watch stream",
+      source: "app",
+      status: { type: "idle" },
+      turns: [],
+      updatedAt: now,
+    };
+    const turn = {
+      id: "turn-watch-stream",
+      items: [
+        {
+          id: "assistant-watch-stream",
+          text: "Message from the desktop turn",
+          type: "agentMessage",
+        },
+      ],
+      startedAt: now,
+      completedAt: now,
+      status: "completed",
+    };
+    const appServer = {
+      onNotification(handler: (notification: unknown) => void) {
+        notificationHandlers.add(handler);
+        return () => notificationHandlers.delete(handler);
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread: vi.fn<() => Promise<unknown>>(async () => appThread),
+      resumeThread: vi.fn<() => Promise<unknown>>(async () => appThread),
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    const response = await app.request("/v1/threads/app-thread-watch-stream/runs/stream", {
+      method: "POST",
+      body: JSON.stringify({ watch: true }),
+      headers: { "content-type": "application/json" },
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    const decoder = new TextDecoder();
+    let body = "";
+    for (let readCount = 0; readCount < 4 && !body.includes('"state":"idle"'); ) {
+      const initial = await reader!.read();
+      expect(initial.done).toBe(false);
+      body += decoder.decode(initial.value, { stream: true });
+      readCount += 1;
+    }
+    expect(body).toContain('"type":"thread.state.changed"');
+    expect(body).toContain('"state":"idle"');
+
+    for (const handler of notificationHandlers) {
+      handler({
+        method: "turn/started",
+        params: {
+          threadId: appThread.id,
+          turnId: turn.id,
+        },
+      });
+      handler({
+        method: "item/completed",
+        params: {
+          item: turn.items[0],
+          threadId: appThread.id,
+          turnId: turn.id,
+        },
+      });
+      handler({
+        method: "turn/completed",
+        params: {
+          threadId: appThread.id,
+          turn,
+        },
+      });
+    }
+
+    const hasCompletedStateEvent = () =>
+      body
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .some((line) => {
+          try {
+            const event = JSON.parse(line.slice("data: ".length)) as {
+              thread?: { state?: string };
+              type?: string;
+            };
+            return event.type === "thread.state.changed" && event.thread?.state === "completed";
+          } catch {
+            return false;
+          }
+        });
+
+    for (let readCount = 0; readCount < 8 && !hasCompletedStateEvent(); ) {
+      const result = await reader!.read();
+      expect(result.done).toBe(false);
+      body += decoder.decode(result.value, { stream: true });
+      readCount += 1;
+    }
+
+    expect(response.status).toBe(200);
+    expect(appServer.resumeThread).toHaveBeenCalledWith({
+      excludeTurns: true,
+      threadId: appThread.id,
+    });
+    expect(body).toContain("Message from the desktop turn");
+    expect(body).toContain('"state":"completed"');
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const stillOpen = await Promise.race([
+      reader!.read().then((result) => ({ kind: "read" as const, result })),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        timeoutHandle = setTimeout(() => resolve({ kind: "timeout" }), 25);
+      }),
+    ]);
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    expect(stillOpen.kind).toBe("timeout");
+    await reader!.cancel("test cancellation");
+  });
+
+  it("replays cached watch events after a reconnect using since", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const now = Date.now() / 1000;
+    const appThread = {
+      id: "app-thread-watch-replay",
+      createdAt: now,
+      cwd: workspacePath,
+      modelProvider: "gpt-5.5",
+      name: "Watch replay",
+      preview: "Watch replay",
+      source: "app",
+      status: { type: "idle" },
+      turns: [],
+      updatedAt: now,
+    };
+    const appServer = {
+      onNotification() {
+        return () => undefined;
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread: vi.fn<() => Promise<unknown>>(async () => appThread),
+      resumeThread: vi.fn<() => Promise<unknown>>(async () => appThread),
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    const firstResponse = await app.request("/v1/threads/app-thread-watch-replay/runs/stream", {
+      method: "POST",
+      body: JSON.stringify({ watch: true }),
+      headers: { "content-type": "application/json" },
+    });
+    const firstReader = firstResponse.body?.getReader();
+    expect(firstReader).toBeDefined();
+    const firstChunk = await firstReader!.read();
+    expect(firstChunk.done).toBe(false);
+    const firstBody = new TextDecoder().decode(firstChunk.value);
+    const firstEvents = parseSseEvents(firstBody);
+    const firstSequence = firstEvents.find((event) => typeof event.sequence === "number")?.sequence;
+    expect(firstSequence).toBe(1);
+    await firstReader!.cancel("reconnect");
+
+    const replayResponse = await app.request("/v1/threads/app-thread-watch-replay/runs/stream", {
+      method: "POST",
+      body: JSON.stringify({ since: 0, watch: true }),
+      headers: { "content-type": "application/json" },
+    });
+    const replayReader = replayResponse.body?.getReader();
+    expect(replayReader).toBeDefined();
+    const replayChunk = await replayReader!.read();
+    expect(replayChunk.done).toBe(false);
+    const replayEvents = parseSseEvents(new TextDecoder().decode(replayChunk.value));
+    expect(replayEvents).toContainEqual(
+      expect.objectContaining({
+        sequence: 1,
+        type: "thread.state.changed",
+      }),
+    );
+    await replayReader!.cancel("test cancellation");
+  });
+
+  it("signals snapshot recovery when a requested stream cursor is unavailable", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const now = Date.now() / 1000;
+    const appThread = {
+      id: "app-thread-watch-recovery",
+      createdAt: now,
+      cwd: workspacePath,
+      modelProvider: "gpt-5.5",
+      name: "Watch recovery",
+      preview: "Watch recovery",
+      source: "app",
+      status: { type: "idle" },
+      turns: [],
+      updatedAt: now,
+    };
+    const appServer = {
+      onNotification() {
+        return () => undefined;
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread: vi.fn<() => Promise<unknown>>(async () => appThread),
+      resumeThread: vi.fn<() => Promise<unknown>>(async () => appThread),
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    const response = await app.request("/v1/threads/app-thread-watch-recovery/runs/stream", {
+      method: "POST",
+      body: JSON.stringify({ since: 99, watch: true }),
+      headers: { "content-type": "application/json" },
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    const chunk = await reader!.read();
+    expect(chunk.done).toBe(false);
+    const events = parseSseEvents(new TextDecoder().decode(chunk.value));
+    expect(events[0]).toMatchObject({
+      reason: "no_cache",
+      since: 99,
+      type: "thread.stream.replay_unavailable",
+    });
+    await reader!.cancel("test cancellation");
   });
 
   it("does not accumulate preview probes or app-server handlers across cancelled attachments", async () => {
@@ -8132,8 +8895,7 @@ describe("Codex Relay server routes", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
-      expect(readThread).toHaveBeenCalledTimes(1);
-      expect(readThread).toHaveBeenNthCalledWith(1, threadId, { includeTurns: false });
+      expect(readThread).not.toHaveBeenCalled();
       expect(body.thread.state).toBe("running");
       expect(body.messages.map((message: { content: string }) => message.content)).toEqual([
         "known running prompt",

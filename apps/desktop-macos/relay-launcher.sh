@@ -6,6 +6,7 @@ NODE_BIN="$RUNTIME_DIR/node-bin"
 TAILCAT_BIN="$RUNTIME_DIR/tailcat-relay-server"
 RELAY_PORT="${PORT:-8787}"
 SUPPORT_DIR="${CODEX_RELAY_HOME:-$HOME/Library/Application Support/Codex Relay Plus}"
+DESKTOP_RELAY_PID_FILE="$SUPPORT_DIR/desktop-relay-launcher.pid"
 TAILCAT_KEY="$SUPPORT_DIR/tailcat-server.json"
 TAILCAT_STATUS_FILE="$SUPPORT_DIR/tailcat-status.$$"
 TAILCAT_INITIAL_READY_WAIT_MS=3000
@@ -14,6 +15,46 @@ TAILCAT_ENABLED="${CODEX_RELAY_TAILCAT_ENABLED:-1}"
 node_pid=""
 tailcat_pid=""
 bonjour_pid=""
+
+stop_stale_launcher() {
+  local stale_pid stale_command
+  if [[ ! -s "$DESKTOP_RELAY_PID_FILE" ]]; then
+    return
+  fi
+
+  stale_pid="$(tr -d '[:space:]' < "$DESKTOP_RELAY_PID_FILE")"
+  if [[ ! "$stale_pid" =~ ^[0-9]+$ ]] || [[ "$stale_pid" == "$$" ]]; then
+    rm -f "$DESKTOP_RELAY_PID_FILE"
+    return
+  fi
+
+  if ! kill -0 "$stale_pid" >/dev/null 2>&1; then
+    rm -f "$DESKTOP_RELAY_PID_FILE"
+    return
+  fi
+
+  stale_command="$(ps -p "$stale_pid" -o command= 2>/dev/null || true)"
+  if [[ "$stale_command" != *"/relay-launcher.sh"* && "$stale_command" != *"/runtime/node"* ]]; then
+    return
+  fi
+
+  echo "Stopping stale Codex Relay launcher pid $stale_pid." >&2
+  kill -TERM "-$stale_pid" >/dev/null 2>&1 || kill -TERM "$stale_pid" >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ! kill -0 "$stale_pid" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.2
+  done
+  if kill -0 "$stale_pid" >/dev/null 2>&1; then
+    kill -KILL "-$stale_pid" >/dev/null 2>&1 || kill -KILL "$stale_pid" >/dev/null 2>&1 || true
+  fi
+  rm -f "$DESKTOP_RELAY_PID_FILE"
+}
+
+write_launcher_pid() {
+  printf '%s\n' "$$" > "$DESKTOP_RELAY_PID_FILE"
+}
 
 cleanup() {
   trap - EXIT INT TERM
@@ -24,10 +65,15 @@ cleanup() {
   [[ -n "$tailcat_pid" ]] && wait "$tailcat_pid" >/dev/null 2>&1 || true
   [[ -n "$bonjour_pid" ]] && wait "$bonjour_pid" >/dev/null 2>&1 || true
   rm -f "$TAILCAT_STATUS_FILE"
+  if [[ -s "$DESKTOP_RELAY_PID_FILE" ]] && [[ "$(tr -d '[:space:]' < "$DESKTOP_RELAY_PID_FILE")" == "$$" ]]; then
+    rm -f "$DESKTOP_RELAY_PID_FILE"
+  fi
 }
 trap cleanup EXIT INT TERM
 
 mkdir -p "$SUPPORT_DIR"
+stop_stale_launcher
+write_launcher_pid
 rm -f "$TAILCAT_STATUS_FILE"
 
 # Bonjour is advisory discovery only. LAN IP candidates in the regular pairing
