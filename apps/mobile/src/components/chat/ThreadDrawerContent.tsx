@@ -461,13 +461,7 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
         setSwitchingHostId(undefined);
       }
     },
-    [
-      activeHostId,
-      props.navigation,
-      queryClient,
-      statusQuery.data?.machineName,
-      switchingHostId,
-    ],
+    [activeHostId, props.navigation, queryClient, statusQuery.data?.machineName, switchingHostId],
   );
 
   useEffect(() => {
