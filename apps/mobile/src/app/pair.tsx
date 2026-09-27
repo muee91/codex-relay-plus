@@ -7,10 +7,14 @@ import { IpadSplitLayoutProvider } from "@/components/chat/ipad-split-layout";
 export default function PairScreen() {
   const params = useLocalSearchParams();
   const initialPairingUrl = useMemo(() => pairingUrlFromParams(params), [params]);
+  const openScannerOnMount = firstParam(params.scan) === "1";
 
   return (
     <IpadSplitLayoutProvider>
-      <ChatScreen initialPairingUrl={initialPairingUrl} />
+      <ChatScreen
+        initialPairingUrl={initialPairingUrl}
+        openScannerOnMount={openScannerOnMount}
+      />
     </IpadSplitLayoutProvider>
   );
 }
