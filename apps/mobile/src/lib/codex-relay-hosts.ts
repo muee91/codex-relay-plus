@@ -250,13 +250,13 @@ function isHostRecord(value: unknown): value is CodexRelayHostRecord {
   const host = value as Partial<CodexRelayHostRecord>;
   return Boolean(
     typeof host.id === "string" &&
-      host.id &&
-      typeof host.name === "string" &&
-      host.name &&
-      typeof host.clientToken === "string" &&
-      host.clientToken &&
-      typeof host.lastUsedAt === "string" &&
-      host.connection &&
-      typeof host.connection === "object",
+    host.id &&
+    typeof host.name === "string" &&
+    host.name &&
+    typeof host.clientToken === "string" &&
+    host.clientToken &&
+    typeof host.lastUsedAt === "string" &&
+    host.connection &&
+    typeof host.connection === "object",
   );
 }
