@@ -13,12 +13,19 @@ export type ChatShellAction = {
   readonly onPress: () => void;
 };
 
+export type ChatConnectionBadge = {
+  label: string;
+  tone: "bad" | "good" | "muted" | "warn";
+};
+
 export function ChatShellHeader({
+  connectionBadge,
   leadingAction,
   subtitle,
   title,
   trailingActions,
 }: {
+  connectionBadge?: ChatConnectionBadge;
   leadingAction: ChatShellAction;
   subtitle: string;
   title: string;
@@ -31,14 +38,29 @@ export function ChatShellHeader({
         <ThemedText type="smallBold" style={styles.title} numberOfLines={1}>
           {title}
         </ThemedText>
-        <ThemedText
-          type="code"
-          themeColor="textSecondary"
-          style={styles.subtitle}
-          numberOfLines={1}
-        >
-          {subtitle}
-        </ThemedText>
+        <View style={styles.metaRow}>
+          {connectionBadge ? (
+            <View style={[styles.connectionBadge, styles[`connectionBadge_${connectionBadge.tone}`]]}>
+              <View
+                style={[
+                  styles.connectionDot,
+                  styles[`connectionDot_${connectionBadge.tone}`],
+                ]}
+              />
+              <ThemedText type="code" style={styles.connectionLabel} numberOfLines={1}>
+                {connectionBadge.label}
+              </ThemedText>
+            </View>
+          ) : null}
+          <ThemedText
+            type="code"
+            themeColor="textSecondary"
+            style={styles.subtitle}
+            numberOfLines={1}
+          >
+            {subtitle}
+          </ThemedText>
+        </View>
       </View>
       <View pointerEvents="box-none" style={styles.headerActions}>
         {trailingActions.map((action) => (
@@ -106,7 +128,57 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.7,
   },
+  metaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    maxWidth: "100%",
+  },
+  connectionBadge: {
+    alignItems: "center",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 4,
+    maxWidth: 132,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  connectionBadge_bad: {
+    backgroundColor: "rgba(255, 111, 111, 0.12)",
+  },
+  connectionBadge_good: {
+    backgroundColor: "rgba(111, 220, 140, 0.12)",
+  },
+  connectionBadge_muted: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+  },
+  connectionBadge_warn: {
+    backgroundColor: "rgba(248, 196, 109, 0.12)",
+  },
+  connectionDot: {
+    borderRadius: 3,
+    height: 6,
+    width: 6,
+  },
+  connectionDot_bad: {
+    backgroundColor: "#FF7A7A",
+  },
+  connectionDot_good: {
+    backgroundColor: "#6FDC8C",
+  },
+  connectionDot_muted: {
+    backgroundColor: "rgba(255, 255, 255, 0.36)",
+  },
+  connectionDot_warn: {
+    backgroundColor: "#F8C46D",
+  },
+  connectionLabel: {
+    fontSize: 9,
+    lineHeight: 12,
+    maxWidth: 112,
+  },
   subtitle: {
+    flexShrink: 1,
     fontSize: 10,
     lineHeight: 14,
     maxWidth: "100%",
