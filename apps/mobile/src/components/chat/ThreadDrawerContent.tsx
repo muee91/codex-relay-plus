@@ -541,6 +541,11 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
       hosts={savedHosts}
       isRefreshingProjects={isRefreshingProjects}
       switchingHostId={switchingHostId}
+      onAddHost={() => {
+        hapticSelection();
+        props.navigation.closeDrawer();
+        requestAnimationFrame(() => router.push("/pair?scan=1"));
+      }}
       onSwitchHost={(host) => void switchHost(host)}
       onCloseMenu={() => {
         hapticSelection();
@@ -1193,6 +1198,7 @@ function DrawerListHeader({
   hosts,
   isRefreshingProjects,
   switchingHostId,
+  onAddHost,
   onSwitchHost,
   onCloseMenu,
   onNewChat,
@@ -1208,6 +1214,7 @@ function DrawerListHeader({
   hosts: CodexRelayHostRecord[];
   isRefreshingProjects: boolean;
   switchingHostId?: string;
+  onAddHost: () => void;
   onSwitchHost: (host: CodexRelayHostRecord) => void;
   onCloseMenu: () => void;
   onNewChat: () => void;
@@ -1328,9 +1335,40 @@ function DrawerListHeader({
                 </Pressable>
               );
             })}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add another Codex Relay host"
+              disabled={Boolean(switchingHostId)}
+              onPress={onAddHost}
+              style={({ pressed }) => [
+                styles.hostRow,
+                styles.addHostRow,
+                pressed && styles.drawerPressedContent,
+              ]}
+            >
+              <Icon name="newThread" size={14} tintColor={theme.textSecondary} />
+              <Text style={styles.addHostText}>Add host</Text>
+            </Pressable>
           </View>
         </View>
-      ) : null}
+      ) : (
+        <View style={styles.hostSection}>
+          <Text style={styles.sectionTitle}>Hosts</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add a Codex Relay host"
+            onPress={onAddHost}
+            style={({ pressed }) => [
+              styles.hostRow,
+              styles.addHostRow,
+              pressed && styles.drawerPressedContent,
+            ]}
+          >
+            <Icon name="newThread" size={14} tintColor={theme.textSecondary} />
+            <Text style={styles.addHostText}>Add host</Text>
+          </Pressable>
+        </View>
+      )}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Projects</Text>
         <View style={styles.sectionActions}>
@@ -1905,6 +1943,15 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     lineHeight: 16,
     minWidth: 0,
+  },
+  addHostRow: {
+    gap: 9,
+  },
+  addHostText: {
+    color: "rgba(255, 255, 255, 0.62)",
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
   },
   sectionActions: {
     flexDirection: "row",
