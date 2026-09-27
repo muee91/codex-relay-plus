@@ -102,6 +102,11 @@ import {
 } from "./secure-transport";
 import { startPairingTrialIfNeeded } from "./pairing-trial";
 import {
+  forgetActiveCodexRelayHost,
+  persistActiveCodexRelayHost,
+  registerPairedCodexRelayHost,
+} from "./codex-relay-hosts";
+import {
   createThreadRunSseDispatcher,
   parseThreadRunStreamPayload,
   threadRunStreamEventTypes,
@@ -212,6 +217,7 @@ export function codexRelayImageRequestHeaders() {
 }
 
 export function signOutCodexRelaySession() {
+  forgetActiveCodexRelayHost();
   storage.remove(clientTokenStorageKey);
   storage.remove(legacyClientTokenExpiresAtStorageKey);
   clearSecureSession();
@@ -226,6 +232,7 @@ export async function pairWithQrPayload(
   payload: unknown,
   handlers?: { onApprovalCode?: (approvalCode: string, serverUrl: string) => void },
 ) {
+  persistActiveCodexRelayHost();
   const pairingPayload = parsePairingQrPayload(payload);
   const connectionErrors: PairingCandidateConnectionError[] = [];
 
@@ -233,6 +240,7 @@ export async function pairWithQrPayload(
     try {
       const paired = await pairWithApproval(serverUrl, pairingPayload.serverPublicKey, handlers);
       saveCodexRelayServerUrlCandidates([paired.serverUrl, ...pairingPayload.serverUrls]);
+      registerPairedCodexRelayHost({ serverPublicKey: pairingPayload.serverPublicKey });
       return {
         ...pairingPayload,
         serverUrl: paired.serverUrl,
