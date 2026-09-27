@@ -31,6 +31,23 @@ export function ChatShellHeader({
   title: string;
   trailingActions: readonly ChatShellAction[];
 }) {
+  const badgeToneStyle = connectionBadge
+    ? {
+        bad: styles.connectionBadge_bad,
+        good: styles.connectionBadge_good,
+        muted: styles.connectionBadge_muted,
+        warn: styles.connectionBadge_warn,
+      }[connectionBadge.tone]
+    : undefined;
+  const dotToneStyle = connectionBadge
+    ? {
+        bad: styles.connectionDot_bad,
+        good: styles.connectionDot_good,
+        muted: styles.connectionDot_muted,
+        warn: styles.connectionDot_warn,
+      }[connectionBadge.tone]
+    : undefined;
+
   return (
     <View pointerEvents="box-none" style={styles.header}>
       <HeaderButton action={leadingAction} />
@@ -40,13 +57,8 @@ export function ChatShellHeader({
         </ThemedText>
         <View style={styles.metaRow}>
           {connectionBadge ? (
-            <View style={[styles.connectionBadge, styles[`connectionBadge_${connectionBadge.tone}`]]}>
-              <View
-                style={[
-                  styles.connectionDot,
-                  styles[`connectionDot_${connectionBadge.tone}`],
-                ]}
-              />
+            <View style={[styles.connectionBadge, badgeToneStyle]}>
+              <View style={[styles.connectionDot, dotToneStyle]} />
               <ThemedText type="code" style={styles.connectionLabel} numberOfLines={1}>
                 {connectionBadge.label}
               </ThemedText>
