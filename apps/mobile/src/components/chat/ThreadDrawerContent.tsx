@@ -41,6 +41,18 @@ import { codexRelayRepositoryUrl } from "@/constants/links";
 import { Fonts } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { hasCodexRelaySession } from "@/lib/codex-relay-api";
+import {
+  reconcileCodexRelayConnection,
+  teardownCodexRelayNativeTransport,
+} from "@/lib/codex-relay-connection-manager";
+import {
+  activateCodexRelayHost,
+  ensureCurrentCodexRelayHost,
+  getActiveCodexRelayHostId,
+  listCodexRelayHosts,
+  updateActiveCodexRelayHostName,
+  type CodexRelayHostRecord,
+} from "@/lib/codex-relay-hosts";
 import { hapticLightImpact, hapticSelection, hapticSuccess } from "@/lib/haptics";
 import {
   archiveThreadServerState,
@@ -53,6 +65,7 @@ import {
   restoreOptimisticArchiveThreadState,
   serverStateKeys,
   serverStateQueryFns,
+  setStatusState,
   setThreadDetailState,
   setThreadRunningState,
   setThreadsState,
@@ -62,9 +75,11 @@ import { workspaceName } from "@/lib/workspace-name";
 import {
   chatStore$,
   requestThreadStreamReconnect,
+  resetChatSessionState,
   setActiveThread,
   setConnection,
   setHasPairedSession,
+  setServerUrl,
   setThreadMessagesLoading,
 } from "@/state/chat-store";
 import { pinnedThreadStore$, togglePinnedThread, unpinThread } from "@/state/pinned-thread-store";
@@ -163,6 +178,9 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const queryClient = useQueryClient();
+  const [savedHosts, setSavedHosts] = useState<CodexRelayHostRecord[]>([]);
+  const [activeHostId, setActiveHostId] = useState<string | undefined>(undefined);
+  const [switchingHostId, setSwitchingHostId] = useState<string | undefined>(undefined);
   const createThreadMutation = useMutation({
     mutationFn: (body: Parameters<typeof createThreadServerState>[1]) =>
       createThreadServerState(queryClient, body),
@@ -373,6 +391,66 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
   }, [isDrawerVisible]);
 
   useEffect(() => {
+    if (!isDrawerVisible) {
+      return;
+    }
+    ensureCurrentCodexRelayHost(statusQuery.data?.machineName);
+    if (statusQuery.data?.machineName) {
+      updateActiveCodexRelayHostName(statusQuery.data.machineName);
+    }
+    setSavedHosts(listCodexRelayHosts());
+    setActiveHostId(getActiveCodexRelayHostId());
+  }, [isDrawerVisible, statusQuery.data?.machineName]);
+
+  const switchHost = useCallback(
+    async (host: CodexRelayHostRecord) => {
+      if (host.id === activeHostId || switchingHostId) {
+        return;
+      }
+      hapticSelection();
+      setSwitchingHostId(host.id);
+      try {
+        ensureCurrentCodexRelayHost(statusQuery.data?.machineName);
+        await teardownCodexRelayNativeTransport();
+        activateCodexRelayHost(host.id);
+        queryClient.clear();
+        resetChatSessionState();
+        setHasPairedSession(hasCodexRelaySession());
+        const reconciled = await reconcileCodexRelayConnection();
+        setServerUrl(reconciled.serverUrl);
+        setStatusState(queryClient, reconciled.status);
+        setConnection("connected");
+        updateActiveCodexRelayHostName(reconciled.status.machineName);
+        setSavedHosts(listCodexRelayHosts());
+        setActiveHostId(host.id);
+        props.navigation.closeDrawer();
+        hapticSuccess();
+      } catch (caught) {
+        setHasPairedSession(hasCodexRelaySession());
+        setConnection(
+          "offline",
+          caught instanceof Error ? caught.message : "Could not connect to the selected host.",
+        );
+        setSavedHosts(listCodexRelayHosts());
+        setActiveHostId(getActiveCodexRelayHostId());
+        Alert.alert(
+          "Couldn’t switch host",
+          caught instanceof Error ? caught.message : "Could not connect to the selected host.",
+        );
+      } finally {
+        setSwitchingHostId(undefined);
+      }
+    },
+    [
+      activeHostId,
+      props.navigation,
+      queryClient,
+      statusQuery.data?.machineName,
+      switchingHostId,
+    ],
+  );
+
+  useEffect(() => {
     searchProgress.value = withTiming(normalizedSearchQuery ? 1 : 0, {
       duration: 160,
       easing: Easing.out(Easing.cubic),
@@ -439,7 +517,11 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
 
   const listHeader = (
     <DrawerListHeader
+      activeHostId={activeHostId}
+      hosts={savedHosts}
       isRefreshingProjects={isRefreshingProjects}
+      switchingHostId={switchingHostId}
+      onSwitchHost={(host) => void switchHost(host)}
       onCloseMenu={() => {
         hapticSelection();
         props.navigation.closeDrawer();
@@ -1087,7 +1169,11 @@ function areDrawerRowItemsEqual(previous: DrawerRowItemProps, next: DrawerRowIte
 }
 
 function DrawerListHeader({
+  activeHostId,
+  hosts,
   isRefreshingProjects,
+  switchingHostId,
+  onSwitchHost,
   onCloseMenu,
   onNewChat,
   onRefreshProjects,
@@ -1098,7 +1184,11 @@ function DrawerListHeader({
   showCloseButton,
   versionCompatibility,
 }: {
+  activeHostId?: string;
+  hosts: CodexRelayHostRecord[];
   isRefreshingProjects: boolean;
+  switchingHostId?: string;
+  onSwitchHost: (host: CodexRelayHostRecord) => void;
   onCloseMenu: () => void;
   onNewChat: () => void;
   onRefreshProjects: () => void;
@@ -1180,6 +1270,47 @@ function DrawerListHeader({
           </>
         )}
       </Pressable>
+      {hosts.length > 0 ? (
+        <View style={styles.hostSection}>
+          <Text style={styles.sectionTitle}>Hosts</Text>
+          <View style={styles.hostList}>
+            {hosts.map((host) => {
+              const selected = host.id === activeHostId;
+              const switching = host.id === switchingHostId;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Connect to ${host.name}`}
+                  accessibilityState={{ selected, disabled: Boolean(switchingHostId) }}
+                  disabled={Boolean(switchingHostId)}
+                  key={host.id}
+                  onPress={() => onSwitchHost(host)}
+                  style={({ pressed }) => [
+                    styles.hostRow,
+                    selected && styles.hostRowSelected,
+                    pressed && styles.drawerPressedContent,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.hostStatusDot,
+                      selected ? styles.hostStatusDotActive : styles.hostStatusDotInactive,
+                    ]}
+                  />
+                  <Text numberOfLines={1} style={styles.hostName}>
+                    {host.name}
+                  </Text>
+                  {switching ? (
+                    <Icon name="running" size={13} tintColor={theme.textSecondary} />
+                  ) : selected ? (
+                    <Icon name="check" size={13} tintColor={theme.text} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Projects</Text>
         <View style={styles.sectionActions}>
@@ -1717,6 +1848,43 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     lineHeight: 16,
+  },
+  hostSection: {
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 8,
+  },
+  hostList: {
+    gap: 2,
+  },
+  hostRow: {
+    alignItems: "center",
+    borderRadius: 7,
+    flexDirection: "row",
+    minHeight: 34,
+    paddingHorizontal: 8,
+  },
+  hostRowSelected: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+  },
+  hostStatusDot: {
+    borderRadius: 4,
+    height: 8,
+    marginRight: 9,
+    width: 8,
+  },
+  hostStatusDotActive: {
+    backgroundColor: "#6FDC8C",
+  },
+  hostStatusDotInactive: {
+    backgroundColor: "rgba(255, 255, 255, 0.22)",
+  },
+  hostName: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
+    minWidth: 0,
   },
   sectionActions: {
     flexDirection: "row",
