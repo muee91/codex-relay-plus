@@ -120,10 +120,7 @@ import {
   reconcileThreadRunEventAfterTerminal,
 } from "@/lib/thread-run-stream";
 import { readCachedWorkspaceRuntimePreferences } from "@/lib/workspace-runtime-preferences-cache";
-import {
-  getNativeTailcatStatus,
-  type TailcatPathStatus,
-} from "@/lib/transport/native-tailcat";
+import { getNativeTailcatStatus, type TailcatPathStatus } from "@/lib/transport/native-tailcat";
 import {
   appendComposerAttachments,
   chatStore$,
