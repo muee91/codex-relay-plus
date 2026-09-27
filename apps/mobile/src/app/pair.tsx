@@ -11,10 +11,7 @@ export default function PairScreen() {
 
   return (
     <IpadSplitLayoutProvider>
-      <ChatScreen
-        initialPairingUrl={initialPairingUrl}
-        openScannerOnMount={openScannerOnMount}
-      />
+      <ChatScreen initialPairingUrl={initialPairingUrl} openScannerOnMount={openScannerOnMount} />
     </IpadSplitLayoutProvider>
   );
 }
