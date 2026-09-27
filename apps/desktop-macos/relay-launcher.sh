@@ -79,7 +79,10 @@ rm -f "$TAILCAT_STATUS_FILE"
 # Bonjour is advisory discovery only. LAN IP candidates in the regular pairing
 # payload remain available even if the service publisher is unavailable.
 if command -v dns-sd >/dev/null 2>&1; then
-  dns-sd -R "Codex Relay Plus" _codex-relay._tcp local "$RELAY_PORT" >/dev/null 2>&1 &
+  # Android's NSD resolver rejects a service with an empty TXT attribute
+  # (`Key cannot be empty`). Keep the TXT record valid even though discovery
+  # only needs the host and port.
+  dns-sd -R "Codex Relay Plus" _codex-relay._tcp local "$RELAY_PORT" "txtvers=1" >/dev/null 2>&1 &
   bonjour_pid=$!
 fi
 

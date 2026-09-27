@@ -15,6 +15,7 @@ import {
   isPrivateIPv4Host,
   isTailcatBootstrapUrl,
   nativeTransportServerUrl,
+  saveCodexRelayServerUrlCandidates,
   setCodexRelayServerUrl,
   setNativeRelayTransportConfigured,
 } from "./codex-relay-server-url-storage";
@@ -176,8 +177,20 @@ async function syncNativeTransport(forceDiscovery: boolean, generation: number) 
     return undefined;
   }
 
+  if (mode === "auto") {
+    const retainedCandidates = getAllCodexRelayServerUrlCandidates()
+      .map((candidate) => candidate.url)
+      .filter(
+        (url) => !isLocalServerUrl(url) && !isTailcatBootstrapUrl(url) && !isNativeLoopbackUrl(url),
+      );
+    saveCodexRelayServerUrlCandidates([
+      ...retainedCandidates,
+      ...verifiedLanTargets.map(({ url }) => url),
+    ]);
+  }
+
   const localUrl = await configureNativeRelayProxy({
-    lanTargets: verifiedLanTargets,
+    lanTargets: verifiedLanTargets.map(({ target }) => target),
     mode,
     remotePort: bootstrap.remotePort,
     serverAddr: bootstrap.address,
@@ -208,20 +221,27 @@ function isNativeSyncCurrent(
 }
 
 async function verifiedLanTcpTargets(urls: string[]) {
-  const targets: string[] = [];
+  const targets: Array<{ target: string; url: string }> = [];
   for (const url of urls) {
     try {
       await probeCodexRelayServer(url);
       const target = httpUrlToTcpTarget(url);
       if (target) {
-        targets.push(target);
+        targets.push({ target, url });
       }
     } catch {
       // A LAN discovery result is advisory until the existing secure session
       // successfully authenticates the Relay behind that address.
     }
   }
-  return dedupeStrings(targets);
+  const seen = new Set<string>();
+  return targets.filter(({ target }) => {
+    if (seen.has(target)) {
+      return false;
+    }
+    seen.add(target);
+    return true;
+  });
 }
 
 function ensureBackgroundNativeDiscovery() {
