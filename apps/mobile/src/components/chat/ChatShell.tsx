@@ -21,11 +21,7 @@ import { Spacing } from "@/constants/theme";
 import type { QueuedComposerPrompt } from "@/state/chat-store";
 
 import { ChatComposer } from "./ChatComposer";
-import {
-  ChatShellHeader,
-  type ChatConnectionBadge,
-  type ChatShellAction,
-} from "./ChatShellHeader";
+import { ChatShellHeader, type ChatConnectionBadge, type ChatShellAction } from "./ChatShellHeader";
 import { chatShellStyles as styles } from "./chat-shell-styles";
 import { implementablePlanId, MessageTimeline } from "./MessageTimeline";
 import { PlanProgressBanner } from "./PlanProgressBanner";
