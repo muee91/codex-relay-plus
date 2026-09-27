@@ -195,9 +195,13 @@ let lastHandledPairingUrl: string | undefined;
 
 type ChatScreenProps = {
   initialPairingUrl?: string | null;
+  openScannerOnMount?: boolean;
 };
 
-export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
+export function ChatScreen({
+  initialPairingUrl,
+  openScannerOnMount = false,
+}: ChatScreenProps = {}) {
   const { width } = useWindowDimensions();
   const { isSidebarVisible, toggleSidebar } = useIpadSplitLayout();
   const [pasteApprovalCode, setPasteApprovalCode] = useState<string | undefined>(undefined);
@@ -412,6 +416,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const isModernScannerOpenRef = useRef(false);
   const previewResizeStartWidthRef = useRef(DEFAULT_PREVIEW_PANE_WIDTH);
   const scanPairingGenerationRef = useRef(0);
+  const scannerAutoOpenHandledRef = useRef(false);
   const closeStreamRef = useRef<(() => void) | undefined>(undefined);
   const closeThreadWatchStreamRef = useRef<(() => void) | undefined>(undefined);
   const watchedThreadIdRef = useRef<string | undefined>(undefined);
@@ -1564,6 +1569,14 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
 
     setScannerOpen(true);
   }
+
+  useEffect(() => {
+    if (!openScannerOnMount || scannerAutoOpenHandledRef.current) {
+      return;
+    }
+    scannerAutoOpenHandledRef.current = true;
+    void openScanner();
+  }, [openScannerOnMount]);
 
   async function retryCameraPermission() {
     const permission = await requestCameraPermission();
