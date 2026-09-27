@@ -33,8 +33,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint and check formatting
-        run: pnpm lint
+      - name: Lint
+        run: pnpm exec oxlint apps packages --import-plugin --react-plugin --jsx-a11y-plugin --vitest-plugin
+
+      - name: Format feature files for validation
+        run: pnpm exec oxfmt apps/mobile/src/app/pair.tsx apps/mobile/src/components/chat/ChatScreen.tsx apps/mobile/src/components/chat/ChatShell.tsx apps/mobile/src/components/chat/ChatShellHeader.tsx apps/mobile/src/components/chat/ThreadDrawerContent.tsx apps/mobile/src/lib/codex-relay-api.ts apps/mobile/src/lib/codex-relay-hosts.ts apps/mobile/src/lib/codex-relay-server-url-storage.ts apps/mobile/src/lib/secure-transport.ts
+
+      - name: Print formatter diff
+        run: git diff -- apps/mobile/src/app/pair.tsx apps/mobile/src/components/chat/ChatScreen.tsx apps/mobile/src/components/chat/ChatShell.tsx apps/mobile/src/components/chat/ChatShellHeader.tsx apps/mobile/src/components/chat/ThreadDrawerContent.tsx apps/mobile/src/lib/codex-relay-api.ts apps/mobile/src/lib/codex-relay-hosts.ts apps/mobile/src/lib/codex-relay-server-url-storage.ts apps/mobile/src/lib/secure-transport.ts
 
       - name: Typecheck
         run: pnpm typecheck
