@@ -57,6 +57,8 @@ import { hapticLightImpact, hapticSelection, hapticSuccess } from "@/lib/haptics
 import {
   archiveThreadServerState,
   createThreadServerState,
+  fetchModelsState,
+  fetchRateLimitsState,
   fetchThreadState,
   fetchThreadsState,
   fetchWorkspaceDirectoriesState,
@@ -419,6 +421,24 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
         const reconciled = await reconcileCodexRelayConnection();
         setServerUrl(reconciled.serverUrl);
         setStatusState(queryClient, reconciled.status);
+        const [threadsResponse, modelsResponse, rateLimitsResponse] = await Promise.all([
+          fetchThreadsState(queryClient),
+          fetchModelsState(queryClient),
+          fetchRateLimitsState(queryClient).catch(() => undefined),
+        ]);
+        setThreadsState(queryClient, threadsResponse.threads, threadsResponse.source);
+        queryClient.setQueryData(serverStateKeys.models(), modelsResponse);
+        if (rateLimitsResponse) {
+          queryClient.setQueryData(serverStateKeys.rateLimits(), rateLimitsResponse);
+        }
+        const nextThread = threadsResponse.threads[0];
+        setActiveThread(nextThread?.id);
+        if (nextThread) {
+          const detail = await fetchThreadState(queryClient, nextThread.id, { refresh: true });
+          if (detail.thread.state === "running") {
+            requestThreadStreamReconnect(detail.thread.id);
+          }
+        }
         setConnection("connected");
         updateActiveCodexRelayHostName(reconciled.status.machineName);
         setSavedHosts(listCodexRelayHosts());
