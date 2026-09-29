@@ -162,6 +162,7 @@ import {
 import { ChatShell } from "./ChatShell";
 import type { ChatConnectionBadge, ChatShellAction } from "./ChatShellHeader";
 import { ConnectionBanner } from "./ConnectionBanner";
+import { ConnectionDetailsSheet } from "./ConnectionDetailsSheet";
 import { approvalCommand } from "./pairing-commands";
 import {
   EXPANDED_DRAWER_BREAKPOINT,
@@ -234,6 +235,7 @@ export function ChatScreen({
   const [tailcatPathStatus, setTailcatPathStatus] = useState<TailcatPathStatus>({
     path: "idle",
   });
+  const [isConnectionDetailsOpen, setConnectionDetailsOpen] = useState(false);
   const copyToastIdRef = useRef(0);
   const runtimePreferencesCoordinator = useMemo(createRuntimePreferencesCoordinator, []);
   const [copyToast, setCopyToast] = useState<{ id: number } | undefined>(undefined);
@@ -428,7 +430,10 @@ export function ChatScreen({
   const error = useSelector(() => chatStore$.error.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
   const connectionBadge = useMemo(
-    () => connectionBadgeForState(connection, hasPairedSession, tailcatPathStatus),
+    () => ({
+      ...connectionBadgeForState(connection, hasPairedSession, tailcatPathStatus),
+      onPress: () => setConnectionDetailsOpen(true),
+    }),
     [connection, hasPairedSession, tailcatPathStatus],
   );
   const collaborationMode = useSelector(
@@ -2604,6 +2609,11 @@ export function ChatScreen({
       }
       composerDisabled={connection === "offline"}
       composerInputEditable={connection !== "offline" || hasPairedSession}
+      composerStatusMessage={
+        connection === "offline" && hasPairedSession
+          ? "Offline draft is saved on this device. Reconnect before sending."
+          : undefined
+      }
       composerFocusRecoveryKey={connection}
       collaborationMode={collaborationMode}
       composerFocusRequestKey={composerFocusRequestKey}
@@ -2745,6 +2755,22 @@ export function ChatScreen({
       ) : (
         <View style={styles.pagerPage}>{chatPane}</View>
       )}
+      <ConnectionDetailsSheet
+        connection={connection}
+        error={error}
+        machineName={statusQuery.data?.machineName}
+        onClose={() => setConnectionDetailsOpen(false)}
+        onRefresh={() => {
+          void refresh();
+        }}
+        onSwitchHost={() => {
+          setConnectionDetailsOpen(false);
+          requestAnimationFrame(openThreadDrawer);
+        }}
+        pathStatus={tailcatPathStatus}
+        serverUrl={serverUrl}
+        visible={isConnectionDetailsOpen}
+      />
       {copyToast ? (
         <AppToast
           key={copyToast.id}
