@@ -7289,8 +7289,7 @@ describe("Codex Relay server routes", () => {
       streamEvents.some(
         (event) =>
           (event.thread as { state?: string; attention?: unknown } | undefined)?.state ===
-            "completed" &&
-          !(event.thread as { attention?: unknown } | undefined)?.attention,
+            "completed" && !(event.thread as { attention?: unknown } | undefined)?.attention,
       ),
     ).toBe(true);
     expect(respondToRequest).toHaveBeenCalledWith("request-7", {
