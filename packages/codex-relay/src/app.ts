@@ -1801,7 +1801,9 @@ export function createApp(options: AppOptions = {}) {
     }
 
     const response: ListThreadsResponse = ListThreadsResponseSchema.parse({
-      threads: sortedThreads(threads).map((thread) => threadWithAttention(thread, pendingApprovals)),
+      threads: sortedThreads(threads).map((thread) =>
+        threadWithAttention(thread, pendingApprovals),
+      ),
       source: "memory",
     });
 
