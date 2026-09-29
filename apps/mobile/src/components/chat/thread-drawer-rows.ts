@@ -84,8 +84,7 @@ export function buildDrawerRows(
     const unpinnedThreads = forceExpanded
       ? group.threads
       : group.threads.filter(
-          (thread) =>
-            !attentionThreadIds.has(thread.id) && !pinnedThreadIdsSet.has(thread.id),
+          (thread) => !attentionThreadIds.has(thread.id) && !pinnedThreadIdsSet.has(thread.id),
         );
     const isExpanded = forceExpanded || (expandedProjects[projectKey] ?? false);
     const activeThread = activeThreadId
