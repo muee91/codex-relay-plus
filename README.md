@@ -186,11 +186,32 @@ traversal succeeds and uses DERP as its fallback transport.
 If Tailcat is still starting or unavailable, the Host panel reports that state
 explicitly and LAN access remains usable.
 
+### Linux command-line Tailcat
+
+The npm package does not bundle a Linux native Tailcat binary. Build the helper
+for the Ubuntu host and let the Relay CLI manage it alongside the Relay:
+
+```sh
+pnpm build:linux:tailcat
+# For an ARM64 Ubuntu host or cross-compilation:
+GOARCH=arm64 pnpm build:linux:tailcat
+
+CODEX_RELAY_TAILCAT_BIN="$PWD/artifacts/linux/tailcat-relay-server-linux-amd64" \
+  npx codex-relay@latest --tailcat --bg
+```
+
+The CLI adds the Tailcat `tc...` bootstrap address to the pairing QR and
+`npx codex-relay@latest stop` stops both Relay and Tailcat. The persistent
+server key and runtime state live under `~/.local/share/codex-relay/`. A
+`tailcat-relay-server` binary on `PATH` can be used with `--tailcat` without
+`--tailcat-bin`. LAN pairing remains available while Tailcat is starting or
+unavailable.
+
 ### Standalone npm relay
 
-`npx codex-relay@latest` does not install a system-wide network overlay. The
-phone must be able to reach the printed Relay URL through the LAN or another
-network path you provide.
+Without `--tailcat`, `npx codex-relay@latest` does not install a system-wide
+network overlay. The phone must be able to reach the printed Relay URL through
+the LAN or another network path you provide.
 
 ### Web previews
 

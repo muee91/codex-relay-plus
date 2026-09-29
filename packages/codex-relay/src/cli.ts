@@ -19,6 +19,12 @@ import {
 import { createTursoPairingSessionStore } from "./pairing-store.js";
 import { getConnectUrlGuidance } from "./pairing-url-candidates.js";
 import { codexRelayDataPath, codexRelayHome, legacyCodexRelayDataPath } from "./paths.js";
+import {
+  startManagedTailcat,
+  stopManagedTailcat,
+  type ManagedTailcat,
+  type StopManagedTailcatResult,
+} from "./tailcat-process.js";
 
 const npxCommand = "npx codex-relay@latest";
 
@@ -50,6 +56,11 @@ const program = new Command()
     "--dangerously-auto-approve",
     "automatically approve mobile pairing requests without a local approval command",
   )
+  .option(
+    "--tailcat",
+    "start the Tailcat remote transport with the relay (requires a local helper binary)",
+  )
+  .option("--tailcat-bin <path>", "path to the tailcat-relay-server helper binary")
   .addHelpText(
     "after",
     `
@@ -58,6 +69,7 @@ Examples:
   ${npxCommand}              Start the relay and print a pairing QR
   ${npxCommand} desktop      Start in the background and open the local control center
   ${npxCommand} --shared-app-server Share live sessions with a connected terminal
+  ${npxCommand} --tailcat --tailcat-bin /path/to/tailcat-relay-server Start Tailcat with the relay
   ${npxCommand} --bg         Start the relay in the background
   ${npxCommand} stop         Stop the background relay
   ${npxCommand} qr           Print the current pairing QR
@@ -80,7 +92,21 @@ Examples:
       return;
     }
 
-    await import("./index.js").catch(handleServerStartError);
+    let managedTailcat: ManagedTailcat | undefined;
+    try {
+      managedTailcat = await startTailcatForCli(options);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(message);
+      process.exitCode = 1;
+      return;
+    }
+    try {
+      await import("./index.js");
+    } catch (error) {
+      await managedTailcat?.stop();
+      await handleServerStartError(error);
+    }
   });
 
 program
@@ -244,6 +270,12 @@ function desktopServerArgs() {
   if (options.dangerouslyAutoApprove) {
     args.push("--dangerously-auto-approve");
   }
+  if (options.tailcat) {
+    args.push("--tailcat");
+  }
+  if (options.tailcatBin) {
+    args.push("--tailcat-bin", options.tailcatBin);
+  }
   return args;
 }
 
@@ -306,24 +338,58 @@ async function openExternal(url: string) {
 
 async function stopBackgroundServer() {
   const result = await stopRunningRelay(codexRelayDataPath("server.pid"));
-  printStopResult(result);
+  const tailcatResult = await stopManagedTailcat();
+  printStopResult(result, tailcatResult);
 }
 
-function printStopResult(result: StopRunningRelayResult) {
+function printStopResult(result: StopRunningRelayResult, tailcatResult: StopManagedTailcatResult) {
   switch (result.kind) {
     case "not-running":
-      console.log("No background Codex Relay server is running.");
+      if (tailcatResult.kind === "stopped") {
+        console.log(`Stopped orphaned Tailcat transport (pid ${tailcatResult.pid}).`);
+      } else {
+        console.log("No background Codex Relay server is running.");
+      }
       return;
     case "stopped":
       console.log(`Stopped codex-relay background server (pid ${result.pid}).`);
-      return;
+      break;
     case "timed-out":
       console.error(`Timed out stopping codex-relay background server (pid ${result.pid}).`);
       process.exitCode = 1;
-      return;
+      break;
     default:
-      return assertNever(result);
+      assertNever(result);
+      return;
   }
+
+  if (tailcatResult.kind === "stopped") {
+    console.log(`Stopped Tailcat remote transport (pid ${tailcatResult.pid}).`);
+  } else if (tailcatResult.kind === "timed-out") {
+    console.error(`Timed out stopping Tailcat remote transport (pid ${tailcatResult.pid}).`);
+    process.exitCode = 1;
+  }
+}
+
+async function startTailcatForCli(options: {
+  tailcat?: boolean;
+  tailcatBin?: string;
+}): Promise<ManagedTailcat | undefined> {
+  const binaryPath = options.tailcatBin?.trim() || process.env.CODEX_RELAY_TAILCAT_BIN?.trim();
+  const requested = Boolean(options.tailcat || binaryPath);
+  const externallyManaged = Boolean(process.env.CODEX_RELAY_TAILCAT_STATUS_FILE?.trim());
+  if (!requested || (externallyManaged && !options.tailcat && !options.tailcatBin)) {
+    return undefined;
+  }
+  if (process.env.CODEX_RELAY_TAILCAT_ENABLED?.trim() === "0") {
+    console.error("Tailcat remote transport is disabled by CODEX_RELAY_TAILCAT_ENABLED=0.");
+    return undefined;
+  }
+
+  return startManagedTailcat({
+    binaryPath,
+    port: Number(process.env.PORT ?? 8787),
+  });
 }
 
 function assertNever(value: never): never {

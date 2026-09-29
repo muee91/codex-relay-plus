@@ -159,9 +159,31 @@ Host 会在 Application Support 中保存持久化 Tailcat 服务端身份，移
 
 如果 Tailcat 尚在启动或不可用，Host 面板会明确显示对应状态，LAN 访问仍然可以继续使用。
 
+### Linux 命令行 Tailcat
+
+npm 包不会内置 Linux 原生 Tailcat 二进制。先为 Ubuntu 主机编译 helper，
+再让 Relay CLI 统一管理 Relay 和 Tailcat：
+
+```sh
+pnpm build:linux:tailcat
+# ARM64 Ubuntu 主机或交叉编译：
+GOARCH=arm64 pnpm build:linux:tailcat
+
+CODEX_RELAY_TAILCAT_BIN="$PWD/artifacts/linux/tailcat-relay-server-linux-amd64" \
+  npx codex-relay@latest --tailcat --bg
+```
+
+ARM64 主机使用 `tailcat-relay-server-linux-arm64`。CLI 会把 Tailcat 的
+`tc...` bootstrap 地址加入配对二维码，执行 `npx codex-relay@latest stop`
+时会同时停止 Relay 和 Tailcat。持久化服务端密钥及运行状态保存在
+`~/.local/share/codex-relay/`。如果 `tailcat-relay-server` 已在 `PATH` 中，
+只需使用 `--tailcat`；Tailcat 启动或不可用时，LAN 配对仍然可用。
+
 ### 独立 npm Relay
 
-`npx codex-relay@latest` 不会安装系统级网络 overlay。手机必须能够通过 LAN，或你自行提供的其他网络路径，访问 Relay 输出的地址。
+不使用 `--tailcat` 时，`npx codex-relay@latest` 不会安装系统级网络
+overlay。手机必须能够通过 LAN，或你自行提供的其他网络路径，访问 Relay
+输出的地址。
 
 ### Web 预览
 
