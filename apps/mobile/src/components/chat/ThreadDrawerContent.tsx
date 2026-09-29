@@ -1026,6 +1026,17 @@ const DrawerRowItem = memo(function DrawerRowItem({
 }: DrawerRowItemProps) {
   const theme = useTheme();
 
+  if (item.kind === "needs-attention") {
+    return (
+      <View style={[styles.projectHeader, styles.needsAttentionHeader]}>
+        <View style={styles.rowIconSlot}>
+          <Icon name="warning" size={15} tintColor="#F8C46D" />
+        </View>
+        <Text style={[styles.projectTitle, styles.needsAttentionTitle]}>Needs You</Text>
+      </View>
+    );
+  }
+
   if (item.kind === "pinned") {
     return (
       <View style={styles.projectHeader}>
@@ -1082,7 +1093,9 @@ const DrawerRowItem = memo(function DrawerRowItem({
   }
 
   const running = item.thread.state === "running";
+  const attention = item.thread.attention;
   const relativeTime = formatRelativeTime(latestThreadTimestamp(item.thread));
+  const statusMeta = threadStatusMeta(item.thread, relativeTime, item.workspaceTitle);
   return (
     <View style={[styles.thread, selected && styles.threadSelected]}>
       <Pressable
@@ -1109,8 +1122,16 @@ const DrawerRowItem = memo(function DrawerRowItem({
         {({ pressed }) => (
           <>
             <View style={[styles.rowIconSlot, pressed && styles.drawerPressedContent]}>
-              {running ? (
-                <RunningThreadIndicator color={theme.textSecondary} />
+              {attention ? (
+                <Icon
+                  name="warning"
+                  size={14}
+                  tintColor={attention.kind === "failed" ? "#FF7A7A" : "#F8C46D"}
+                />
+              ) : running ? (
+                <RunningThreadIndicator color="#8CC7FF" />
+              ) : item.thread.state === "completed" ? (
+                <Icon name="check" size={13} tintColor="#6FDC8C" />
               ) : (
                 <View style={[styles.activeDot, selected && styles.activeDotSelected]} />
               )}
@@ -1118,11 +1139,15 @@ const DrawerRowItem = memo(function DrawerRowItem({
             <View style={[styles.threadContent, pressed && styles.drawerPressedContent]}>
               <Text style={styles.threadTitle}>{item.thread.title}</Text>
               <Text
-                ellipsizeMode={item.workspaceTitle ? "middle" : "tail"}
+                ellipsizeMode="tail"
                 numberOfLines={1}
-                style={styles.threadTime}
+                style={[
+                  styles.threadTime,
+                  attention?.kind === "failed" && styles.threadMetaFailed,
+                  attention && attention.kind !== "failed" && styles.threadMetaAttention,
+                ]}
               >
-                {item.workspaceTitle ? `${item.workspaceTitle} · ${relativeTime}` : relativeTime}
+                {statusMeta}
               </Text>
             </View>
           </>
@@ -1168,6 +1193,9 @@ function areDrawerRowItemsEqual(previous: DrawerRowItemProps, next: DrawerRowIte
       (previous.item.thread === next.item.thread ||
         (previous.item.thread.title === next.item.thread.title &&
           previous.item.thread.state === next.item.thread.state &&
+          previous.item.thread.attention?.count === next.item.thread.attention?.count &&
+          previous.item.thread.attention?.kind === next.item.thread.attention?.kind &&
+          previous.item.thread.attention?.label === next.item.thread.attention?.label &&
           previous.item.thread.lastActivityAt === next.item.thread.lastActivityAt &&
           previous.item.thread.updatedAt === next.item.thread.updatedAt))
     );
@@ -1733,6 +1761,28 @@ function latestThreadTimestamp(thread: ThreadSummary) {
   return lastActivityAt > updatedAt ? thread.lastActivityAt! : thread.updatedAt;
 }
 
+function threadStatusMeta(
+  thread: ThreadSummary,
+  relativeTime: string,
+  workspaceTitle: string | undefined,
+) {
+  const prefix = workspaceTitle ? `${workspaceTitle} · ` : "";
+  if (thread.attention) {
+    const countSuffix = thread.attention.count > 1 ? ` (+${thread.attention.count - 1})` : "";
+    return `${prefix}${thread.attention.label}${countSuffix}`;
+  }
+  switch (thread.state) {
+    case "running":
+      return `${prefix}Working · ${relativeTime}`;
+    case "completed":
+      return `${prefix}Done · ${relativeTime}`;
+    case "failed":
+      return `${prefix}Failed · ${relativeTime}`;
+    case "idle":
+      return `${prefix}Ready · ${relativeTime}`;
+  }
+}
+
 function formatRelativeTime(value: string) {
   const then = new Date(value).getTime();
   const diffMs = Date.now() - then;
@@ -1967,6 +2017,13 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     opacity: 0.68,
   },
+  needsAttentionHeader: {
+    marginTop: 4,
+  },
+  needsAttentionTitle: {
+    color: "#F8C46D",
+    fontWeight: "600",
+  },
   projectHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -2023,6 +2080,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     opacity: 0.62,
+  },
+  threadMetaAttention: {
+    color: "#F8C46D",
+    opacity: 0.9,
+  },
+  threadMetaFailed: {
+    color: "#FF9A9A",
+    opacity: 0.9,
   },
   renameSheet: {
     gap: 14,
