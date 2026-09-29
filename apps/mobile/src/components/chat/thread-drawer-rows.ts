@@ -5,6 +5,7 @@ import { workspaceName } from "../../lib/workspace-name";
 const collapsedProjectThreadCount = 5;
 
 export type DrawerRow =
+  | { id: "needs-attention"; kind: "needs-attention" }
   | { id: "pinned"; kind: "pinned" }
   | {
       id: string;
@@ -36,8 +37,16 @@ export function buildDrawerRows(
   forceExpanded = false,
 ): DrawerRow[] {
   const uniqueThreads = threadsWithUniqueIds(threads);
+  const attentionThreads = forceExpanded
+    ? []
+    : uniqueThreads.filter((thread) => Boolean(thread.attention));
+  const attentionThreadIds = new Set(attentionThreads.map((thread) => thread.id));
   const threadsById = new Map(uniqueThreads.map((thread) => [thread.id, thread]));
-  const pinnedThreads = forceExpanded ? [] : pinnedThreadsForIds(pinnedThreadIds, threadsById);
+  const pinnedThreads = forceExpanded
+    ? []
+    : pinnedThreadsForIds(pinnedThreadIds, threadsById).filter(
+        (thread) => !attentionThreadIds.has(thread.id),
+      );
   const pinnedThreadIdsSet = new Set(pinnedThreads.map((thread) => thread.id));
   const groups = new Map<string, ThreadGroup>();
 
@@ -53,6 +62,15 @@ export function buildDrawerRows(
   }
 
   const rows: DrawerRow[] = [];
+  if (attentionThreads.length > 0) {
+    rows.push({ id: "needs-attention", kind: "needs-attention" });
+    rows.push(
+      ...attentionThreads.map((thread) =>
+        threadRow(thread, projectKeyForThread(thread), workspaceName(thread.cwd) ?? "codex-relay"),
+      ),
+    );
+  }
+
   if (pinnedThreads.length > 0) {
     rows.push({ id: "pinned", kind: "pinned" });
     rows.push(
@@ -65,7 +83,10 @@ export function buildDrawerRows(
   for (const [projectKey, group] of groups) {
     const unpinnedThreads = forceExpanded
       ? group.threads
-      : group.threads.filter((thread) => !pinnedThreadIdsSet.has(thread.id));
+      : group.threads.filter(
+          (thread) =>
+            !attentionThreadIds.has(thread.id) && !pinnedThreadIdsSet.has(thread.id),
+        );
     const isExpanded = forceExpanded || (expandedProjects[projectKey] ?? false);
     const activeThread = activeThreadId
       ? unpinnedThreads.find((thread) => thread.id === activeThreadId)
