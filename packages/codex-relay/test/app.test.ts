@@ -7086,7 +7086,29 @@ describe("Codex Relay server routes", () => {
       firstApproval,
       duplicateApproval,
     ]);
-    await streamResponse.text();
+    const streamBody = await streamResponse.text();
+    const streamEvents = parseSseEvents(streamBody);
+    expect(streamEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          thread: expect.objectContaining({
+            attention: {
+              count: 1,
+              kind: "approval",
+              label: "Command approval required",
+            },
+          }),
+        }),
+      ]),
+    );
+    expect(
+      streamEvents.some(
+        (event) =>
+          (event.thread as { state?: string; attention?: unknown } | undefined)?.state ===
+            "completed" &&
+          !(event.thread as { attention?: unknown } | undefined)?.attention,
+      ),
+    ).toBe(true);
     const detailResponse = await app.request("/v1/threads/app-thread-approval");
     const detailBody = await detailResponse.json();
 
@@ -7250,6 +7272,28 @@ describe("Codex Relay server routes", () => {
 
     expect(approvalResponse.status).toBe(200);
     expect(streamBody).toContain("thread.input_request.created");
+    const streamEvents = parseSseEvents(streamBody);
+    expect(streamEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          thread: expect.objectContaining({
+            attention: {
+              count: 1,
+              kind: "input",
+              label: "What should Codex do next?",
+            },
+          }),
+        }),
+      ]),
+    );
+    expect(
+      streamEvents.some(
+        (event) =>
+          (event.thread as { state?: string; attention?: unknown } | undefined)?.state ===
+            "completed" &&
+          !(event.thread as { attention?: unknown } | undefined)?.attention,
+      ),
+    ).toBe(true);
     expect(respondToRequest).toHaveBeenCalledWith("request-7", {
       answers: { scope: { answers: ["Restart Vite"] } },
     });
