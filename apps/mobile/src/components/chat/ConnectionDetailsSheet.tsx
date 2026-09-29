@@ -41,9 +41,14 @@ export function ConnectionDetailsSheet({
         <ConnectionRow label="Status" value={connectionLabel(connection)} />
         <ConnectionRow label="Route" value={route} />
         {pathStatus.latencyMs !== undefined ? (
-          <ConnectionRow label="Latency" value={`${Math.max(0, Math.round(pathStatus.latencyMs))} ms`} />
+          <ConnectionRow
+            label="Latency"
+            value={`${Math.max(0, Math.round(pathStatus.latencyMs))} ms`}
+          />
         ) : null}
-        {pathStatus.endpoint ? <ConnectionRow label="Endpoint" value={pathStatus.endpoint} /> : null}
+        {pathStatus.endpoint ? (
+          <ConnectionRow label="Endpoint" value={pathStatus.endpoint} />
+        ) : null}
         {pathStatus.derpRegion ? (
           <ConnectionRow label="DERP region" value={pathStatus.derpRegion} />
         ) : null}
@@ -100,10 +105,7 @@ function connectionLabel(connection: "checking" | "connected" | "offline") {
   }
 }
 
-function routeLabel(
-  connection: "checking" | "connected" | "offline",
-  status: TailcatPathStatus,
-) {
+function routeLabel(connection: "checking" | "connected" | "offline", status: TailcatPathStatus) {
   if (connection === "offline") {
     return status.path === "offline" ? "Transport offline" : "Unavailable";
   }
