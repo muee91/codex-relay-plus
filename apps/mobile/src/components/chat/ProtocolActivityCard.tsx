@@ -14,10 +14,7 @@ import { Fonts, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { getThreadMessageDetail, resolveApproval } from "@/lib/codex-relay-api";
 import { hapticSelection, hapticSuccess, hapticWarning } from "@/lib/haptics";
-import {
-  fetchThreadsState,
-  markMessageApprovalResolvedState,
-} from "@/lib/server-state";
+import { fetchThreadsState, markMessageApprovalResolvedState } from "@/lib/server-state";
 
 const INLINE_PATCH_LINE_LIMIT = 48;
 
