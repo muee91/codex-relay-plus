@@ -33,7 +33,7 @@ on the computer.
 
 The standalone relay uses whatever network path your computer already has.
 Codex Relay Plus on macOS adds a desktop host with bundled Tailcat for encrypted
-remote connectivity — no account, tailnet, public IP, or router port forwarding.
+remote connectivity—no account, tailnet, public IP, or router port forwarding.
 In **Auto** mode, the mobile app prefers a verified LAN route and falls back to
 Tailcat when needed.
 
@@ -108,7 +108,7 @@ one is available.
 
 ### 3. Optional: share a live session with your terminal
 
-The default relay uses its own Codex app-server process. To make mobile and a terminal TUI use the same shared app-server, start the relay with:
+On macOS, the relay prefers a shared Codex app-server and falls back to its own process if shared startup fails. Linux, WSL, and Windows use a private app-server by default. To require mobile and a terminal TUI to use the same shared app-server on any platform, start the relay with:
 
 ```sh
 npx codex-relay@latest --shared-app-server
@@ -169,7 +169,7 @@ platform-specific override.
 ### Codex Relay Plus desktop host
 
 The macOS desktop host starts Tailcat automatically alongside Relay. There is no
-account, login, tailnet, public-IP, or router-port-forwarding setup.
+account, login, tailnet, public IP, or router port forwarding setup.
 
 The Host panel reports the Tailcat state directly:
 
@@ -262,15 +262,15 @@ release pull request and publishes it after that pull request is merged. See
 
 The relay listens on `0.0.0.0:8787` by default.
 
-| Variable                      | Purpose                                                             |
-| ----------------------------- | ------------------------------------------------------------------- |
-| `PORT`                        | Server port. Defaults to `8787`.                                    |
-| `HOST`                        | Listen host. Defaults to `0.0.0.0`.                                 |
-| `CODEX_RELAY_WORKSPACE_PATH`  | Workspace path Codex should use. Defaults to the current directory. |
-| `CODEX_RELAY_AUTH_DB_PATH`    | Pairing and session database path.                                  |
-| `CODEX_RELAY_APP_SERVER_MODE` | `socket` for shared terminal/mobile sessions; defaults to `stdio`.  |
-| `CODEX_BIN`                   | Codex CLI executable path.                                          |
-| `CODEX_HOME`                  | Codex home directory for reading local session metadata.            |
+| Variable                      | Purpose                                                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                        | Server port. Defaults to `8787`.                                                                                             |
+| `HOST`                        | Listen host. Defaults to `0.0.0.0`.                                                                                          |
+| `CODEX_RELAY_WORKSPACE_PATH`  | Workspace path Codex should use. Defaults to the current directory.                                                          |
+| `CODEX_RELAY_AUTH_DB_PATH`    | Pairing and session database path.                                                                                           |
+| `CODEX_RELAY_APP_SERVER_MODE` | `socket` requires shared mode; `stdio` requires private mode. Unset prefers shared mode on macOS and private mode elsewhere. |
+| `CODEX_BIN`                   | Codex CLI executable path.                                                                                                   |
+| `CODEX_HOME`                  | Codex home directory for reading local session metadata.                                                                     |
 
 The desktop host additionally injects its bundled Tailcat status path and Relay
 port into the Relay runtime. These are host-internal transport variables rather

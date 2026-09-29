@@ -24,6 +24,8 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+apps/mobile/native-libs/*
+apps/mobile/native-tailcat-ios/Frameworks/
 
 # Metro
 .metro-health-check*
@@ -36,6 +38,10 @@ yarn-error.*
 # macOS
 .DS_Store
 *.pem
+.desktop-macos-build/
+
+# final delivery artifacts
+/artifacts/
 
 # local env files
 .env*.local
