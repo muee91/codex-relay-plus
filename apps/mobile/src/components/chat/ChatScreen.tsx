@@ -2056,6 +2056,7 @@ export function ChatScreen({
         decision: "approve",
       });
       removePendingInputRequestState(queryClient, request.threadId, request.id);
+      void fetchThreadsState(queryClient).catch(() => undefined);
       setConnection("connected");
       if (
         !closeStreamRef.current &&
@@ -2077,6 +2078,7 @@ export function ChatScreen({
         decision: "cancel",
       });
       removePendingInputRequestState(queryClient, request.threadId, request.id);
+      void fetchThreadsState(queryClient).catch(() => undefined);
       setConnection("connected");
       if (
         !closeStreamRef.current &&
