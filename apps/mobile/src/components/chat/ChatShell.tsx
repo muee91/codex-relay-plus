@@ -37,6 +37,7 @@ export function ChatShell({
   composerFocusRequestKey,
   composerFocusRecoveryKey,
   composerInputEditable,
+  composerStatusMessage,
   contextWindowUsage,
   collaborationMode,
   goal,
@@ -85,6 +86,7 @@ export function ChatShell({
   composerFocusRequestKey?: number;
   composerFocusRecoveryKey?: number | string;
   composerInputEditable?: boolean;
+  composerStatusMessage?: string;
   contextWindowUsage?: ContextWindowUsage;
   collaborationMode: ThreadCollaborationMode;
   goal?: ThreadGoal | null;
@@ -225,6 +227,7 @@ export function ChatShell({
                 pendingInputRequest={pendingInputRequest}
                 queuedPrompts={queuedPrompts}
                 rateLimitBuckets={rateLimitBuckets}
+                statusMessage={composerStatusMessage}
                 skills={skills}
                 skillsLoadState={skillsLoadState}
                 footer={composerFooter}
