@@ -15,6 +15,7 @@ export type ChatShellAction = {
 
 export type ChatConnectionBadge = {
   label: string;
+  onPress?: () => void;
   tone: "bad" | "good" | "muted" | "warn";
 };
 
@@ -51,18 +52,30 @@ export function ChatShellHeader({
   return (
     <View pointerEvents="box-none" style={styles.header}>
       <HeaderButton action={leadingAction} />
-      <View pointerEvents="none" style={styles.titleGroup}>
+      <View pointerEvents="box-none" style={styles.titleGroup}>
         <ThemedText type="smallBold" style={styles.title} numberOfLines={1}>
           {title}
         </ThemedText>
         <View style={styles.metaRow}>
           {connectionBadge ? (
-            <View style={[styles.connectionBadge, badgeToneStyle]}>
+            <Pressable
+              accessibilityLabel={`Connection: ${connectionBadge.label}`}
+              accessibilityRole={connectionBadge.onPress ? "button" : undefined}
+              disabled={!connectionBadge.onPress}
+              hitSlop={5}
+              onPress={connectionBadge.onPress}
+              onPressIn={connectionBadge.onPress ? hapticSelection : undefined}
+              style={({ pressed }) => [
+                styles.connectionBadge,
+                badgeToneStyle,
+                pressed && connectionBadge.onPress && styles.pressed,
+              ]}
+            >
               <View style={[styles.connectionDot, dotToneStyle]} />
               <ThemedText type="code" style={styles.connectionLabel} numberOfLines={1}>
                 {connectionBadge.label}
               </ThemedText>
-            </View>
+            </Pressable>
           ) : null}
           <ThemedText
             type="code"
