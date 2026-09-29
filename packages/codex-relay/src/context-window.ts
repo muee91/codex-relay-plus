@@ -230,8 +230,8 @@ function positiveInteger(value: unknown) {
     return Math.max(0, Math.trunc(value));
   }
   if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : null;
   }
   return null;
 }
