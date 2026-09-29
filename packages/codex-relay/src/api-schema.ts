@@ -41,6 +41,13 @@ export const KnownReasoningEffortSchema = z.enum([
 ]);
 export const ReasoningEffortSchema = z.string().trim().min(1);
 export const ThreadCollaborationModeSchema = z.enum(["default", "plan"]);
+export const ThreadAttentionKindSchema = z.enum(["approval", "input", "failed"]);
+export const ThreadAttentionSchema = z.object({
+  count: z.number().int().positive(),
+  kind: ThreadAttentionKindSchema,
+  label: z.string().trim().min(1),
+});
+
 export const ThreadGoalStatusSchema = z.enum([
   "active",
   "paused",
@@ -305,6 +312,7 @@ export const ChatMessageSchema = z.object({
 
 export const ThreadSummarySchema = z.object({
   id: z.string().min(1),
+  attention: ThreadAttentionSchema.nullable().optional(),
   parentThreadId: z.string().min(1).optional(),
   title: z.string().min(1),
   createdAt: IsoDateTimeSchema,
