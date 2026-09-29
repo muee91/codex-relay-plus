@@ -14,7 +14,10 @@ import { Fonts, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { getThreadMessageDetail, resolveApproval } from "@/lib/codex-relay-api";
 import { hapticSelection, hapticSuccess, hapticWarning } from "@/lib/haptics";
-import { markMessageApprovalResolvedState } from "@/lib/server-state";
+import {
+  fetchThreadsState,
+  markMessageApprovalResolvedState,
+} from "@/lib/server-state";
 
 const INLINE_PATCH_LINE_LIMIT = 48;
 
@@ -58,6 +61,9 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
       }
       setResolution(decision);
       markMessageApprovalResolvedState(queryClient, message.threadId, message.id, decision);
+      if (!isPreviewMode) {
+        void fetchThreadsState(queryClient).catch(() => undefined);
+      }
       hapticSuccess();
     } catch (caught) {
       hapticWarning();
