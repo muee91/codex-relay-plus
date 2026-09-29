@@ -6495,14 +6495,16 @@ function updateThread(
       ? update.attention
       : existing.attention?.kind === "failed" && nextState !== "failed"
         ? null
-        : existing.attention ??
+        : (existing.attention ??
           (nextState === "failed"
             ? {
                 count: 1,
                 kind: "failed" as const,
-                label: preview(update.lastError?.trim() || existing.lastError?.trim() || "Thread failed"),
+                label: preview(
+                  update.lastError?.trim() || existing.lastError?.trim() || "Thread failed",
+                ),
               }
-            : undefined);
+            : undefined));
   const next = ThreadSummarySchema.parse({
     ...existing,
     ...update,
