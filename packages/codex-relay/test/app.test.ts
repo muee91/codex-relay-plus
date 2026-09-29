@@ -6945,6 +6945,19 @@ describe("Codex Relay server routes", () => {
     expect(body).toContain("thread.error");
     expect(body).toContain("Approval request timed out.");
     expect(body).toContain('"state":"failed"');
+
+    const threadsResponse = await app.request("/v1/threads");
+    const threadsBody = await threadsResponse.json();
+    expect(threadsBody.threads).toContainEqual(
+      expect.objectContaining({
+        id: "app-thread-aborted",
+        attention: {
+          count: 1,
+          kind: "failed",
+          label: "Approval request timed out.",
+        },
+      }),
+    );
   });
 
   it("treats duplicate app-server approval resolutions as already successful", async () => {
@@ -7043,6 +7056,19 @@ describe("Codex Relay server routes", () => {
     )?.details?.approvalId;
     expect(approvalId).toMatch(/^approval-[a-f0-9]{24}$/);
 
+    const pendingThreadsResponse = await app.request("/v1/threads");
+    const pendingThreadsBody = await pendingThreadsResponse.json();
+    expect(pendingThreadsBody.threads).toContainEqual(
+      expect.objectContaining({
+        id: "app-thread-approval",
+        attention: {
+          count: 1,
+          kind: "approval",
+          label: "Command approval required",
+        },
+      }),
+    );
+
     const firstApproval = app.request(`/v1/approvals/${approvalId}`, {
       method: "POST",
       body: JSON.stringify({ decision: "approve" }),
@@ -7075,6 +7101,14 @@ describe("Codex Relay server routes", () => {
         }),
       }),
     );
+
+    const resolvedThreadsResponse = await app.request("/v1/threads");
+    const resolvedThreadsBody = await resolvedThreadsResponse.json();
+    expect(
+      resolvedThreadsBody.threads.find(
+        (thread: { id: string }) => thread.id === "app-thread-approval",
+      )?.attention,
+    ).toBeNull();
   });
 
   it("resumes app-server turns after pending input request is answered", async () => {
@@ -7186,6 +7220,24 @@ describe("Codex Relay server routes", () => {
     expect(detailBeforeBody.messages).not.toContainEqual(
       expect.objectContaining({ kind: "structuredUserInput" }),
     );
+    expect(detailBeforeBody.thread.attention).toEqual({
+      count: 1,
+      kind: "input",
+      label: "What should Codex do next?",
+    });
+
+    const pendingThreadsResponse = await app.request("/v1/threads");
+    const pendingThreadsBody = await pendingThreadsResponse.json();
+    expect(pendingThreadsBody.threads).toContainEqual(
+      expect.objectContaining({
+        id: "app-thread-input",
+        attention: {
+          count: 1,
+          kind: "input",
+          label: "What should Codex do next?",
+        },
+      }),
+    );
 
     const approvalResponse = await app.request(`/v1/approvals/${pendingInputRequest.id}`, {
       method: "POST",
@@ -7205,6 +7257,7 @@ describe("Codex Relay server routes", () => {
     expect(detailBody.messages).not.toContainEqual(
       expect.objectContaining({ kind: "structuredUserInput" }),
     );
+    expect(detailBody.thread.attention).toBeNull();
   });
 
   it("recovers a missing app-server thread even after prior messages exist", async () => {
