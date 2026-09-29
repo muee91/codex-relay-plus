@@ -1790,7 +1790,7 @@ export function createApp(options: AppOptions = {}) {
         pruneThreadStreamEventCaches(visibleAppServerThreads.map((thread) => thread.id));
         const response: ListThreadsResponse = ListThreadsResponseSchema.parse({
           threads: visibleAppServerThreads.map((thread) =>
-            rememberAppServerThread(threads, thread),
+            threadWithAttention(rememberAppServerThread(threads, thread), pendingApprovals),
           ),
           source: "app-server",
         });
@@ -1801,7 +1801,7 @@ export function createApp(options: AppOptions = {}) {
     }
 
     const response: ListThreadsResponse = ListThreadsResponseSchema.parse({
-      threads: sortedThreads(threads),
+      threads: sortedThreads(threads).map((thread) => threadWithAttention(thread, pendingApprovals)),
       source: "memory",
     });
 
@@ -1829,7 +1829,7 @@ export function createApp(options: AppOptions = {}) {
         const response: ArchiveThreadResponse = ArchiveThreadResponseSchema.parse({
           archivedThreadId: threadId,
           threads: visibleAppServerThreads.map((thread) =>
-            rememberAppServerThread(threads, thread),
+            threadWithAttention(rememberAppServerThread(threads, thread), pendingApprovals),
           ),
           source: "app-server",
         });
@@ -2113,6 +2113,7 @@ export function createApp(options: AppOptions = {}) {
         messagesByThreadId.set(threadId, messages);
         scheduleAppServerHistoryLoad(threadId, messages);
         const response = threadDetailResponse({
+          pendingApprovals,
           thread: responseThread,
           messages,
           pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
@@ -2155,6 +2156,7 @@ export function createApp(options: AppOptions = {}) {
         messagesByThreadId.set(threadId, messages);
         scheduleAppServerHistoryLoad(threadId, messages);
         const response = threadDetailResponse({
+          pendingApprovals,
           thread: responseThread,
           messages,
           pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
@@ -2211,6 +2213,7 @@ export function createApp(options: AppOptions = {}) {
       }
 
       const response = threadDetailResponse({
+        pendingApprovals,
         thread: responseThread,
         messages,
         pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
@@ -2327,6 +2330,7 @@ export function createApp(options: AppOptions = {}) {
         }
 
         const response = threadDetailResponse({
+          pendingApprovals,
           thread: responseThread,
           messages,
           pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
@@ -2376,6 +2380,7 @@ export function createApp(options: AppOptions = {}) {
       );
       messagesByThreadId.set(threadId, messages);
       const response = threadDetailResponse({
+        pendingApprovals,
         thread: responseThread,
         messages,
         pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
@@ -2713,6 +2718,9 @@ export function createApp(options: AppOptions = {}) {
     }
 
     pendingApprovals.delete(approvalId);
+    updateThread(threads, messagesByThreadId, pending.threadId, {
+      attention: pendingThreadAttention(pendingApprovals, pending.threadId),
+    });
     const resolution = resolveAppServerRequest(
       pending,
       parsed.data.decision,
@@ -2732,6 +2740,9 @@ export function createApp(options: AppOptions = {}) {
       .catch((error: unknown) => {
         resolvedApprovals.delete(approvalId);
         pendingApprovals.set(approvalId, pending);
+        updateThread(threads, messagesByThreadId, pending.threadId, {
+          attention: pendingThreadAttention(pendingApprovals, pending.threadId),
+        });
         throw error;
       });
     resolvedApprovals.set(approvalId, { promise: resolution });
@@ -3783,6 +3794,7 @@ async function runPromptStreamed(input: {
       state: "streaming",
     });
     threadSummary = updateThread(input.threads, input.messagesByThreadId, activeThreadId, {
+      attention: pendingThreadAttention(input.pendingApprovals, activeThreadId),
       state: "running",
     });
     sendSse(input.controller, input.encoder, input.secureSession, {
@@ -4187,6 +4199,7 @@ async function streamRunningAppServerThread(input: {
       } satisfies PendingApproval;
       input.pendingApprovals.set(approval.approvalId, pending);
       threadSummary = updateThread(input.threads, input.messagesByThreadId, input.threadId, {
+        attention: pendingThreadAttention(input.pendingApprovals, input.threadId),
         state: "running",
       });
       sendSse(input.controller, input.encoder, input.secureSession, {
@@ -4214,6 +4227,7 @@ async function streamRunningAppServerThread(input: {
       threadId: input.threadId,
     });
     threadSummary = updateThread(input.threads, input.messagesByThreadId, input.threadId, {
+      attention: pendingThreadAttention(input.pendingApprovals, input.threadId),
       state: "running",
     });
     sendThreadMessage("thread.message.created", threadSummary, message);
@@ -4254,6 +4268,9 @@ async function streamRunningAppServerThread(input: {
               return;
             }
             input.pendingApprovals.delete(approvalId);
+            threadSummary = updateThread(input.threads, input.messagesByThreadId, input.threadId, {
+              attention: pendingThreadAttention(input.pendingApprovals, input.threadId),
+            });
             if (pending.kind === "structuredUserInput") {
               sendSse(input.controller, input.encoder, input.secureSession, {
                 type: "thread.input_request.resolved",
@@ -4261,6 +4278,10 @@ async function streamRunningAppServerThread(input: {
                 threadId: input.threadId,
               });
             }
+            sendSse(input.controller, input.encoder, input.secureSession, {
+              type: "thread.state.changed",
+              thread: threadSummary,
+            });
             return;
           }
           case "thread/status/changed": {
@@ -4783,6 +4804,7 @@ async function runAppServerPromptStreamed(input: {
       } satisfies PendingApproval;
       input.pendingApprovals.set(approval.approvalId, pending);
       threadSummary = updateThread(input.threads, input.messagesByThreadId, activeThreadId, {
+        attention: pendingThreadAttention(input.pendingApprovals, activeThreadId),
         state: "running",
       });
       sendSse(input.controller, input.encoder, input.secureSession, {
@@ -4810,6 +4832,7 @@ async function runAppServerPromptStreamed(input: {
       threadId: activeThreadId,
     });
     threadSummary = updateThread(input.threads, input.messagesByThreadId, activeThreadId, {
+      attention: pendingThreadAttention(input.pendingApprovals, activeThreadId),
       state: "running",
     });
     sendSse(input.controller, input.encoder, input.secureSession, {
@@ -5081,6 +5104,9 @@ async function runAppServerPromptStreamed(input: {
               return;
             }
             input.pendingApprovals.delete(approvalId);
+            threadSummary = updateThread(input.threads, input.messagesByThreadId, activeThreadId, {
+              attention: pendingThreadAttention(input.pendingApprovals, activeThreadId),
+            });
             if (pending.kind === "structuredUserInput") {
               sendSse(input.controller, input.encoder, input.secureSession, {
                 type: "thread.input_request.resolved",
@@ -5088,6 +5114,10 @@ async function runAppServerPromptStreamed(input: {
                 threadId: activeThreadId,
               });
             }
+            sendSse(input.controller, input.encoder, input.secureSession, {
+              type: "thread.state.changed",
+              thread: threadSummary,
+            });
             return;
           }
           case "thread/status/changed": {
@@ -5372,6 +5402,7 @@ async function runAppServerPromptStreamed(input: {
         { content: "Current Codex turn finished. Starting your reply.", state: "completed" },
       );
       threadSummary = updateThread(input.threads, input.messagesByThreadId, activeThreadId, {
+        attention: pendingThreadAttention(input.pendingApprovals, activeThreadId),
         state: "running",
       });
       sendSse(input.controller, input.encoder, input.secureSession, {
@@ -6455,9 +6486,24 @@ function updateThread(
 
   const messages = messagesByThreadId.get(threadId) ?? [];
   const lastMessage = [...messages].reverse().find((message) => message.role !== "status");
+  const nextState = update.state ?? existing.state;
+  const inheritedAttention =
+    update.attention !== undefined
+      ? update.attention
+      : existing.attention?.kind === "failed" && nextState !== "failed"
+        ? null
+        : existing.attention ??
+          (nextState === "failed"
+            ? {
+                count: 1,
+                kind: "failed" as const,
+                label: preview(update.lastError?.trim() || existing.lastError?.trim() || "Thread failed"),
+              }
+            : undefined);
   const next = ThreadSummarySchema.parse({
     ...existing,
     ...update,
+    attention: inheritedAttention,
     messageCount: messages.length,
     lastMessagePreview: lastMessage?.content
       ? preview(lastMessage.content)
@@ -8030,11 +8076,12 @@ function isRolloutMessageLine(line: string) {
 
 function threadDetailResponse(input: {
   messages: ChatMessage[];
+  pendingApprovals?: Map<string, PendingApproval>;
   pendingInputRequests: PendingInputRequest[];
   thread: ThreadMetadata;
 }) {
   return ThreadDetailResponseSchema.parse({
-    thread: input.thread,
+    thread: threadWithAttention(input.thread, input.pendingApprovals),
     messages: input.messages,
     pendingInputRequests: input.pendingInputRequests,
   });
@@ -8978,6 +9025,67 @@ function pendingInputRequestFromApproval(
     threadId,
     turnId: approval.turnId,
   };
+}
+
+function pendingThreadAttention(
+  pendingApprovals: Map<string, PendingApproval>,
+  threadId: string,
+): ThreadMetadata["attention"] {
+  const pending = Array.from(pendingApprovals.values()).filter(
+    (approval) => approval.threadId === threadId,
+  );
+  if (pending.length === 0) {
+    return null;
+  }
+
+  const inputRequest = pending.find((approval) => approval.kind === "structuredUserInput");
+  if (inputRequest) {
+    const question = inputRequest.questions?.find((candidate) => candidate.question.trim());
+    return {
+      count: pending.length,
+      kind: "input",
+      label: question ? preview(question.question) : "Codex needs your input",
+    };
+  }
+
+  const first = pending[0];
+  return {
+    count: pending.length,
+    kind: "approval",
+    label:
+      first.kind === "commandExecution"
+        ? "Command approval required"
+        : first.kind === "fileChange"
+          ? "File change approval required"
+          : first.kind === "permissions"
+            ? "Permission approval required"
+            : first.kind === "mcpElicitation"
+              ? "Tool input required"
+              : "Approval required",
+  };
+}
+
+function threadWithAttention(
+  thread: ThreadMetadata,
+  pendingApprovals?: Map<string, PendingApproval>,
+): ThreadMetadata {
+  const pendingAttention = pendingApprovals
+    ? pendingThreadAttention(pendingApprovals, thread.id)
+    : null;
+  if (pendingAttention) {
+    return ThreadSummarySchema.parse({ ...thread, attention: pendingAttention });
+  }
+  if (thread.state === "failed") {
+    return ThreadSummarySchema.parse({
+      ...thread,
+      attention: {
+        count: 1,
+        kind: "failed",
+        label: preview(thread.lastError?.trim() || "Thread failed"),
+      },
+    });
+  }
+  return ThreadSummarySchema.parse({ ...thread, attention: null });
 }
 
 function pendingInputRequestsForThread(
