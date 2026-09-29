@@ -85,7 +85,9 @@ function durationLabel(window: RateLimitWindow) {
 
 function formatReset(epochSeconds: number) {
   return new Date(epochSeconds * 1000).toLocaleTimeString([], {
+    day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    month: "short",
   });
 }

@@ -180,6 +180,36 @@ The phone must be able to reach one of the URLs printed by the relay.
 - On Tailscale, the relay prefers your Tailscale address when it can detect one.
 - If several Wi-Fi, VPN, or virtual network addresses are available, the QR includes all detected candidates and the app tries them automatically.
 
+## Linux Tailcat remote transport
+
+The npm package does not bundle a Linux native Tailcat binary. Build the helper
+for the Ubuntu host, then let the Relay CLI own both processes:
+
+```sh
+pnpm build:linux:tailcat
+# On an ARM64 Ubuntu host, or when cross-compiling:
+GOARCH=arm64 pnpm build:linux:tailcat
+
+CODEX_RELAY_TAILCAT_BIN="$PWD/artifacts/linux/tailcat-relay-server-linux-amd64" \
+  npx codex-relay@latest --tailcat --bg
+```
+
+Use `tailcat-relay-server-linux-arm64` for an ARM64 host. The CLI starts the
+helper, adds its `tc...` address to the pairing QR, and stops it together with
+the Relay:
+
+```sh
+npx codex-relay@latest qr
+npx codex-relay@latest approve XXXX-XXXX
+npx codex-relay@latest stop
+```
+
+The persistent Tailcat server key and runtime state are stored under
+`~/.local/share/codex-relay/`. Set `CODEX_RELAY_TAILCAT_BIN` once in the shell
+environment to omit `--tailcat-bin`; a `tailcat-relay-server` already on
+`PATH` is also accepted. Tailcat remains optional: LAN pairing continues to
+work if the remote helper is still starting or unavailable.
+
 ## Troubleshooting
 
 If `npx codex-relay@latest qr` cannot find a server, start one first:

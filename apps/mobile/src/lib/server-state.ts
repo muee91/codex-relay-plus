@@ -651,6 +651,8 @@ export function applyStreamEventToServerState(
     case "thread.input_request.resolved":
       removePendingInputRequestState(queryClient, event.threadId, event.requestId);
       return;
+    case "thread.stream.replay_unavailable":
+      return;
   }
 }
 

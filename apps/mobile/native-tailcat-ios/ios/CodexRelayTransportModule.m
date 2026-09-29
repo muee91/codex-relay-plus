@@ -1,0 +1,215 @@
+#import <Foundation/Foundation.h>
+#import <React/RCTBridgeModule.h>
+#import <Bridge/Bridge.h>
+
+static NSString *const kTailcatDefaultsSuite = @"codex-relay-tailcat";
+static NSString *const kServerAddrKey = @"serverAddr";
+static NSString *const kRemotePortKey = @"remotePort";
+static NSString *const kLanTargetsKey = @"lanTargetsJson";
+static NSString *const kModeKey = @"mode";
+static const long long kFixedRelayRemotePort = 8787;
+
+@interface CodexRelayTransportModule : NSObject <RCTBridgeModule>
+@property(nonatomic, strong) NSUserDefaults *defaults;
+@property(nonatomic) dispatch_queue_t transportQueue;
+@end
+
+@implementation CodexRelayTransportModule
+
+RCT_EXPORT_MODULE(CodexRelayTransport)
+
++ (BOOL)requiresMainQueueSetup {
+  return NO;
+}
+
+RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(getPersistedRelayProxyConfig) {
+  NSString *serverAddr = [self.defaults stringForKey:kServerAddrKey];
+  NSNumber *remotePort = [self.defaults objectForKey:kRemotePortKey];
+  if (serverAddr.length == 0 || remotePort == nil || remotePort.longLongValue < 1 || remotePort.longLongValue > 65535) {
+    return @"";
+  }
+  NSDictionary *config = @{ @"serverAddr": serverAddr, @"remotePort": @(kFixedRelayRemotePort) };
+  NSError *error = nil;
+  NSData *data = [NSJSONSerialization dataWithJSONObject:config options:0 error:&error];
+  if (error != nil || data == nil) return @"";
+  return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+}
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _defaults = [[NSUserDefaults alloc] initWithSuiteName:kTailcatDefaultsSuite];
+    _transportQueue = dispatch_queue_create("com.gronstudio.codexrelay.tailcat", DISPATCH_QUEUE_SERIAL);
+    dispatch_async(_transportQueue, ^{
+      [self restoreProxyIfConfigured];
+    });
+  }
+  return self;
+}
+
+- (dispatch_queue_t)methodQueue {
+  return self.transportQueue;
+}
+
+RCT_REMAP_METHOD(configureRelayProxy,
+                 configureRelayProxy:(NSString *)serverAddr
+                 remotePort:(nonnull NSNumber *)remotePort
+                 lanTargetsJson:(NSString *)lanTargetsJson
+                 mode:(NSString *)mode
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject) {
+  NSError *error = nil;
+  NSString *localURL = [self configureAndPersist:serverAddr
+                                      remotePort:remotePort.longLongValue
+                                  lanTargetsJson:lanTargetsJson ?: @"[]"
+                                           mode:mode ?: @"auto"
+                                          error:&error];
+  if (error != nil || localURL.length == 0) {
+    [self reject:reject code:@"TAILCAT_CONFIGURE_FAILED" error:error fallback:@"Tailcat proxy configuration failed."];
+    return;
+  }
+  resolve(localURL);
+}
+
+RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(configureRelayProxySync:(NSString *)serverAddr
+                                      remotePort:(nonnull NSNumber *)remotePort
+                                      lanTargetsJson:(NSString *)lanTargetsJson
+                                      mode:(NSString *)mode) {
+  NSError *error = nil;
+  NSString *localURL = [self configureAndPersist:serverAddr
+                                      remotePort:remotePort.longLongValue
+                                  lanTargetsJson:lanTargetsJson ?: @"[]"
+                                           mode:mode ?: @"remote"
+                                          error:&error];
+  return error == nil && localURL.length > 0 ? localURL : @"";
+}
+
+RCT_REMAP_METHOD(startTailcatProxy,
+                 startTailcatProxy:(NSString *)serverAddr
+                 remotePort:(nonnull NSNumber *)remotePort
+                 startResolver:(RCTPromiseResolveBlock)resolve
+                 startRejecter:(RCTPromiseRejectBlock)reject) {
+  NSError *error = nil;
+  NSString *localURL = [self configureAndPersist:serverAddr
+                                      remotePort:remotePort.longLongValue
+                                  lanTargetsJson:@"[]"
+                                           mode:@"remote"
+                                          error:&error];
+  if (error != nil || localURL.length == 0) {
+    [self reject:reject code:@"TAILCAT_CONFIGURE_FAILED" error:error fallback:@"Tailcat proxy configuration failed."];
+    return;
+  }
+  resolve(localURL);
+}
+
+RCT_REMAP_METHOD(stopTailcatProxy,
+                 stopTailcatProxyWithResolver:(RCTPromiseResolveBlock)resolve
+                 stopRejecter:(RCTPromiseRejectBlock)reject) {
+  [self.defaults removePersistentDomainForName:kTailcatDefaultsSuite];
+  NSError *error = nil;
+  BOOL ok = GoBridgeStopProxy(&error);
+  if (!ok || error != nil) {
+    [self reject:reject code:@"TAILCAT_STOP_FAILED" error:error fallback:@"Tailcat proxy shutdown failed."];
+    return;
+  }
+  resolve(nil);
+}
+
+RCT_REMAP_METHOD(tailcatStatus,
+                 tailcatStatusWithResolver:(RCTPromiseResolveBlock)resolve
+                 statusRejecter:(RCTPromiseRejectBlock)reject) {
+  NSString *status = GoBridgeStatusJSON();
+  if (status.length == 0) {
+    reject(@"TAILCAT_STATUS_FAILED", @"Tailcat returned an empty status.", nil);
+    return;
+  }
+  resolve(status);
+}
+
+RCT_REMAP_METHOD(refreshTailcatPath,
+                 refreshTailcatPathWithResolver:(RCTPromiseResolveBlock)resolve
+                 refreshRejecter:(RCTPromiseRejectBlock)reject) {
+  NSString *status = GoBridgeRefreshPath();
+  if (status.length == 0) {
+    reject(@"TAILCAT_STATUS_FAILED", @"Tailcat returned an empty path status.", nil);
+    return;
+  }
+  resolve(status);
+}
+
+RCT_REMAP_METHOD(discoverLocalRelay,
+                 discoverLocalRelay:(nonnull NSNumber *)timeoutMs
+                 discoveryResolver:(RCTPromiseResolveBlock)resolve
+                 discoveryRejecter:(RCTPromiseRejectBlock)reject) {
+  // LAN addresses already arrive in the signed pairing payload. Android adds
+  // NSD as an optimization; iOS can safely rely on those verified candidates.
+  (void)timeoutMs;
+  (void)reject;
+  resolve(nil);
+}
+
+- (NSString *)configureAndPersist:(NSString *)serverAddr
+                       remotePort:(long long)remotePort
+                   lanTargetsJson:(NSString *)lanTargetsJson
+                            mode:(NSString *)mode
+                           error:(NSError **)error {
+  NSString *localURL = GoBridgeConfigureProxy(
+      serverAddr,
+      kFixedRelayRemotePort,
+      lanTargetsJson,
+      mode,
+      [self clientKeyPath],
+      error);
+  if ((error != NULL && *error != nil) || localURL.length == 0) {
+    return nil;
+  }
+
+  [self.defaults setObject:serverAddr forKey:kServerAddrKey];
+  [self.defaults setObject:@(kFixedRelayRemotePort) forKey:kRemotePortKey];
+  [self.defaults setObject:lanTargetsJson forKey:kLanTargetsKey];
+  [self.defaults setObject:mode forKey:kModeKey];
+  [self.defaults synchronize];
+  return localURL;
+}
+
+- (void)restoreProxyIfConfigured {
+  NSString *serverAddr = [self.defaults stringForKey:kServerAddrKey];
+  NSNumber *remotePort = [self.defaults objectForKey:kRemotePortKey];
+  if (serverAddr.length == 0 || remotePort == nil || remotePort.longLongValue < 1 || remotePort.longLongValue > 65535) {
+    return;
+  }
+  NSString *mode = [self.defaults stringForKey:kModeKey] ?: @"auto";
+  if ([mode isEqualToString:@"local"]) return;
+  NSError *error = nil;
+  (void)GoBridgeConfigureProxy(
+      serverAddr,
+      kFixedRelayRemotePort,
+      @"[]",
+      @"remote",
+      [self clientKeyPath],
+      &error);
+  [self.defaults setObject:@(kFixedRelayRemotePort) forKey:kRemotePortKey];
+  [self.defaults setObject:@"[]" forKey:kLanTargetsKey];
+  [self.defaults setObject:@"remote" forKey:kModeKey];
+  [self.defaults synchronize];
+}
+
+- (NSString *)clientKeyPath {
+  NSURL *supportURL = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory
+                                                               inDomains:NSUserDomainMask] firstObject];
+  if (supportURL == nil) {
+    supportURL = [NSURL fileURLWithPath:[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"]];
+  }
+  NSURL *directory = [supportURL URLByAppendingPathComponent:@"Codex Relay Plus" isDirectory:YES];
+  return [[directory URLByAppendingPathComponent:@"tailcat-client-key"] path];
+}
+
+- (void)reject:(RCTPromiseRejectBlock)reject
+          code:(NSString *)code
+         error:(NSError *)error
+      fallback:(NSString *)fallback {
+  NSString *message = error.localizedDescription.length > 0 ? error.localizedDescription : fallback;
+  reject(code, message, error);
+}
+
+@end

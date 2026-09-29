@@ -7,15 +7,18 @@
     "start": "expo start --dev-client",
     "start:go": "expo start --go",
     "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo run:android",
+    "android": "pnpm build:tailcat:android && expo run:android",
     "build:workspace-code-editor": "vite build --configLoader runner --config vite.workspace-code-editor.config.ts",
     "build:workspace-ssh-terminal": "vite build --configLoader runner --config vite.workspace-ssh-terminal.config.ts",
-    "ios": "expo run:ios",
+    "ios": "pnpm build:tailcat:ios && expo run:ios",
     "web": "expo start --web",
     "lint": "oxlint . --import-plugin --react-plugin --jsx-a11y-plugin",
     "format": "oxfmt . --write",
     "format:check": "oxfmt . --check",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:tailcat:android": "bash ./scripts/build-tailcat-android.sh",
+    "build:tailcat:ios": "bash ./scripts/build-tailcat-ios.sh",
+    "eas-build-pre-install": "bash ./scripts/eas-build-tailcat.sh"
   },
   "dependencies": {
     "@expo/dom-webview": "57.0.1",

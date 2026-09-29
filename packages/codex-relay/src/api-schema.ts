@@ -599,10 +599,14 @@ export const RunThreadRequestSchema = z
   .merge(PromptContextInputSchema)
   .merge(ThreadRunOptionsSchema.partial());
 
-export const StreamThreadRunRequestSchema = RunThreadRequestSchema.or(
+export const StreamThreadRunRequestSchema = RunThreadRequestSchema.extend({
+  since: z.number().int().nonnegative().optional(),
+}).or(
   ThreadRunOptionsSchema.partial()
     .extend({
       prompt: z.string().trim().min(1).optional(),
+      since: z.number().int().nonnegative().optional(),
+      watch: z.boolean().optional(),
     })
     .merge(PromptContextInputSchema),
 );
@@ -731,51 +735,62 @@ export const ThreadMessageDetailResponseSchema = z.object({
   value: z.string(),
 });
 
+const StreamThreadRunEventMetadataSchema = z.object({
+  sequence: z.number().int().nonnegative().optional(),
+});
+
 export const StreamThreadRunEventSchema = z.discriminatedUnion("type", [
-  z.object({
+  StreamThreadRunEventMetadataSchema.extend({
     type: z.literal("thread.message.created"),
     thread: ThreadSummarySchema,
     message: ChatMessageSchema,
   }),
-  z.object({
+  StreamThreadRunEventMetadataSchema.extend({
     type: z.literal("thread.message.delta"),
     threadId: z.string().min(1),
     messageId: z.string().min(1),
     delta: z.string(),
   }),
-  z.object({
+  StreamThreadRunEventMetadataSchema.extend({
     type: z.literal("thread.message.completed"),
     thread: ThreadSummarySchema,
     message: ChatMessageSchema,
   }),
-  z.object({
+  StreamThreadRunEventMetadataSchema.extend({
     type: z.literal("thread.state.changed"),
     thread: ThreadSummarySchema,
   }),
-  z.object({
+  StreamThreadRunEventMetadataSchema.extend({
     type: z.literal("thread.goal.updated"),
     thread: ThreadSummarySchema,
     goal: ThreadGoalSchema.nullable(),
   }),
-  z.object({
+  StreamThreadRunEventMetadataSchema.extend({
     type: z.literal("thread.error"),
     thread: ThreadSummarySchema.optional(),
     error: ErrorResponseSchema.shape.error,
   }),
-  z.object({
+  StreamThreadRunEventMetadataSchema.extend({
     type: z.literal("thread.preview_target.detected"),
     threadId: z.string().min(1),
     target: WebPreviewTargetSchema,
   }),
-  z.object({
+  StreamThreadRunEventMetadataSchema.extend({
     type: z.literal("thread.input_request.created"),
     request: PendingInputRequestSchema,
     thread: ThreadSummarySchema,
   }),
-  z.object({
+  StreamThreadRunEventMetadataSchema.extend({
     type: z.literal("thread.input_request.resolved"),
     requestId: z.string().min(1),
     threadId: z.string().min(1),
+  }),
+  StreamThreadRunEventMetadataSchema.extend({
+    type: z.literal("thread.stream.replay_unavailable"),
+    threadId: z.string().min(1),
+    since: z.number().int().nonnegative(),
+    earliestSequence: z.number().int().positive().nullable(),
+    reason: z.enum(["no_cache", "expired"]),
   }),
 ]);
 
@@ -1848,6 +1863,7 @@ export function createOpenApiDocument() {
               items: { $ref: "#/components/schemas/PromptSkill" },
             },
             collaborationMode: { type: "string", enum: ["default", "plan"], default: "default" },
+            since: { type: "integer", minimum: 0 },
           },
         },
         RunThreadResponse: {
@@ -1971,6 +1987,9 @@ export function createOpenApiDocument() {
           },
         },
         StreamThreadRunEvent: {
+          properties: {
+            sequence: { type: "integer", minimum: 0 },
+          },
           oneOf: [
             { type: "object", properties: { type: { const: "thread.message.created" } } },
             { type: "object", properties: { type: { const: "thread.message.delta" } } },
@@ -1980,6 +1999,10 @@ export function createOpenApiDocument() {
             {
               type: "object",
               properties: { type: { const: "thread.preview_target.detected" } },
+            },
+            {
+              type: "object",
+              properties: { type: { const: "thread.stream.replay_unavailable" } },
             },
           ],
         },

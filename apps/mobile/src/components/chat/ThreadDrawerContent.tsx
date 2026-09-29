@@ -981,7 +981,7 @@ const DrawerRowItem = memo(function DrawerRowItem({
   }
 
   const running = item.thread.state === "running";
-  const relativeTime = formatRelativeTime(item.thread.lastActivityAt ?? item.thread.updatedAt);
+  const relativeTime = formatRelativeTime(latestThreadTimestamp(item.thread));
   return (
     <View style={[styles.thread, selected && styles.threadSelected]}>
       <Pressable
@@ -1533,6 +1533,21 @@ function threadMatchesSearch(thread: ThreadSummary, normalizedQuery: string) {
 
 function normalizeSearchValue(value: string | undefined) {
   return (value ?? "").trim().toLocaleLowerCase();
+}
+
+function latestThreadTimestamp(thread: ThreadSummary) {
+  const updatedAt = new Date(thread.updatedAt).getTime();
+  const lastActivityAt = thread.lastActivityAt
+    ? new Date(thread.lastActivityAt).getTime()
+    : Number.NaN;
+
+  if (!Number.isFinite(updatedAt)) {
+    return thread.lastActivityAt ?? thread.updatedAt;
+  }
+  if (!Number.isFinite(lastActivityAt)) {
+    return thread.updatedAt;
+  }
+  return lastActivityAt > updatedAt ? thread.lastActivityAt! : thread.updatedAt;
 }
 
 function formatRelativeTime(value: string) {
