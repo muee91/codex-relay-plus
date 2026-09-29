@@ -18,12 +18,10 @@ describe("mobile thread drawer rows", () => {
     const pinned = threadSummary("thread-pinned", "/work/alpha");
 
     expect(
-      buildDrawerRows(
-        [needsInput, failed, pinned],
-        {},
-        undefined,
-        ["thread-input", "thread-pinned"],
-      ),
+      buildDrawerRows([needsInput, failed, pinned], {}, undefined, [
+        "thread-input",
+        "thread-pinned",
+      ]),
     ).toEqual([
       { id: "needs-attention", kind: "needs-attention" },
       pinnedThreadRow(needsInput, "alpha"),
