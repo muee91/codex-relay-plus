@@ -2412,6 +2412,7 @@ export function createApp(options: AppOptions = {}) {
       options.pairing,
       secureSessionsByTokenHash,
       threadDetailResponse({
+        pendingApprovals,
         thread,
         messages: messagesByThreadId.get(threadId) ?? [],
         pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
@@ -7135,8 +7136,13 @@ function rememberAppServerThread(
     thread,
     options.authoritativeMessageCount ? undefined : existingThread?.messageCount,
   );
+  const preservedAttention =
+    existingThread?.attention?.kind === "failed" && mappedThread.state !== "failed"
+      ? null
+      : existingThread?.attention;
   const threadWithLocalRuntime = ThreadSummarySchema.parse({
     ...mappedThread,
+    attention: preservedAttention,
     goal: existingThread?.goal ?? mappedThread.goal,
     ...runtimeMetadataFromOptions(existingThread ?? {}),
     model: existingThread?.model ?? mappedThread.model,
