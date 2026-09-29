@@ -70,6 +70,7 @@ import {
   streamThreadRun,
   uploadImageAttachments,
 } from "@/lib/codex-relay-api";
+import { updateActiveCodexRelayHostName } from "@/lib/codex-relay-hosts";
 import {
   hapticLightImpact,
   hapticMediumImpact,
@@ -120,6 +121,7 @@ import {
   reconcileThreadRunEventAfterTerminal,
 } from "@/lib/thread-run-stream";
 import { readCachedWorkspaceRuntimePreferences } from "@/lib/workspace-runtime-preferences-cache";
+import { getNativeTailcatStatus, type TailcatPathStatus } from "@/lib/transport/native-tailcat";
 import {
   appendComposerAttachments,
   chatStore$,
@@ -159,8 +161,9 @@ import {
   type RuntimePreferencesStage,
 } from "./runtime-preferences-coordinator";
 import { ChatShell } from "./ChatShell";
-import type { ChatShellAction } from "./ChatShellHeader";
+import type { ChatConnectionBadge, ChatShellAction } from "./ChatShellHeader";
 import { ConnectionBanner } from "./ConnectionBanner";
+import { ConnectionDetailsSheet } from "./ConnectionDetailsSheet";
 import { approvalCommand } from "./pairing-commands";
 import {
   EXPANDED_DRAWER_BREAKPOINT,
@@ -189,9 +192,13 @@ const EMPTY_THREADS: ThreadSummary[] = [];
 
 type ChatScreenProps = {
   initialPairingUrl?: string | null;
+  openScannerOnMount?: boolean;
 };
 
-export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
+export function ChatScreen({
+  initialPairingUrl,
+  openScannerOnMount = false,
+}: ChatScreenProps = {}) {
   const isHandlingPairingLink = useRef(false);
   const lastHandledPairingUrl = useRef<string | undefined>(undefined);
   const { width } = useWindowDimensions();
@@ -226,6 +233,10 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const [wideLayoutWidth, setWideLayoutWidth] = useState(0);
   const [previewPaneWidth, setPreviewPaneWidth] = useState(DEFAULT_PREVIEW_PANE_WIDTH);
   const [scannerMessage, setScannerMessage] = useState("Point the camera at the connection QR.");
+  const [tailcatPathStatus, setTailcatPathStatus] = useState<TailcatPathStatus>({
+    path: "idle",
+  });
+  const [isConnectionDetailsOpen, setConnectionDetailsOpen] = useState(false);
   const copyToastIdRef = useRef(0);
   const runtimePreferencesCoordinator = useMemo(createRuntimePreferencesCoordinator, []);
   const [copyToast, setCopyToast] = useState<{ id: number } | undefined>(undefined);
@@ -405,6 +416,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const isModernScannerOpenRef = useRef(false);
   const previewResizeStartWidthRef = useRef(DEFAULT_PREVIEW_PANE_WIDTH);
   const scanPairingGenerationRef = useRef(0);
+  const scannerAutoOpenHandledRef = useRef(false);
   const closeStreamRef = useRef<(() => void) | undefined>(undefined);
   const closeThreadWatchStreamRef = useRef<(() => void) | undefined>(undefined);
   const watchedThreadIdRef = useRef<string | undefined>(undefined);
@@ -418,6 +430,13 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const connection = useSelector(() => chatStore$.connection.get());
   const error = useSelector(() => chatStore$.error.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
+  const connectionBadge = useMemo(
+    () => ({
+      ...connectionBadgeForState(connection, hasPairedSession, tailcatPathStatus),
+      onPress: () => setConnectionDetailsOpen(true),
+    }),
+    [connection, hasPairedSession, tailcatPathStatus],
+  );
   const collaborationMode = useSelector(
     () =>
       chatStore$.collaborationModeByThreadId[composerThreadKey(activeThreadId)].get() ??
@@ -483,6 +502,28 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   });
 
   const workspacePath = statusQuery.data?.workspacePath;
+
+  useEffect(() => {
+    if (!hasPairedSession) {
+      setTailcatPathStatus({ path: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    const refreshTransportStatus = async () => {
+      const status = await getNativeTailcatStatus().catch(() => ({ path: "offline" as const }));
+      if (!cancelled) {
+        setTailcatPathStatus(status);
+      }
+    };
+    void refreshTransportStatus();
+    const timer = setInterval(() => void refreshTransportStatus(), CONNECTION_HEALTH_CHECK_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [hasPairedSession]);
+
   const threads = useMemo(
     () => threadsQuery.data?.threads ?? EMPTY_THREADS,
     [threadsQuery.data?.threads],
@@ -588,6 +629,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const applyStatusFromServer = useCallback(
     (status: Awaited<ReturnType<typeof serverStateQueryFns.status>>) => {
       setStatusState(queryClient, status);
+      updateActiveCodexRelayHostName(status.machineName);
     },
     [queryClient],
   );
@@ -1498,7 +1540,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     };
   }, [activeThreadId, connection, isRunning, queryClient, syncThreadSnapshot]);
 
-  async function openScanner() {
+  const openScanner = useCallback(async () => {
     if (!cameraPermission?.granted) {
       const permission = await requestCameraPermission();
       if (!permission.granted) {
@@ -1529,7 +1571,15 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     }
 
     setScannerOpen(true);
-  }
+  }, [cameraPermission?.granted, requestCameraPermission]);
+
+  useEffect(() => {
+    if (!openScannerOnMount || scannerAutoOpenHandledRef.current) {
+      return;
+    }
+    scannerAutoOpenHandledRef.current = true;
+    void openScanner();
+  }, [openScanner, openScannerOnMount]);
 
   async function retryCameraPermission() {
     const permission = await requestCameraPermission();
@@ -2002,6 +2052,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         decision: "approve",
       });
       removePendingInputRequestState(queryClient, request.threadId, request.id);
+      void fetchThreadsState(queryClient).catch(() => undefined);
       setConnection("connected");
       if (
         !closeStreamRef.current &&
@@ -2023,6 +2074,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         decision: "cancel",
       });
       removePendingInputRequestState(queryClient, request.threadId, request.id);
+      void fetchThreadsState(queryClient).catch(() => undefined);
       setConnection("connected");
       if (
         !closeStreamRef.current &&
@@ -2539,6 +2591,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     : [];
   const chatPane = (
     <ChatShell
+      connectionBadge={connectionBadge}
       banner={
         <Animated.View layout={chatBannerLayoutTransition} style={styles.bannerStack}>
           <ConnectionBanner
@@ -2554,6 +2607,11 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       }
       composerDisabled={connection === "offline"}
       composerInputEditable={connection !== "offline" || hasPairedSession}
+      composerStatusMessage={
+        connection === "offline" && hasPairedSession
+          ? "Offline draft is saved on this device. Reconnect before sending."
+          : undefined
+      }
       composerFocusRecoveryKey={connection}
       collaborationMode={collaborationMode}
       composerFocusRequestKey={composerFocusRequestKey}
@@ -2695,6 +2753,22 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       ) : (
         <View style={styles.pagerPage}>{chatPane}</View>
       )}
+      <ConnectionDetailsSheet
+        connection={connection}
+        error={error}
+        machineName={statusQuery.data?.machineName}
+        onClose={() => setConnectionDetailsOpen(false)}
+        onRefresh={() => {
+          void refresh();
+        }}
+        onSwitchHost={() => {
+          setConnectionDetailsOpen(false);
+          requestAnimationFrame(openThreadDrawer);
+        }}
+        pathStatus={tailcatPathStatus}
+        serverUrl={serverUrl}
+        visible={isConnectionDetailsOpen}
+      />
       {copyToast ? (
         <AppToast
           key={copyToast.id}
@@ -2843,6 +2917,37 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       </Modal>
     </>
   );
+}
+
+function connectionBadgeForState(
+  connection: "checking" | "connected" | "offline",
+  hasPairedSession: boolean,
+  pathStatus: TailcatPathStatus,
+): ChatConnectionBadge {
+  if (!hasPairedSession) {
+    return { label: "Not paired", tone: "muted" };
+  }
+  if (connection === "checking") {
+    return { label: "Reconnecting", tone: "warn" };
+  }
+  if (connection === "offline") {
+    return { label: "Offline", tone: "bad" };
+  }
+
+  switch (pathStatus.path) {
+    case "lan":
+      return { label: "LAN", tone: "good" };
+    case "direct":
+      return { label: "Tailcat Direct", tone: "good" };
+    case "derp":
+      return { label: "Tailcat Relay", tone: "good" };
+    case "connecting":
+      return { label: "Tailcat…", tone: "warn" };
+    case "offline":
+      return { label: "Transport offline", tone: "bad" };
+    default:
+      return { label: "Connected", tone: "good" };
+  }
 }
 
 function dismissKeyboardForWorkspacePreview() {

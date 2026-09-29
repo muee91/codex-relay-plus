@@ -21,7 +21,7 @@ import { Spacing } from "@/constants/theme";
 import type { QueuedComposerPrompt } from "@/state/chat-store";
 
 import { ChatComposer } from "./ChatComposer";
-import { ChatShellHeader, type ChatShellAction } from "./ChatShellHeader";
+import { ChatShellHeader, type ChatConnectionBadge, type ChatShellAction } from "./ChatShellHeader";
 import { chatShellStyles as styles } from "./chat-shell-styles";
 import { implementablePlanId, MessageTimeline } from "./MessageTimeline";
 import { PlanProgressBanner } from "./PlanProgressBanner";
@@ -30,12 +30,14 @@ import type { WorkspaceMarkdownPreviewTarget } from "./workspace-preview/markdow
 
 export function ChatShell({
   banner,
+  connectionBadge,
   composerDisabled,
   composerDisabledPlaceholder,
   composerFooter,
   composerFocusRequestKey,
   composerFocusRecoveryKey,
   composerInputEditable,
+  composerStatusMessage,
   contextWindowUsage,
   collaborationMode,
   goal,
@@ -77,12 +79,14 @@ export function ChatShell({
   workspacePath,
 }: {
   banner?: ReactNode;
+  connectionBadge?: ChatConnectionBadge;
   composerDisabled: boolean;
   composerDisabledPlaceholder?: string;
   composerFooter?: ReactNode;
   composerFocusRequestKey?: number;
   composerFocusRecoveryKey?: number | string;
   composerInputEditable?: boolean;
+  composerStatusMessage?: string;
   contextWindowUsage?: ContextWindowUsage;
   collaborationMode: ThreadCollaborationMode;
   goal?: ThreadGoal | null;
@@ -155,6 +159,7 @@ export function ChatShell({
       >
         <View style={styles.shell}>
           <ChatShellHeader
+            connectionBadge={connectionBadge}
             leadingAction={leadingAction}
             subtitle={subtitle}
             title={title}
@@ -222,6 +227,7 @@ export function ChatShell({
                 pendingInputRequest={pendingInputRequest}
                 queuedPrompts={queuedPrompts}
                 rateLimitBuckets={rateLimitBuckets}
+                statusMessage={composerStatusMessage}
                 skills={skills}
                 skillsLoadState={skillsLoadState}
                 footer={composerFooter}

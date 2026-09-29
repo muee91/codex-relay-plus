@@ -43,6 +43,15 @@ type SecureSession = {
   serverToMobileKey: Uint8Array;
 };
 
+export type SecureSessionSnapshot = {
+  keyEpoch: number;
+  lastServerCounter: number;
+  mobileToServerKey: string;
+  nextMobileCounter: number;
+  receivedServerCounters: number[];
+  serverToMobileKey: string;
+};
+
 export function createSecurePairingAttempt(input: {
   serverPublicKey: string;
   serverUrl: string;
@@ -151,6 +160,41 @@ export function decryptResponsePayload(payload: unknown) {
 
 export function clearSecureSession() {
   storage.clearAll();
+}
+
+export function snapshotSecureSession(): SecureSessionSnapshot | undefined {
+  const mobileToServerKey = storage.getString(mobileToServerKeyStorageKey);
+  const serverToMobileKey = storage.getString(serverToMobileKeyStorageKey);
+  const keyEpoch = storage.getNumber(keyEpochStorageKey);
+  if (!mobileToServerKey || !serverToMobileKey || keyEpoch === undefined) {
+    return undefined;
+  }
+
+  return {
+    keyEpoch,
+    lastServerCounter: storage.getNumber(lastServerCounterStorageKey) ?? 0,
+    mobileToServerKey,
+    nextMobileCounter: storage.getNumber(nextMobileCounterStorageKey) ?? 0,
+    receivedServerCounters: readReceivedServerCounters(),
+    serverToMobileKey,
+  };
+}
+
+export function restoreSecureSession(snapshot: SecureSessionSnapshot | undefined) {
+  storage.clearAll();
+  if (!snapshot) {
+    return;
+  }
+
+  storage.set(keyEpochStorageKey, snapshot.keyEpoch);
+  storage.set(mobileToServerKeyStorageKey, snapshot.mobileToServerKey);
+  storage.set(serverToMobileKeyStorageKey, snapshot.serverToMobileKey);
+  storage.set(nextMobileCounterStorageKey, snapshot.nextMobileCounter);
+  storage.set(lastServerCounterStorageKey, snapshot.lastServerCounter);
+  storage.set(
+    receivedServerCountersStorageKey,
+    JSON.stringify(snapshot.receivedServerCounters.slice(-maxRememberedServerCounters)),
+  );
 }
 
 function deriveSession(

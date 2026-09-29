@@ -257,6 +257,7 @@ export const ChatComposer = memo(function ChatComposer({
   onSaveGoal,
   onToggleGoalPause,
   rateLimitBuckets,
+  statusMessage,
   skills,
   skillsLoadState,
   workspacePath,
@@ -295,6 +296,7 @@ export const ChatComposer = memo(function ChatComposer({
   onSaveGoal?: (objective: string) => void;
   onToggleGoalPause?: () => void;
   rateLimitBuckets: RateLimitBucket[];
+  statusMessage?: string;
   skills: AgentSkill[];
   skillsLoadState: "idle" | "loading" | "loaded" | "failed";
   workspacePath?: string;
@@ -1054,6 +1056,12 @@ export const ChatComposer = memo(function ChatComposer({
           textColor={theme.text}
           textSecondaryColor={theme.textSecondary}
         />
+        {statusMessage ? (
+          <View style={styles.statusNotice}>
+            <Icon name="warning" size={12} tintColor="#F8C46D" />
+            <Text style={styles.statusNoticeText}>{statusMessage}</Text>
+          </View>
+        ) : null}
         <View style={styles.actionRow}>
           <View style={styles.leadingActions}>
             <Button
@@ -3411,6 +3419,20 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     minWidth: 0,
+  },
+  statusNotice: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingTop: 2,
+  },
+  statusNoticeText: {
+    color: "#F8C46D",
+    flex: 1,
+    fontSize: 10,
+    lineHeight: 14,
+    opacity: 0.88,
   },
   footerRow: {
     alignItems: "stretch",
