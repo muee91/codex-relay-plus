@@ -1539,7 +1539,7 @@ export function ChatScreen({
     };
   }, [activeThreadId, connection, isRunning, queryClient, syncThreadSnapshot]);
 
-  async function openScanner() {
+  const openScanner = useCallback(async () => {
     if (!cameraPermission?.granted) {
       const permission = await requestCameraPermission();
       if (!permission.granted) {
@@ -1570,7 +1570,7 @@ export function ChatScreen({
     }
 
     setScannerOpen(true);
-  }
+  }, [cameraPermission?.granted, requestCameraPermission]);
 
   useEffect(() => {
     if (!openScannerOnMount || scannerAutoOpenHandledRef.current) {
@@ -1578,7 +1578,7 @@ export function ChatScreen({
     }
     scannerAutoOpenHandledRef.current = true;
     void openScanner();
-  }, [openScannerOnMount]);
+  }, [openScanner, openScannerOnMount]);
 
   async function retryCameraPermission() {
     const permission = await requestCameraPermission();
