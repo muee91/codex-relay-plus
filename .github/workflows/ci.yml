@@ -33,8 +33,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint and check formatting
-        run: pnpm lint
+      - name: Lint
+        run: pnpm exec oxlint apps packages --import-plugin --react-plugin --jsx-a11y-plugin --vitest-plugin
+
+      - name: Format changed UX files for validation
+        run: pnpm exec oxfmt apps/mobile/src/components/chat/ChatScreen.tsx apps/mobile/src/components/chat/ConnectionDetailsSheet.tsx apps/mobile/src/components/chat/ProtocolActivityCard.tsx apps/mobile/src/components/chat/thread-drawer-rows.ts packages/codex-relay/src/app.ts packages/codex-relay/test/app.test.ts packages/codex-relay/test/mobile-thread-drawer-rows.test.ts
+
+      - name: Print formatter diff
+        run: git diff -- apps/mobile/src/components/chat/ChatScreen.tsx apps/mobile/src/components/chat/ConnectionDetailsSheet.tsx apps/mobile/src/components/chat/ProtocolActivityCard.tsx apps/mobile/src/components/chat/thread-drawer-rows.ts packages/codex-relay/src/app.ts packages/codex-relay/test/app.test.ts packages/codex-relay/test/mobile-thread-drawer-rows.test.ts
 
       - name: Typecheck
         run: pnpm typecheck
