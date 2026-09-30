@@ -475,6 +475,8 @@ export function ChatScreen({
     queryFn: serverStateQueryFns.rateLimits,
     enabled: false,
   });
+  // Query keys also carry Host and server URL identity; keep the request ID
+  // from the active screen state instead of depending on key array positions.
   const activeThreadDetailQuery = useQuery({
     queryKey: activeThreadId
       ? serverStateKeys.thread(activeThreadId)
