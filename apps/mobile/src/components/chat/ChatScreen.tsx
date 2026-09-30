@@ -237,6 +237,7 @@ export function ChatScreen({
   const [isWidePreviewVisible, setWidePreviewVisible] = useState(true);
   const [wideLayoutWidth, setWideLayoutWidth] = useState(0);
   const [previewPaneWidth, setPreviewPaneWidth] = useState(DEFAULT_PREVIEW_PANE_WIDTH);
+  const [isRefreshing, setRefreshing] = useState(false);
   const [scannerMessage, setScannerMessage] = useState("Point the camera at the connection QR.");
   const [tailcatPathStatus, setTailcatPathStatus] = useState<TailcatPathStatus>({
     path: "idle",
@@ -895,9 +896,11 @@ export function ChatScreen({
       }
     })();
     refreshPromiseRef.current = request;
+    setRefreshing(true);
     void request.finally(() => {
       if (refreshPromiseRef.current === request) {
         refreshPromiseRef.current = undefined;
+        setRefreshing(false);
       }
     });
     return request;
@@ -1795,6 +1798,19 @@ export function ChatScreen({
     const requestSkills = promptSkillsForRequestFromPrompt(textPrompt, pendingSkills, skills);
     const prompt = promptMarkdownWithSkills(textPrompt || fallbackPrompt, requestSkills);
     const runPreferences = currentRuntimePreferences();
+
+    // The initial refresh marks the connection as usable as soon as /status
+    // responds, while the thread list and active thread may still be loading.
+    // Wait for that refresh before clearing the draft or starting a run; doing
+    // both concurrently can make a cold-start prompt disappear when the
+    // refreshed active thread is selected.
+    if (refreshPromiseRef.current || chatStore$.connection.peek() !== "connected") {
+      await refresh();
+      if (chatStore$.connection.peek() !== "connected") {
+        return;
+      }
+    }
+
     if (isDraftPrompt) {
       clearComposerDraft(composerThreadId);
     }
@@ -2631,7 +2647,7 @@ export function ChatScreen({
           />
         </Animated.View>
       }
-      composerDisabled={connection === "offline"}
+      composerDisabled={connection !== "connected" || isRefreshing}
       composerInputEditable={connection !== "offline" || hasPairedSession}
       composerStatusMessage={
         connection === "offline" && hasPairedSession
