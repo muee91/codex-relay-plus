@@ -3325,7 +3325,6 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     fontFamily: Fonts.sansMedium,
     fontSize: 13,
-    lineHeight: 18,
     maxHeight: 84,
     minHeight: 42,
     paddingHorizontal: 2,
