@@ -302,7 +302,10 @@ export const ChatComposer = memo(function ChatComposer({
   workspacePath?: string;
 }) {
   const theme = useTheme();
-  const composerKey = composerThreadKey(composerThreadId);
+  const composerKey = useSelector(() => {
+    chatStore$.activeHostId.get();
+    return composerThreadKey(composerThreadId);
+  });
   const attachments = useSelector(
     () => chatStore$.composerAttachmentsByThreadId[composerKey].get() ?? [],
   );

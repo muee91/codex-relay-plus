@@ -437,14 +437,16 @@ export function ChatScreen({
     }),
     [connection, hasPairedSession, tailcatPathStatus],
   );
-  const collaborationMode = useSelector(
-    () =>
+  const collaborationMode = useSelector(() => {
+    chatStore$.activeHostId.get();
+    return (
       chatStore$.collaborationModeByThreadId[composerThreadKey(activeThreadId)].get() ??
       (activeThreadId
         ? chatStore$.threadsById[activeThreadId].collaborationMode.get()
         : undefined) ??
-      "default",
-  );
+      "default"
+    );
+  });
   const serverUrl = useSelector(() => chatStore$.serverUrl.get());
   const threadMessagesLoadingByThreadId = useSelector(() =>
     chatStore$.threadMessagesLoadingByThreadId.get(),

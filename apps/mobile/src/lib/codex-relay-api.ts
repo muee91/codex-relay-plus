@@ -115,6 +115,7 @@ import {
   threadRunStreamEventTypes,
 } from "./thread-run-stream";
 import { requestWithNetworkTimeout, withTimeout } from "./network-timeout";
+import { setActiveHostId } from "@/state/chat-store";
 import {
   clearCodexRelayServerUrlState,
   codexRelayStorage as storage,
@@ -262,7 +263,10 @@ export async function pairWithQrPayload(
     try {
       const paired = await pairWithApproval(serverUrl, pairingPayload.serverPublicKey, handlers);
       saveCodexRelayServerUrlCandidates([paired.serverUrl, ...pairingPayload.serverUrls]);
-      registerPairedCodexRelayHost({ serverPublicKey: pairingPayload.serverPublicKey });
+      const host = registerPairedCodexRelayHost({
+        serverPublicKey: pairingPayload.serverPublicKey,
+      });
+      setActiveHostId(host.id);
       return {
         ...pairingPayload,
         serverUrl: paired.serverUrl,

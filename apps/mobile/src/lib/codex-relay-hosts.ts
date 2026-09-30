@@ -1,5 +1,3 @@
-import { createMMKV } from "react-native-mmkv";
-
 import {
   codexRelayStorage,
   restoreCodexRelayConnectionState,
@@ -7,14 +5,17 @@ import {
   type CodexRelayConnectionSnapshot,
 } from "./codex-relay-server-url-storage";
 import {
+  getActiveCodexRelayHostId as readActiveCodexRelayHostId,
+  hostStorage,
+  setActiveCodexRelayHostId,
+} from "./codex-relay-active-host";
+import {
   restoreSecureSession,
   snapshotSecureSession,
   type SecureSessionSnapshot,
 } from "./secure-transport";
 
-const hostStorage = createMMKV({ id: "codex-relay-hosts" });
 const hostsStorageKey = "hosts-v1";
-const activeHostIdStorageKey = "active-host-id-v1";
 const clientTokenStorageKey = "codex-relay.client-token";
 const legacyClientTokenExpiresAtStorageKey = "codex-relay.client-token-expires-at";
 
@@ -34,7 +35,7 @@ export function listCodexRelayHosts() {
 }
 
 export function getActiveCodexRelayHostId() {
-  return hostStorage.getString(activeHostIdStorageKey);
+  return readActiveCodexRelayHostId();
 }
 
 export function ensureCurrentCodexRelayHost(displayName?: string) {
@@ -54,7 +55,7 @@ export function ensureCurrentCodexRelayHost(displayName?: string) {
     name: normalizedHostName(displayName) ?? current.name,
   });
   writeHost(next);
-  hostStorage.set(activeHostIdStorageKey, next.id);
+  setActiveCodexRelayHostId(next.id);
   return next;
 }
 
@@ -73,7 +74,7 @@ export function persistActiveCodexRelayHost(displayName?: string) {
     name: normalizedHostName(displayName) ?? current.name,
   });
   writeHost(next);
-  hostStorage.set(activeHostIdStorageKey, next.id);
+  setActiveCodexRelayHostId(next.id);
   return next;
 }
 
@@ -95,7 +96,7 @@ export function registerPairedCodexRelayHost(input: {
     name: normalizedHostName(input.displayName) ?? base.name,
   });
   writeHost(next);
-  hostStorage.set(activeHostIdStorageKey, id);
+  setActiveCodexRelayHostId(id);
   return next;
 }
 
@@ -119,7 +120,7 @@ export function activateCodexRelayHost(id: string) {
     lastUsedAt: new Date().toISOString(),
   };
   writeHost(activated);
-  hostStorage.set(activeHostIdStorageKey, id);
+  setActiveCodexRelayHostId(id);
   return activated;
 }
 
@@ -143,7 +144,7 @@ export function forgetActiveCodexRelayHost() {
     return;
   }
   writeHosts(readHosts().filter((host) => host.id !== activeId));
-  hostStorage.remove(activeHostIdStorageKey);
+  setActiveCodexRelayHostId(undefined);
 }
 
 function snapshotHost(host: CodexRelayHostRecord): CodexRelayHostRecord {

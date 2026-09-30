@@ -15,6 +15,8 @@ import type {
 } from "codex-relay/api-schema";
 
 import { resetWorkspacePreviewState } from "./workspace-preview-store";
+import { getActiveCodexRelayHostId } from "../lib/codex-relay-active-host";
+import { persistLocalObservable } from "./persistence";
 
 type ConnectionState = "checking" | "connected" | "offline";
 
@@ -34,6 +36,7 @@ export type LocalPromptAttachment = ComposerAttachment & {
 export type QueuedComposerPrompt = QueuedThreadInput;
 
 type ChatState = {
+  activeHostId?: string;
   activeThreadId?: string;
   composerAttachmentsByThreadId: Record<string, LocalPromptAttachment[]>;
   composerDraftByThreadId: Record<string, string>;
@@ -64,6 +67,7 @@ type ChatState = {
 };
 
 export const chatStore$ = observable<ChatState>({
+  activeHostId: getActiveCodexRelayHostId(),
   activeThreadId: undefined,
   composerAttachmentsByThreadId: {},
   composerDraftByThreadId: {},
@@ -90,6 +94,13 @@ export const chatStore$ = observable<ChatState>({
   workspacePath: undefined,
 });
 
+// Composer state is user input and must survive a reload or a Host switch. The
+// keys are Host-scoped below, so persisting these records cannot leak a draft
+// between saved Relay hosts.
+persistLocalObservable(chatStore$.composerAttachmentsByThreadId, "composer-attachments");
+persistLocalObservable(chatStore$.composerDraftByThreadId, "composer-drafts");
+persistLocalObservable(chatStore$.composerSkillsByThreadId, "composer-skills");
+
 export function setConnection(connection: ConnectionState, error?: string) {
   if (chatStore$.connection.peek() === connection && chatStore$.error.peek() === error) {
     return;
@@ -101,7 +112,8 @@ export function setConnection(connection: ConnectionState, error?: string) {
 const NEW_THREAD_COMPOSER_KEY = "__new_thread__";
 
 export function composerThreadKey(threadId: string | undefined) {
-  return threadId ?? NEW_THREAD_COMPOSER_KEY;
+  const hostId = chatStore$.activeHostId.peek() ?? getActiveCodexRelayHostId() ?? "unpaired";
+  return `${hostId}:${threadId ?? NEW_THREAD_COMPOSER_KEY}`;
 }
 
 export function activeComposerThreadKey() {
@@ -247,6 +259,13 @@ export function setHasPairedSession(hasPairedSession: boolean) {
   chatStore$.hasPairedSession.set(hasPairedSession);
 }
 
+export function setActiveHostId(activeHostId: string | undefined) {
+  if (chatStore$.activeHostId.peek() === activeHostId) {
+    return;
+  }
+  chatStore$.activeHostId.set(activeHostId);
+}
+
 export function setWorkspacePath(workspacePath: string | undefined) {
   chatStore$.workspacePath.set(workspacePath);
 }
@@ -354,15 +373,17 @@ export function setThreadCollaborationMode(
 
 export function moveNewThreadCollaborationMode(
   threadId: string,
-  collaborationMode = chatStore$.collaborationModeByThreadId[NEW_THREAD_COMPOSER_KEY].peek() ??
+  collaborationMode = chatStore$.collaborationModeByThreadId[composerThreadKey(undefined)].peek() ??
     "default",
 ) {
+  const newThreadKey = composerThreadKey(undefined);
+  const targetThreadKey = composerThreadKey(threadId);
   chatStore$.collaborationModeByThreadId.set((current) => {
-    const { [NEW_THREAD_COMPOSER_KEY]: _removed, ...rest } = current;
+    const { [newThreadKey]: _removed, ...rest } = current;
     if (collaborationMode === "default") {
       return rest;
     }
-    return { ...rest, [threadId]: collaborationMode };
+    return { ...rest, [targetThreadKey]: collaborationMode };
   });
 }
 
@@ -437,10 +458,6 @@ export function activateThreadSnapshot(thread: ThreadSummary, messages?: ChatMes
 
 export function resetChatSessionState() {
   chatStore$.activeThreadId.set(undefined);
-  chatStore$.composerAttachmentsByThreadId.set({});
-  chatStore$.composerDraftByThreadId.set({});
-  chatStore$.composerSkillsByThreadId.set({});
-  chatStore$.collaborationModeByThreadId.set({});
   chatStore$.queuedPromptsByThreadId.set({});
   chatStore$.connection.set("offline");
   chatStore$.error.set("Pair with your computer to continue.");
@@ -673,10 +690,26 @@ function shouldStreamEventUpdateActiveThread(sourceThreadId: string | undefined)
 }
 
 function moveThreadScopedState(sourceThreadId: string, targetThreadId: string) {
-  moveRecordValue(chatStore$.composerAttachmentsByThreadId, sourceThreadId, targetThreadId);
-  moveRecordValue(chatStore$.composerDraftByThreadId, sourceThreadId, targetThreadId);
-  moveRecordValue(chatStore$.composerSkillsByThreadId, sourceThreadId, targetThreadId);
-  moveRecordValue(chatStore$.collaborationModeByThreadId, sourceThreadId, targetThreadId);
+  moveRecordValue(
+    chatStore$.composerAttachmentsByThreadId,
+    composerThreadKey(sourceThreadId),
+    composerThreadKey(targetThreadId),
+  );
+  moveRecordValue(
+    chatStore$.composerDraftByThreadId,
+    composerThreadKey(sourceThreadId),
+    composerThreadKey(targetThreadId),
+  );
+  moveRecordValue(
+    chatStore$.composerSkillsByThreadId,
+    composerThreadKey(sourceThreadId),
+    composerThreadKey(targetThreadId),
+  );
+  moveRecordValue(
+    chatStore$.collaborationModeByThreadId,
+    composerThreadKey(sourceThreadId),
+    composerThreadKey(targetThreadId),
+  );
   moveRecordValue(chatStore$.contextUsageByThreadId, sourceThreadId, targetThreadId);
   moveRecordValue(chatStore$.queuedPromptsByThreadId, sourceThreadId, targetThreadId);
   moveRecordValue(chatStore$.threadMessagesLoadingByThreadId, sourceThreadId, targetThreadId);

@@ -53,7 +53,13 @@ import {
   serverStateQueryFns,
   setStatusState,
 } from "@/lib/server-state";
-import { chatStore$, resetChatSessionState, setConnection, setServerUrl } from "@/state/chat-store";
+import {
+  chatStore$,
+  resetChatSessionState,
+  setActiveHostId,
+  setConnection,
+  setServerUrl,
+} from "@/state/chat-store";
 
 import mobilePackage from "../../package.json";
 
@@ -220,6 +226,7 @@ export default function SettingsScreen() {
   function signOut() {
     hapticWarning();
     signOutCodexRelaySession();
+    setActiveHostId(undefined);
     clearServerState(queryClient);
     resetChatSessionState();
     router.replace("/");

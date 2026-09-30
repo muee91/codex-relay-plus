@@ -5910,10 +5910,17 @@ function upsertAppServerItemMessage(
     return undefined;
   }
 
-  const existing = messagesByThreadId.get(threadId)?.find((candidate) => candidate.id === item.id);
+  const messages = messagesByThreadId.get(threadId) ?? [];
+  const existing = messages.find((candidate) =>
+    item.type === "reasoning" && turnId && turnId !== "turn-live"
+      ? isReasoningMessageForTurn(candidate, turnId)
+      : candidate.id === item.id,
+  );
   if (existing) {
-    return updateMessage(messagesByThreadId, threadId, item.id, {
-      ...message,
+    const next = item.type === "reasoning" ? mergeReasoningMessages(existing, message) : message;
+    return updateMessage(messagesByThreadId, threadId, existing.id, {
+      ...next,
+      id: existing.id,
       createdAt: existing.createdAt,
     });
   }
@@ -7244,11 +7251,21 @@ function mapAppServerMessages(thread: AppServerThread): ChatMessage[] {
     for (const item of turn.items ?? []) {
       const message = mapAppServerItem(thread.id, turn, item);
       if (message) {
-        messages.push(message);
+        const reasoningIndex =
+          message.role === "reasoning" && message.turnId
+            ? messages.findIndex((candidate) =>
+                isReasoningMessageForTurn(candidate, message.turnId!),
+              )
+            : -1;
+        if (reasoningIndex === -1) {
+          messages.push(message);
+        } else {
+          messages[reasoningIndex] = mergeReasoningMessages(messages[reasoningIndex]!, message);
+        }
       }
     }
   }
-  return messages;
+  return dedupeThreadMessages(messages);
 }
 
 function appServerThreadHasCompleteHistory(thread: AppServerThread) {
@@ -7269,8 +7286,10 @@ function mergeAppServerMessagesWithLocalStatus(
   const localStatusMessages = localMessages.filter(
     (message) => message.role === "status" && !appMessageIds.has(message.id),
   );
-  return [...appMessages, ...localStatusMessages].sort((left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
+  return dedupeThreadMessages(
+    [...appMessages, ...localStatusMessages].sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt),
+    ),
   );
 }
 
@@ -7386,7 +7405,7 @@ function isDuplicateCrossSourceMessage(previous: ChatMessage, next: ChatMessage)
 }
 
 function isSyntheticHistoryMessageId(id: string) {
-  return id.startsWith("msg-") || id.startsWith("rollout:");
+  return id.startsWith("msg-") || id.startsWith("msg_") || id.startsWith("rollout:");
 }
 
 function userImageMessageKey(message: ChatMessage) {
@@ -8226,6 +8245,83 @@ function localThreadMessageDetail(
   return typeof value === "string" ? { found: true, value } : { found: false };
 }
 
+type ReasoningItemSnapshot = {
+  content: string[];
+  id: string;
+  summary: string[];
+};
+
+function isReasoningMessageForTurn(message: ChatMessage, turnId: string) {
+  return message.role === "reasoning" && message.kind === "thinking" && message.turnId === turnId;
+}
+
+function mergeReasoningMessages(current: ChatMessage, incoming: ChatMessage) {
+  const items = reasoningItemsFromMessage(current);
+  for (const incomingItem of reasoningItemsFromMessage(incoming)) {
+    const existingIndex = items.findIndex((item) => item.id === incomingItem.id);
+    if (existingIndex === -1) {
+      items.push(incomingItem);
+    } else {
+      items[existingIndex] = incomingItem;
+    }
+  }
+
+  const summary = items.flatMap((item) => item.summary);
+  const content = items.flatMap((item) => item.content);
+  return ChatMessageSchema.parse({
+    ...current,
+    content: reasoningMessageContent(summary, content),
+    details: {
+      ...current.details,
+      ...incoming.details,
+      content,
+      reasoningItems: items,
+      summary,
+    },
+    state: incoming.state ?? current.state,
+    turnId: current.turnId ?? incoming.turnId,
+    updatedAt: incoming.updatedAt ?? current.updatedAt,
+  });
+}
+
+function reasoningItemsFromMessage(message: ChatMessage): ReasoningItemSnapshot[] {
+  const rawItems = message.details?.reasoningItems;
+  if (Array.isArray(rawItems)) {
+    const items = rawItems.flatMap((rawItem) => {
+      if (!rawItem || typeof rawItem !== "object") {
+        return [];
+      }
+      const record = rawItem as Record<string, unknown>;
+      const id = typeof record.id === "string" && record.id ? record.id : undefined;
+      if (!id) {
+        return [];
+      }
+      return [
+        {
+          content: compactStringList(stringArray(record.content)),
+          id,
+          summary: compactStringList(stringArray(record.summary)),
+        },
+      ];
+    });
+    if (items.length > 0) {
+      return items;
+    }
+  }
+
+  return [
+    {
+      content: compactStringList(stringArray(message.details?.content)),
+      id: message.id,
+      summary: compactStringList(stringArray(message.details?.summary)),
+    },
+  ];
+}
+
+function reasoningMessageContent(summary: string[], content: string[]) {
+  return [...summary, ...content].join("\n\n") || "Reasoning";
+}
+
 function mapAppServerItem(threadId: string, turn: AppServerTurn, item: AppServerThreadItem) {
   const timestamp = fromUnixSeconds(turn.startedAt ?? turn.completedAt ?? Date.now() / 1000);
   const base = {
@@ -8271,13 +8367,17 @@ function mapAppServerItem(threadId: string, turn: AppServerTurn, item: AppServer
       const reasoningItem = item as Extract<AppServerThreadItem, { type: "reasoning" }>;
       const summary = compactStringList(reasoningItem.summary);
       const content = compactStringList(reasoningItem.content);
-      const text = [...summary, ...content].join("\n\n") || "Reasoning";
+      const text = reasoningMessageContent(summary, content);
       return ChatMessageSchema.parse({
         ...base,
         role: "reasoning",
         kind: "thinking",
         content: text,
-        details: { summary, content },
+        details: {
+          content,
+          reasoningItems: [{ content, id: reasoningItem.id, summary }],
+          summary,
+        },
       });
     }
     case "commandExecution": {

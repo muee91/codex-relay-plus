@@ -13,7 +13,6 @@ import Animated, {
   Easing,
   FadeIn,
   FadeOut,
-  useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
@@ -46,11 +45,8 @@ const MAINTAIN_VISIBLE_CONTENT_POSITION: MaintainVisibleContentPositionConfig<Ch
   size: true,
 };
 const MAINTAIN_SCROLL_AT_END_THRESHOLD = 0.1;
-const TIMELINE_LOADING_ENTER = FadeIn.duration(140).easing(Easing.out(Easing.cubic));
-const TIMELINE_LOADING_EXIT = FadeOut.duration(120).easing(Easing.out(Easing.cubic));
 const SCROLL_TO_END_ENTER = FadeIn.duration(140).easing(Easing.out(Easing.cubic));
 const SCROLL_TO_END_EXIT = FadeOut.duration(120).easing(Easing.out(Easing.cubic));
-const TIMELINE_CONTENT_SETTLE_OFFSET = 10;
 
 export function MessageTimeline({
   bottomAccessoryHeight = 0,
@@ -87,14 +83,9 @@ export function MessageTimeline({
   const [isAtEnd, setIsAtEnd] = useState(true);
   const [settledTimelineKey, setSettledTimelineKey] = useState<string | undefined>(undefined);
   const extraContentPadding = useSharedValue(0);
-  const contentRevealProgress = useSharedValue(0);
   const hasRows = rows.length > 0;
   const isTimelineReady = !hasRows || settledTimelineKey === timelineKey;
-  const showLoadingConversation = isLoading || (hasRows && !isTimelineReady);
-  const timelineContentStyle = useAnimatedStyle(() => ({
-    opacity: contentRevealProgress.value,
-    transform: [{ translateY: TIMELINE_CONTENT_SETTLE_OFFSET * (1 - contentRevealProgress.value) }],
-  }));
+  const showLoadingConversation = Boolean(isLoading) || (hasRows && !isTimelineReady);
 
   useEffect(() => {
     extraContentPadding.value = withTiming(Math.max(0, bottomAccessoryHeight), {
@@ -116,33 +107,20 @@ export function MessageTimeline({
   );
 
   useEffect(() => {
-    if (isLoading || !hasRows) {
+    if (isLoading || !hasRows || settledTimelineKey === timelineKey) {
       return;
     }
     let didCancel = false;
-    let settleFrame: number | undefined;
-    const layoutFrame = requestAnimationFrame(() => {
-      settleFrame = requestAnimationFrame(() => {
-        if (!didCancel) {
-          setSettledTimelineKey(timelineKey);
-        }
-      });
+    const settleFrame = requestAnimationFrame(() => {
+      if (!didCancel) {
+        setSettledTimelineKey(timelineKey);
+      }
     });
     return () => {
       didCancel = true;
-      cancelAnimationFrame(layoutFrame);
-      if (settleFrame !== undefined) {
-        cancelAnimationFrame(settleFrame);
-      }
+      cancelAnimationFrame(settleFrame);
     };
-  }, [hasRows, isLoading, timelineKey]);
-
-  useEffect(() => {
-    contentRevealProgress.value = withTiming(showLoadingConversation ? 0 : 1, {
-      duration: showLoadingConversation ? 120 : 260,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [contentRevealProgress, showLoadingConversation]);
+  }, [hasRows, isLoading, settledTimelineKey, timelineKey]);
 
   const renderMessage = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => (
@@ -156,9 +134,7 @@ export function MessageTimeline({
     [onMessageCopied, onMessageRewind, onOpenMarkdownAttachment],
   );
   const handleTimelineLoad = useCallback(() => {
-    requestAnimationFrame(() => {
-      setSettledTimelineKey(timelineKey);
-    });
+    setSettledTimelineKey(timelineKey);
   }, [timelineKey]);
   const handleListRef = useCallback((list: LegendListRef | null) => {
     removeAtEndListenerRef.current?.();
@@ -178,73 +154,72 @@ export function MessageTimeline({
 
   return (
     <View onTouchStart={onKeyboardDismissRequest} style={styles.transitionHost}>
-      {!isLoading ? (
-        error ? (
-          <Animated.View style={[styles.transitionScene, timelineContentStyle]}>
-            <View style={styles.empty} accessibilityRole="alert">
-              <ThemedText type="smallBold" themeColor="textSecondary" style={styles.errorTitle}>
-                Unable to load this conversation.
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.errorText}>
-                {error}
-              </ThemedText>
-              {onRetry ? (
-                <Button
-                  accessibilityRole="button"
-                  accessibilityLabel="Retry loading conversation"
-                  onPress={onRetry}
-                  size="sm"
-                  variant="secondary"
-                >
-                  <ThemedText type="smallBold">Retry</ThemedText>
-                </Button>
-              ) : null}
-            </View>
-          </Animated.View>
-        ) : rows.length === 0 && !isRunning ? (
-          <Animated.View style={[styles.transitionScene, timelineContentStyle]}>
-            <View style={styles.empty}>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
-                Send a message to start the conversation.
-              </ThemedText>
-            </View>
-          </Animated.View>
-        ) : (
-          <Animated.View style={[styles.transitionScene, timelineContentStyle]}>
-            <KeyboardAwareLegendList
-              key={timelineKey}
-              ref={handleListRef}
-              alignItemsAtEnd
-              automaticallyAdjustContentInsets={false}
-              contentInsetAdjustmentBehavior="never"
-              contentInsetEndAdjustment={extraContentPadding}
-              data={rows}
-              estimatedItemSize={MESSAGE_ESTIMATED_ITEM_SIZE}
-              freeze={keyboardLayoutFrozen}
-              getItemType={messageItemType}
-              initialScrollAtEnd
-              keyExtractor={messageKeyExtractor}
-              renderItem={renderMessage}
-              contentContainerStyle={styles.content}
-              keyboardDismissMode="interactive"
-              keyboardLiftBehavior="whenAtEnd"
-              keyboardOffset={bottom - 24}
-              keyboardShouldPersistTaps="handled"
-              maintainScrollAtEnd={MAINTAIN_SCROLL_AT_END}
-              maintainScrollAtEndThreshold={MAINTAIN_SCROLL_AT_END_THRESHOLD}
-              maintainVisibleContentPosition={MAINTAIN_VISIBLE_CONTENT_POSITION}
-              onLoad={handleTimelineLoad}
-              recycleItems={false}
-              scrollEventThrottle={48}
-              showsVerticalScrollIndicator={false}
-              style={styles.list}
-              ListFooterComponent={
-                isRunning ? <RunningFooter /> : <View style={styles.listEndPad} />
-              }
-            />
-          </Animated.View>
-        )
-      ) : null}
+      {showLoadingConversation ? (
+        <View style={styles.transitionScene}>
+          <LoadingConversation />
+        </View>
+      ) : error ? (
+        <View style={styles.transitionScene}>
+          <View style={styles.empty} accessibilityRole="alert">
+            <ThemedText type="smallBold" themeColor="textSecondary" style={styles.errorTitle}>
+              Unable to load this conversation.
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.errorText}>
+              {error}
+            </ThemedText>
+            {onRetry ? (
+              <Button
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading conversation"
+                onPress={onRetry}
+                size="sm"
+                variant="secondary"
+              >
+                <ThemedText type="smallBold">Retry</ThemedText>
+              </Button>
+            ) : null}
+          </View>
+        </View>
+      ) : rows.length === 0 && !isRunning ? (
+        <View style={styles.transitionScene}>
+          <View style={styles.empty}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
+              Send a message to start the conversation.
+            </ThemedText>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.transitionScene}>
+          <KeyboardAwareLegendList
+            ref={handleListRef}
+            alignItemsAtEnd
+            automaticallyAdjustContentInsets={false}
+            contentInsetAdjustmentBehavior="never"
+            contentInsetEndAdjustment={extraContentPadding}
+            data={rows}
+            estimatedItemSize={MESSAGE_ESTIMATED_ITEM_SIZE}
+            freeze={keyboardLayoutFrozen}
+            getItemType={messageItemType}
+            initialScrollAtEnd
+            keyExtractor={messageKeyExtractor}
+            renderItem={renderMessage}
+            contentContainerStyle={styles.content}
+            keyboardDismissMode="interactive"
+            keyboardLiftBehavior="whenAtEnd"
+            keyboardOffset={bottom - 24}
+            keyboardShouldPersistTaps="handled"
+            maintainScrollAtEnd={MAINTAIN_SCROLL_AT_END}
+            maintainScrollAtEndThreshold={MAINTAIN_SCROLL_AT_END_THRESHOLD}
+            maintainVisibleContentPosition={MAINTAIN_VISIBLE_CONTENT_POSITION}
+            onLoad={handleTimelineLoad}
+            recycleItems={false}
+            scrollEventThrottle={48}
+            showsVerticalScrollIndicator={false}
+            style={styles.list}
+            ListFooterComponent={isRunning ? <RunningFooter /> : <View style={styles.listEndPad} />}
+          />
+        </View>
+      )}
       {!showLoadingConversation && hasRows && !isAtEnd ? (
         <Animated.View
           entering={SCROLL_TO_END_ENTER}
@@ -261,16 +236,6 @@ export function MessageTimeline({
           >
             <Icon name="expand" size={18} tintColor={Colors.dark.text} />
           </Pressable>
-        </Animated.View>
-      ) : null}
-      {showLoadingConversation ? (
-        <Animated.View
-          key={`loading-${timelineKey}`}
-          entering={TIMELINE_LOADING_ENTER}
-          exiting={TIMELINE_LOADING_EXIT}
-          style={styles.transitionScene}
-        >
-          <LoadingConversation />
         </Animated.View>
       ) : null}
     </View>
@@ -346,10 +311,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   transitionScene: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
+    flex: 1,
   },
 });

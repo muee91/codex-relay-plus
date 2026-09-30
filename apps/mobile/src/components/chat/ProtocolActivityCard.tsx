@@ -41,6 +41,7 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
   const isInputRequest =
     approvalKind === "structuredUserInput" || approvalKind === "mcpElicitation";
   const needsUserAction = canResolve;
+  const isThinking = message.kind === "thinking";
 
   async function submitDecision(decision: "approve" | "approve-for-session" | "deny" | "cancel") {
     if (!approvalId || isResolving) {
@@ -182,6 +183,7 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
           onPress={() => setIsDetailVisible(true)}
           style={({ pressed }) => [
             styles.row,
+            isThinking && styles.thinkingRow,
             needsUserAction && [
               styles.actionRow,
               {
@@ -208,8 +210,12 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
             <ThemedText
               type="code"
               themeColor="textSecondary"
-              numberOfLines={1}
-              style={[styles.detail, needsUserAction && styles.actionDetail]}
+              numberOfLines={isThinking ? 6 : 1}
+              style={[
+                styles.detail,
+                isThinking && styles.thinkingDetail,
+                needsUserAction && styles.actionDetail,
+              ]}
             >
               {model.detail}
             </ThemedText>
@@ -597,7 +603,7 @@ function activityModel(message: ChatMessage): ActivityModel {
       return {
         color: "#9B8BD4",
         label: "Thinking",
-        detail: firstLine(message.content),
+        detail: thinkingPreview(message.content),
       };
     case "plan":
       return {
@@ -1470,6 +1476,16 @@ function firstLine(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function thinkingPreview(value: string) {
+  const lines = value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const preview = lines.slice(0, 6).join("\n");
+  return lines.length > 6 ? `${preview}\n…` : preview || "Reasoning";
+}
+
 const styles = StyleSheet.create({
   actionWrap: {
     alignSelf: "stretch",
@@ -1574,6 +1590,10 @@ const styles = StyleSheet.create({
     minHeight: 18,
     paddingHorizontal: 7,
     paddingVertical: 2,
+  },
+  thinkingRow: {
+    alignItems: "flex-start",
+    paddingVertical: 6,
   },
   actionRow: {
     alignSelf: "stretch",
@@ -1744,6 +1764,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 13,
     opacity: 0.86,
+  },
+  thinkingDetail: {
+    lineHeight: 16,
   },
   actionLabel: {
     fontSize: 13,

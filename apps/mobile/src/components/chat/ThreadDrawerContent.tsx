@@ -79,6 +79,7 @@ import {
   requestThreadStreamReconnect,
   resetChatSessionState,
   setActiveThread,
+  setActiveHostId as setChatActiveHostId,
   setConnection,
   setHasPairedSession,
   setServerUrl,
@@ -400,6 +401,7 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
     if (statusQuery.data?.machineName) {
       updateActiveCodexRelayHostName(statusQuery.data.machineName);
     }
+    setChatActiveHostId(getActiveCodexRelayHostId());
     setSavedHosts(listCodexRelayHosts());
     setActiveHostId(getActiveCodexRelayHostId());
   }, [isDrawerVisible, statusQuery.data?.machineName]);
@@ -411,14 +413,21 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
       }
       hapticSelection();
       setSwitchingHostId(host.id);
+      const previousHostId = getActiveCodexRelayHostId() ?? activeHostId;
+      const previousThreadId = chatStore$.activeThreadId.peek();
       try {
         ensureCurrentCodexRelayHost(statusQuery.data?.machineName);
         await teardownCodexRelayNativeTransport();
         activateCodexRelayHost(host.id);
-        queryClient.clear();
-        resetChatSessionState();
+        setChatActiveHostId(host.id);
         setHasPairedSession(hasCodexRelaySession());
         const reconciled = await reconcileCodexRelayConnection();
+
+        // Do not discard the old Host's live state until the target has
+        // completed transport reconciliation. This leaves a usable rollback
+        // path when a saved Host is stale or unreachable.
+        queryClient.clear();
+        resetChatSessionState();
         setServerUrl(reconciled.serverUrl);
         setStatusState(queryClient, reconciled.status);
         const [threadsResponse, modelsResponse, rateLimitsResponse] = await Promise.all([
@@ -431,7 +440,9 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
         if (rateLimitsResponse) {
           queryClient.setQueryData(serverStateKeys.rateLimits(), rateLimitsResponse);
         }
-        const nextThread = threadsResponse.threads[0];
+        const nextThread =
+          threadsResponse.threads.find((thread) => thread.id === previousThreadId) ??
+          threadsResponse.threads[0];
         setActiveThread(nextThread?.id);
         if (nextThread) {
           const detail = await fetchThreadState(queryClient, nextThread.id, { refresh: true });
@@ -446,11 +457,47 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
         props.navigation.closeDrawer();
         hapticSuccess();
       } catch (caught) {
+        let rollbackError: unknown;
+        let rollbackSucceeded = false;
+        if (previousHostId && getActiveCodexRelayHostId() === host.id) {
+          try {
+            await teardownCodexRelayNativeTransport();
+            activateCodexRelayHost(previousHostId);
+            setChatActiveHostId(previousHostId);
+            setHasPairedSession(hasCodexRelaySession());
+            const restored = await reconcileCodexRelayConnection();
+            setServerUrl(restored.serverUrl);
+            setStatusState(queryClient, restored.status);
+            const [threadsResponse, modelsResponse] = await Promise.all([
+              fetchThreadsState(queryClient),
+              fetchModelsState(queryClient),
+            ]);
+            setThreadsState(queryClient, threadsResponse.threads, threadsResponse.source);
+            queryClient.setQueryData(serverStateKeys.models(), modelsResponse);
+            const restoredThread =
+              threadsResponse.threads.find((thread) => thread.id === previousThreadId) ??
+              threadsResponse.threads[0];
+            setActiveThread(restoredThread?.id);
+            if (restoredThread?.state === "running") {
+              requestThreadStreamReconnect(restoredThread.id);
+            }
+            setConnection("connected");
+            rollbackSucceeded = true;
+          } catch (error) {
+            rollbackError = error;
+          }
+        }
         setHasPairedSession(hasCodexRelaySession());
-        setConnection(
-          "offline",
-          caught instanceof Error ? caught.message : "Could not connect to the selected host.",
-        );
+        if (!rollbackSucceeded) {
+          setConnection(
+            "offline",
+            rollbackError instanceof Error
+              ? rollbackError.message
+              : caught instanceof Error
+                ? caught.message
+                : "Could not connect to the selected host.",
+          );
+        }
         setSavedHosts(listCodexRelayHosts());
         setActiveHostId(getActiveCodexRelayHostId());
         Alert.alert(
