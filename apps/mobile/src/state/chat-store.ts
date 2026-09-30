@@ -16,7 +16,6 @@ import type {
 
 import { resetWorkspacePreviewState } from "./workspace-preview-store";
 import { getActiveCodexRelayHostId } from "../lib/codex-relay-active-host";
-import { updateActiveCodexRelayHostLastThread } from "../lib/codex-relay-hosts";
 import { persistLocalObservable } from "./persistence";
 
 type ConnectionState = "checking" | "connected" | "offline";
@@ -453,7 +452,6 @@ export function replaceWorkspaceRuntimePreferences(
 
 export function setActiveThread(threadId: string | undefined) {
   chatStore$.activeThreadId.set(threadId);
-  updateActiveCodexRelayHostLastThread(threadId);
 }
 
 export function activateThreadSnapshot(thread: ThreadSummary, messages?: ChatMessage[]) {
