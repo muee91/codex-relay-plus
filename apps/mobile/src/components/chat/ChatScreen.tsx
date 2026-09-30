@@ -479,7 +479,7 @@ export function ChatScreen({
     queryKey: activeThreadId
       ? serverStateKeys.thread(activeThreadId)
       : [...serverStateKeys.threads(), "__inactive__", "detail"],
-    queryFn: ({ queryKey }) => fetchThreadQueryState(queryClient, String(queryKey[3] ?? "")),
+    queryFn: () => fetchThreadQueryState(queryClient, activeThreadId!),
     enabled: Boolean(activeThreadId),
   });
   useEffect(() => {
@@ -492,14 +492,14 @@ export function ChatScreen({
     queryKey: activeThreadId
       ? serverStateKeys.queuedInputs(activeThreadId)
       : [...serverStateKeys.threads(), "__inactive__", "queued-inputs"],
-    queryFn: ({ queryKey }) => serverStateQueryFns.queuedInputs(String(queryKey[3] ?? "")),
+    queryFn: () => serverStateQueryFns.queuedInputs(activeThreadId!),
     enabled: Boolean(activeThreadId),
   });
   const contextWindowQuery = useQuery({
     queryKey: activeThreadId
       ? serverStateKeys.contextWindow(activeThreadId)
       : [...serverStateKeys.threads(), "__inactive__", "context-window"],
-    queryFn: ({ queryKey }) => serverStateQueryFns.contextWindow(String(queryKey[3] ?? "")),
+    queryFn: () => serverStateQueryFns.contextWindow(activeThreadId!),
     enabled: Boolean(activeThreadId),
   });
 
