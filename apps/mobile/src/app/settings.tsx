@@ -75,6 +75,7 @@ type PushNotificationPreference = keyof typeof defaultPushNotificationPreference
 export default function SettingsScreen() {
   const queryClient = useQueryClient();
   const connection = useSelector(() => chatStore$.connection.get());
+  const activeHostId = useSelector(() => chatStore$.activeHostId.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
   const serverUrl = useSelector(() => chatStore$.serverUrl.get());
   const statusQuery = useQuery({
@@ -179,7 +180,7 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     setServerUrlCandidates(getCodexRelayServerUrlCandidates());
-  }, [serverUrl]);
+  }, [activeHostId, serverUrl]);
 
   useEffect(() => {
     let isActive = true;
@@ -212,7 +213,7 @@ export default function SettingsScreen() {
     return () => {
       isActive = false;
     };
-  }, [hasPairedSession, pushNotificationsSupported, serverUrl]);
+  }, [activeHostId, hasPairedSession, pushNotificationsSupported, serverUrl]);
 
   function closeSettings() {
     hapticSelection();
@@ -243,7 +244,7 @@ export default function SettingsScreen() {
     const previousPreferences = pushNotificationPreferences;
     const nextPreferences = { ...previousPreferences, [preference]: value };
     hapticSelection();
-    markInitialPushNotificationRegistrationCompleted();
+    markInitialPushNotificationRegistrationCompleted(activeHostId);
     setPushNotificationPreferences(nextPreferences);
     setPushNotificationsUpdating(true);
 
@@ -610,7 +611,7 @@ export default function SettingsScreen() {
               </ThemedText>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Sign out"
+                accessibilityLabel="Forget this computer"
                 onPress={signOut}
                 style={({ pressed }) => [styles.signOutRow, pressed && styles.pressed]}
               >
@@ -620,14 +621,14 @@ export default function SettingsScreen() {
                   </View>
                   <View style={styles.signOutCopy}>
                     <ThemedText type="smallBold" style={styles.signOutTitle}>
-                      Sign out
+                      Forget this computer
                     </ThemedText>
                     <ThemedText
                       type="small"
                       themeColor="textSecondary"
                       style={styles.signOutSubtitle}
                     >
-                      Pair again on this device
+                      Remove this computer from this device
                     </ThemedText>
                   </View>
                 </View>

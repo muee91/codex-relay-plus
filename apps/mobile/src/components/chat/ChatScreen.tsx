@@ -71,6 +71,7 @@ import {
   uploadImageAttachments,
 } from "@/lib/codex-relay-api";
 import { updateActiveCodexRelayHostName } from "@/lib/codex-relay-hosts";
+import { reconcileCodexRelayConnection } from "@/lib/codex-relay-connection-manager";
 import {
   hapticLightImpact,
   hapticMediumImpact,
@@ -115,6 +116,7 @@ import {
   updateRuntimePreferencesServerState,
 } from "@/lib/server-state";
 import { recordSuccessfulAiConversationForReviewPrompt } from "@/lib/store-review-prompt";
+import { bindThreadQuery } from "@/lib/thread-query-fns";
 import {
   completeThreadRunSession,
   handleThreadRunStreamEvent,
@@ -417,6 +419,7 @@ export function ChatScreen({
   const previewResizeStartWidthRef = useRef(DEFAULT_PREVIEW_PANE_WIDTH);
   const scanPairingGenerationRef = useRef(0);
   const scannerAutoOpenHandledRef = useRef(false);
+  const pairingScannerRequestHandledRef = useRef(0);
   const closeStreamRef = useRef<(() => void) | undefined>(undefined);
   const closeThreadWatchStreamRef = useRef<(() => void) | undefined>(undefined);
   const watchedThreadIdRef = useRef<string | undefined>(undefined);
@@ -427,6 +430,8 @@ export function ChatScreen({
   const threadStatusPollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastThreadStreamSequenceByThreadIdRef = useRef(new Map<string, number>());
   const activeThreadId = useSelector(() => chatStore$.activeThreadId.get());
+  const activeHostId = useSelector(() => chatStore$.activeHostId.get());
+  const pairingScannerRequestId = useSelector(() => chatStore$.pairingScannerRequestId.get());
   const connection = useSelector(() => chatStore$.connection.get());
   const error = useSelector(() => chatStore$.error.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
@@ -481,7 +486,10 @@ export function ChatScreen({
     queryKey: activeThreadId
       ? serverStateKeys.thread(activeThreadId)
       : [...serverStateKeys.threads(), "__inactive__", "detail"],
-    queryFn: () => fetchThreadQueryState(queryClient, activeThreadId!),
+    queryFn: bindThreadQuery(
+      (threadId) => fetchThreadQueryState(queryClient, threadId),
+      activeThreadId ?? "",
+    ),
     enabled: Boolean(activeThreadId),
   });
   useEffect(() => {
@@ -494,14 +502,14 @@ export function ChatScreen({
     queryKey: activeThreadId
       ? serverStateKeys.queuedInputs(activeThreadId)
       : [...serverStateKeys.threads(), "__inactive__", "queued-inputs"],
-    queryFn: () => serverStateQueryFns.queuedInputs(activeThreadId!),
+    queryFn: bindThreadQuery(serverStateQueryFns.queuedInputs, activeThreadId ?? ""),
     enabled: Boolean(activeThreadId),
   });
   const contextWindowQuery = useQuery({
     queryKey: activeThreadId
       ? serverStateKeys.contextWindow(activeThreadId)
       : [...serverStateKeys.threads(), "__inactive__", "context-window"],
-    queryFn: () => serverStateQueryFns.contextWindow(activeThreadId!),
+    queryFn: bindThreadQuery(serverStateQueryFns.contextWindow, activeThreadId ?? ""),
     enabled: Boolean(activeThreadId),
   });
 
@@ -513,6 +521,7 @@ export function ChatScreen({
       return;
     }
 
+    setTailcatPathStatus({ path: "connecting" });
     let cancelled = false;
     const refreshTransportStatus = async () => {
       const status = await getNativeTailcatStatus().catch(() => ({ path: "offline" as const }));
@@ -526,7 +535,7 @@ export function ChatScreen({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [hasPairedSession]);
+  }, [activeHostId, hasPairedSession, serverUrl]);
 
   const threads = useMemo(
     () => threadsQuery.data?.threads ?? EMPTY_THREADS,
@@ -817,10 +826,11 @@ export function ChatScreen({
         setConnection("checking");
       }
       syncPairedSessionState();
-      setServerUrl(getCodexRelayServerUrl());
       try {
         await refreshSession().catch(() => false);
         syncPairedSessionState();
+        const reconciled = await reconcileCodexRelayConnection();
+        setServerUrl(reconciled.serverUrl);
         const [response, modelsResponse, rateLimitsResponse] = await runConnectionRefresh(
           fetchCurrentStatus(),
           Promise.all([
@@ -1578,12 +1588,20 @@ export function ChatScreen({
   }, [cameraPermission?.granted, requestCameraPermission]);
 
   useEffect(() => {
-    if (!openScannerOnMount || scannerAutoOpenHandledRef.current) {
+    const hasNewPairingScannerRequest =
+      pairingScannerRequestId > pairingScannerRequestHandledRef.current;
+    if (
+      (!openScannerOnMount && !hasNewPairingScannerRequest) ||
+      (!hasNewPairingScannerRequest && scannerAutoOpenHandledRef.current)
+    ) {
       return;
+    }
+    if (hasNewPairingScannerRequest) {
+      pairingScannerRequestHandledRef.current = pairingScannerRequestId;
     }
     scannerAutoOpenHandledRef.current = true;
     void openScanner();
-  }, [openScanner, openScannerOnMount]);
+  }, [openScanner, openScannerOnMount, pairingScannerRequestId]);
 
   async function retryCameraPermission() {
     const permission = await requestCameraPermission();
@@ -1619,8 +1637,8 @@ export function ChatScreen({
           },
         });
         setServerUrl(pairing.serverUrl);
-        clearServerState(queryClient);
         syncPairedSessionState();
+        setActiveThread(undefined);
         setPastePairOpen(false);
         lastHandledPairingUrl.current = pairingUrl;
         setPasteApprovalCode(undefined);
@@ -1638,7 +1656,7 @@ export function ChatScreen({
         setPastePairing(false);
       }
     },
-    [queryClient, refresh, syncPairedSessionState],
+    [refresh, syncPairedSessionState],
   );
 
   useEffect(() => {
@@ -1697,8 +1715,8 @@ export function ChatScreen({
         isHandlingScanRef.current = false;
         setHandlingScan(false);
         setServerUrl(pairing.serverUrl);
-        clearServerState(queryClient);
         syncPairedSessionState();
+        setActiveThread(undefined);
         setPastePairOpen(false);
         setPasteApprovalCode(undefined);
         setPasteApprovalServerUrl(undefined);
@@ -1721,13 +1739,7 @@ export function ChatScreen({
         );
       }
     },
-    [
-      closeScannerSurface,
-      presentScannedPairingApproval,
-      queryClient,
-      refresh,
-      syncPairedSessionState,
-    ],
+    [closeScannerSurface, presentScannedPairingApproval, refresh, syncPairedSessionState],
   );
 
   function handleBarcodeScanned(result: BarcodeScanningResult | ScanningResult) {

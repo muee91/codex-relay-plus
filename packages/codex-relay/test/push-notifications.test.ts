@@ -32,13 +32,24 @@ describe("Expo push notification sender", () => {
     const delivery = await sender.send([
       {
         body: "Finished working.",
-        data: { intent: "turn_terminal", threadId: "thread-1", turnId: "turn-1" },
+        data: {
+          hostId: "server:test-host",
+          intent: "turn_terminal",
+          serverPublicKey: "test-host",
+          threadId: "thread-1",
+          turnId: "turn-1",
+        },
         title: "Push notification improvements",
         to: "ExponentPushToken[active]",
       },
       {
         body: "Codex needs your attention.",
-        data: { intent: "action_required", threadId: "thread-2" },
+        data: {
+          hostId: "server:test-host",
+          intent: "action_required",
+          serverPublicKey: "test-host",
+          threadId: "thread-2",
+        },
         title: "Codex Relay",
         to: "ExponentPushToken[stale]",
       },
@@ -52,12 +63,23 @@ describe("Expo push notification sender", () => {
     expect(payload).toEqual([
       expect.objectContaining({
         body: "Finished working.",
-        data: { intent: "turn_terminal", threadId: "thread-1", turnId: "turn-1" },
+        data: {
+          hostId: "server:test-host",
+          intent: "turn_terminal",
+          serverPublicKey: "test-host",
+          threadId: "thread-1",
+          turnId: "turn-1",
+        },
         title: "Push notification improvements",
       }),
       expect.objectContaining({
         body: "Codex needs your attention.",
-        data: { intent: "action_required", threadId: "thread-2" },
+        data: {
+          hostId: "server:test-host",
+          intent: "action_required",
+          serverPublicKey: "test-host",
+          threadId: "thread-2",
+        },
         title: "Codex Relay",
       }),
     ]);
@@ -105,7 +127,9 @@ describe("push notification dispatcher", () => {
       },
     };
     const dispatcher = createPushNotificationDispatcher({
+      hostId: "host-public-key",
       readRemainingUsagePercent: async () => 37,
+      serverPublicKey: "host-public-key",
       sender,
       sessions,
     });
@@ -127,7 +151,13 @@ describe("push notification dispatcher", () => {
       [
         expect.objectContaining({
           body: "Finished working. Remaining usage: 37%",
-          data: { intent: "turn_terminal", threadId: "thread-1", turnId: "turn-1" },
+          data: {
+            hostId: "host-public-key",
+            intent: "turn_terminal",
+            serverPublicKey: "host-public-key",
+            threadId: "thread-1",
+            turnId: "turn-1",
+          },
           title: "Push notification improvements",
           to: "ExponentPushToken[turn-device]",
         }),
@@ -135,7 +165,13 @@ describe("push notification dispatcher", () => {
       [
         expect.objectContaining({
           body: "Codex needs your attention.",
-          data: { intent: "action_required", threadId: "thread-2", turnId: "turn-2" },
+          data: {
+            hostId: "host-public-key",
+            intent: "action_required",
+            serverPublicKey: "host-public-key",
+            threadId: "thread-2",
+            turnId: "turn-2",
+          },
           title: "Approval handling",
           to: "ExponentPushToken[action-device]",
         }),

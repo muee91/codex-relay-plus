@@ -16,6 +16,7 @@ import type {
 
 import { resetWorkspacePreviewState } from "./workspace-preview-store";
 import { getActiveCodexRelayHostId } from "../lib/codex-relay-active-host";
+import { updateActiveCodexRelayHostLastThread } from "../lib/codex-relay-hosts";
 import { persistLocalObservable } from "./persistence";
 
 type ConnectionState = "checking" | "connected" | "offline";
@@ -46,6 +47,7 @@ type ChatState = {
   connection: ConnectionState;
   error?: string;
   hasPairedSession: boolean;
+  pairingScannerRequestId: number;
   threadMessagesLoadingByThreadId: Record<string, boolean>;
   threadStreamReconnectRequest?: {
     requestId: number;
@@ -77,6 +79,7 @@ export const chatStore$ = observable<ChatState>({
   connection: "checking",
   error: undefined,
   hasPairedSession: false,
+  pairingScannerRequestId: 0,
   threadMessagesLoadingByThreadId: {},
   threadStreamReconnectRequest: undefined,
   machineName: undefined,
@@ -257,6 +260,10 @@ export function setHasPairedSession(hasPairedSession: boolean) {
     return;
   }
   chatStore$.hasPairedSession.set(hasPairedSession);
+}
+
+export function requestPairingScanner() {
+  chatStore$.pairingScannerRequestId.set((current) => current + 1);
 }
 
 export function setActiveHostId(activeHostId: string | undefined) {
@@ -446,6 +453,7 @@ export function replaceWorkspaceRuntimePreferences(
 
 export function setActiveThread(threadId: string | undefined) {
   chatStore$.activeThreadId.set(threadId);
+  updateActiveCodexRelayHostLastThread(threadId);
 }
 
 export function activateThreadSnapshot(thread: ThreadSummary, messages?: ChatMessage[]) {
@@ -489,7 +497,7 @@ export function replaceThreads(threads: ThreadSummary[]) {
   const activeThreadId = chatStore$.activeThreadId.get();
   if (!activeThreadId || !threadsById[activeThreadId]) {
     const nextActiveThreadId = threads[0]?.id;
-    chatStore$.activeThreadId.set(nextActiveThreadId);
+    setActiveThread(nextActiveThreadId);
     return;
   }
 }

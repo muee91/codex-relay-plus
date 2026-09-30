@@ -23,16 +23,34 @@ import { useInitialPushNotificationRegistration } from "@/hooks/use-initial-push
 import { addHotUpdaterLog, formatHotUpdaterProgress } from "@/lib/hot-updater-logs";
 import {
   configurePushNotificationPresentation,
+  notificationResponseHostId,
   notificationResponseThreadId,
   supportsPushNotifications,
 } from "@/lib/push-notifications";
+import {
+  activateCodexRelayHost,
+  getActiveCodexRelayHostId,
+  listCodexRelayHosts,
+} from "@/lib/codex-relay-hosts";
+import { hasCodexRelaySession } from "@/lib/codex-relay-api";
+import {
+  reconcileCodexRelayConnection,
+  teardownCodexRelayNativeTransport,
+} from "@/lib/codex-relay-connection-manager";
 import {
   persistedQueryMaxAgeMs,
   queryClientPersister,
   shouldPersistQuery,
 } from "@/lib/query-persistence";
 import { restoreChatStoreFromQueryCache } from "@/lib/server-state-hydration";
-import { setActiveThread } from "@/state/chat-store";
+import {
+  chatStore$,
+  setActiveHostId,
+  setActiveThread,
+  setConnection,
+  setHasPairedSession,
+  setServerUrl,
+} from "@/state/chat-store";
 
 void SplashScreen.preventAutoHideAsync();
 configurePushNotificationPresentation();
@@ -151,10 +169,48 @@ function TabLayout() {
     if (!supportsPushNotifications()) {
       return;
     }
-    const openNotificationThread = (response: Notifications.NotificationResponse) => {
+    const openNotificationThread = async (response: Notifications.NotificationResponse) => {
       const threadId = notificationResponseThreadId(response);
       if (!threadId) {
         return;
+      }
+      const notificationHostId = notificationResponseHostId(response);
+      const activeHostId = getActiveCodexRelayHostId();
+      if (notificationHostId && notificationHostId !== activeHostId) {
+        const targetHost = listCodexRelayHosts().find((host) => host.id === notificationHostId);
+        if (!targetHost) {
+          return;
+        }
+
+        const previousThreadId = chatStore$.activeThreadId.peek();
+        try {
+          await teardownCodexRelayNativeTransport();
+          const activated = activateCodexRelayHost(targetHost.id);
+          setActiveHostId(activated.id);
+          setActiveThread(undefined);
+          setHasPairedSession(hasCodexRelaySession());
+          setConnection("checking");
+          const reconciled = await reconcileCodexRelayConnection();
+          setServerUrl(reconciled.serverUrl);
+          setConnection("connected");
+        } catch (error) {
+          setConnection("offline", error instanceof Error ? error.message : "Unable to open host.");
+          if (activeHostId) {
+            try {
+              await teardownCodexRelayNativeTransport();
+              const restored = activateCodexRelayHost(activeHostId);
+              setActiveHostId(restored.id);
+              setActiveThread(previousThreadId);
+              setHasPairedSession(hasCodexRelaySession());
+              const reconciled = await reconcileCodexRelayConnection();
+              setServerUrl(reconciled.serverUrl);
+              setConnection("connected");
+            } catch {
+              setActiveHostId(getActiveCodexRelayHostId());
+            }
+          }
+          return;
+        }
       }
       setActiveThread(threadId);
       router.replace("/");
@@ -163,10 +219,11 @@ function TabLayout() {
 
     const mostRecentResponse = Notifications.getLastNotificationResponse();
     if (mostRecentResponse) {
-      openNotificationThread(mostRecentResponse);
+      void openNotificationThread(mostRecentResponse);
     }
-    const subscription =
-      Notifications.addNotificationResponseReceivedListener(openNotificationThread);
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      void openNotificationThread(response);
+    });
     return () => subscription.remove();
   }, []);
 

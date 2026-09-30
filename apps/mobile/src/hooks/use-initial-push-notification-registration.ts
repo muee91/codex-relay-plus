@@ -14,29 +14,31 @@ import {
 import { chatStore$ } from "@/state/chat-store";
 
 export function useInitialPushNotificationRegistration() {
+  const activeHostId = useSelector(() => chatStore$.activeHostId.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
-  const registrationStartedRef = useRef(false);
+  const registrationStartedRef = useRef(new Set<string>());
+  const registrationKey = activeHostId ?? "unpaired";
 
   useEffect(() => {
     if (
       !hasPairedSession ||
-      registrationStartedRef.current ||
+      registrationStartedRef.current.has(registrationKey) ||
       !supportsPushNotifications() ||
-      hasCompletedInitialPushNotificationRegistration()
+      hasCompletedInitialPushNotificationRegistration(activeHostId)
     ) {
       return;
     }
 
-    registrationStartedRef.current = true;
-    void registerInitialPushNotifications();
-  }, [hasPairedSession]);
+    registrationStartedRef.current.add(registrationKey);
+    void registerInitialPushNotifications(activeHostId);
+  }, [activeHostId, hasPairedSession, registrationKey]);
 }
 
-async function registerInitialPushNotifications() {
+async function registerInitialPushNotifications(hostId: string | undefined) {
   try {
     const currentSettings = await getPushNotificationSettings();
     if (currentSettings.registered) {
-      markInitialPushNotificationRegistrationCompleted();
+      markInitialPushNotificationRegistrationCompleted(hostId);
       return;
     }
 
@@ -45,10 +47,10 @@ async function registerInitialPushNotifications() {
       platform: pushNotificationPlatform(),
       preferences: defaultPushNotificationPreferences,
     });
-    markInitialPushNotificationRegistrationCompleted();
+    markInitialPushNotificationRegistrationCompleted(hostId);
   } catch (error) {
     if (error instanceof PushNotificationPermissionDeniedError) {
-      markInitialPushNotificationRegistrationCompleted();
+      markInitialPushNotificationRegistrationCompleted(hostId);
     }
   }
 }

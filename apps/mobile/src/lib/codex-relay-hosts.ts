@@ -23,6 +23,7 @@ export type CodexRelayHostRecord = {
   clientToken: string;
   connection: CodexRelayConnectionSnapshot;
   id: string;
+  lastThreadId?: string;
   lastUsedAt: string;
   name: string;
   secureSession?: SecureSessionSnapshot;
@@ -136,6 +137,19 @@ export function updateActiveCodexRelayHostName(name: string | undefined) {
     return;
   }
   writeHost({ ...host, name: normalized });
+}
+
+export function updateActiveCodexRelayHostLastThread(threadId: string | undefined) {
+  const activeId = getActiveCodexRelayHostId();
+  if (!activeId || !threadId) {
+    return;
+  }
+
+  const host = readHosts().find((candidate) => candidate.id === activeId);
+  if (!host || host.lastThreadId === threadId) {
+    return;
+  }
+  writeHost({ ...host, lastThreadId: threadId });
 }
 
 export function forgetActiveCodexRelayHost() {

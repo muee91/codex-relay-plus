@@ -4,6 +4,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { AppBottomSheet, SheetActionRow } from "@/components/ui/bottom-sheet";
 import { Text } from "@/components/ui/text";
 import { useTheme } from "@/hooks/use-theme";
+import { nativeTransportServerUrl } from "@/lib/codex-relay-server-url-storage";
 import type { TailcatPathStatus } from "@/lib/transport/native-tailcat";
 
 export function ConnectionDetailsSheet({
@@ -33,7 +34,7 @@ export function ConnectionDetailsSheet({
   return (
     <AppBottomSheet
       onClose={onClose}
-      subtitle={machineName ?? compactServer(serverUrl)}
+      subtitle={machineName ?? connectionSubtitle(serverUrl)}
       title="Connection"
       visible={visible}
     >
@@ -52,7 +53,9 @@ export function ConnectionDetailsSheet({
         {pathStatus.derpRegion ? (
           <ConnectionRow label="DERP region" value={pathStatus.derpRegion} />
         ) : null}
-        <ConnectionRow label="Relay" value={compactServer(serverUrl)} />
+        {!isNativeTransportEndpoint(serverUrl) ? (
+          <ConnectionRow label="Relay" value={compactServer(serverUrl)} />
+        ) : null}
         {error || pathStatus.error ? (
           <View style={styles.errorCard}>
             <Text style={[styles.errorTitle, { color: theme.text }]}>Last connection error</Text>
@@ -127,6 +130,14 @@ function routeLabel(connection: "checking" | "connected" | "offline", status: Ta
 
 function compactServer(serverUrl: string) {
   return serverUrl ? serverUrl.replace(/^https?:\/\//, "") : "Not paired";
+}
+
+function connectionSubtitle(serverUrl: string) {
+  return isNativeTransportEndpoint(serverUrl) ? "Connected computer" : compactServer(serverUrl);
+}
+
+function isNativeTransportEndpoint(serverUrl: string) {
+  return serverUrl.replace(/\/$/, "") === nativeTransportServerUrl;
 }
 
 const styles = StyleSheet.create({

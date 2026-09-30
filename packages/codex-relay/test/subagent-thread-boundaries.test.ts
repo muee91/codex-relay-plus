@@ -246,7 +246,9 @@ describe("subagent thread boundaries", () => {
       [
         expect.objectContaining({
           data: {
+            hostId: "unknown",
             intent: "action_required",
+            serverPublicKey: "unknown",
             threadId: "parent-thread",
             turnId: "parent-turn",
           },
@@ -255,7 +257,9 @@ describe("subagent thread boundaries", () => {
       [
         expect.objectContaining({
           data: {
+            hostId: "unknown",
             intent: "turn_terminal",
+            serverPublicKey: "unknown",
             threadId: "parent-thread",
             turnId: "parent-turn",
           },

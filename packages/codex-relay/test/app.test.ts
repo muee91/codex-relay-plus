@@ -1404,16 +1404,106 @@ describe("Codex Relay server routes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           body: "Finished working. Remaining usage: 28%",
-          data: { intent: "turn_terminal", threadId: "thread-1", turnId: "turn-1" },
+          data: {
+            hostId: "unknown",
+            intent: "turn_terminal",
+            serverPublicKey: "unknown",
+            threadId: "thread-1",
+            turnId: "turn-1",
+          },
           title: "Push notification improvements",
         }),
         expect.objectContaining({
           body: "Codex needs your attention.",
-          data: { intent: "action_required", threadId: "thread-1", turnId: "turn-1" },
+          data: {
+            hostId: "unknown",
+            intent: "action_required",
+            serverPublicKey: "unknown",
+            threadId: "thread-1",
+            turnId: "turn-1",
+          },
           title: "Push notification improvements",
         }),
       ]),
     );
+  });
+
+  it("keeps approval attention in the Relay registry without an active thread stream", async () => {
+    const sessions = await createTursoPairingSessionStore(":memory:");
+    await sessions.createSession("client-token", {
+      clientSessionId: "phone-session",
+      expiresAt: Date.now() + 60_000,
+    });
+    const requestHandlers = new Set<(request: unknown) => void>();
+    const thread = {
+      createdAt: Date.now() / 1000,
+      cwd: "/tmp/codex-relay",
+      id: "thread-attention",
+      modelProvider: "openai",
+      name: "Attention thread",
+      parentThreadId: null,
+      preview: "Attention thread",
+      source: "app",
+      status: "idle",
+      turns: [],
+      updatedAt: Date.now() / 1000,
+    };
+    const appServer = {
+      async listThreads() {
+        return [thread];
+      },
+      async readRateLimits() {
+        return { rateLimitsByLimitId: {} };
+      },
+      async readThread() {
+        return thread;
+      },
+      onNotification() {
+        return () => undefined;
+      },
+      onRequest(handler: (request: unknown) => void) {
+        requestHandlers.add(handler);
+        return () => requestHandlers.delete(handler);
+      },
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      pairing: {
+        createClientToken: () => "unused-client-token",
+        hashClientToken: (token) => token,
+        sessions,
+      },
+    });
+
+    for (const handler of requestHandlers) {
+      handler({
+        id: 42,
+        method: "item/tool/requestUserInput",
+        params: {
+          questions: [{ id: "scope", question: "Which scope should I use?" }],
+          threadId: thread.id,
+          turnId: "turn-attention",
+        },
+      });
+    }
+
+    const response = await app.request("/v1/threads", {
+      headers: { authorization: "Bearer client-token" },
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      threads: [
+        expect.objectContaining({
+          attention: {
+            count: 1,
+            kind: "input",
+            label: "Which scope should I use?",
+          },
+          id: thread.id,
+        }),
+      ],
+    });
   });
 
   it("rejects secure tokens when the in-process e2ee session is gone", async () => {
@@ -7136,11 +7226,7 @@ describe("Codex Relay server routes", () => {
     expect(threadsBody.threads).toContainEqual(
       expect.objectContaining({
         id: "app-thread-aborted",
-        attention: {
-          count: 1,
-          kind: "failed",
-          label: "Approval request timed out.",
-        },
+        attention: null,
       }),
     );
   });

@@ -76,8 +76,8 @@ import { evaluateRelayVersion, type RelayVersionCompatibility } from "@/lib/vers
 import { workspaceName } from "@/lib/workspace-name";
 import {
   chatStore$,
+  requestPairingScanner,
   requestThreadStreamReconnect,
-  resetChatSessionState,
   setActiveThread,
   setActiveHostId as setChatActiveHostId,
   setConnection,
@@ -418,16 +418,13 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
       try {
         ensureCurrentCodexRelayHost(statusQuery.data?.machineName);
         await teardownCodexRelayNativeTransport();
-        activateCodexRelayHost(host.id);
+        const activatedHost = activateCodexRelayHost(host.id);
         setChatActiveHostId(host.id);
         setHasPairedSession(hasCodexRelaySession());
+        setActiveThread(undefined);
+        setConnection("checking");
         const reconciled = await reconcileCodexRelayConnection();
 
-        // Do not discard the old Host's live state until the target has
-        // completed transport reconciliation. This leaves a usable rollback
-        // path when a saved Host is stale or unreachable.
-        queryClient.clear();
-        resetChatSessionState();
         setServerUrl(reconciled.serverUrl);
         setStatusState(queryClient, reconciled.status);
         const [threadsResponse, modelsResponse, rateLimitsResponse] = await Promise.all([
@@ -441,7 +438,7 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
           queryClient.setQueryData(serverStateKeys.rateLimits(), rateLimitsResponse);
         }
         const nextThread =
-          threadsResponse.threads.find((thread) => thread.id === previousThreadId) ??
+          threadsResponse.threads.find((thread) => thread.id === activatedHost.lastThreadId) ??
           threadsResponse.threads[0];
         setActiveThread(nextThread?.id);
         if (nextThread) {
@@ -585,7 +582,7 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
       onAddHost={() => {
         hapticSelection();
         props.navigation.closeDrawer();
-        requestAnimationFrame(() => router.push("/pair?scan=1"));
+        requestPairingScanner();
       }}
       onSwitchHost={(host) => void switchHost(host)}
       onCloseMenu={() => {

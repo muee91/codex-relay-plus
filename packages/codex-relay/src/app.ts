@@ -409,6 +409,29 @@ export function createApp(options: AppOptions = {}) {
   if (appServer && typeof appServer.onNotification === "function") {
     appServer.onNotification((notification) => {
       const params = recordParams(notification);
+      if (notification.method === "serverRequest/resolved") {
+        const requestId = appServerRequestIdFromParams(params);
+        if (requestId !== undefined) {
+          // Stream handlers are registered after this app-level handler and
+          // need to see the pending entry in order to emit their resolved SSE
+          // event. Defer the registry cleanup until all notification handlers
+          // have observed the same app-server notification.
+          queueMicrotask(() => {
+            const pendingEntry = [...pendingApprovals.entries()].find(
+              ([, pending]) => pending.requestId === requestId,
+            );
+            if (pendingEntry) {
+              const [approvalId, pending] = pendingEntry;
+              pendingApprovals.delete(approvalId);
+              if (threads.has(pending.threadId)) {
+                updateThread(threads, messagesByThreadId, pending.threadId, {
+                  attention: pendingThreadAttention(pendingApprovals, pending.threadId),
+                });
+              }
+            }
+          });
+        }
+      }
       const threadId = firstString(params, ["threadId"]);
       if (!threadId) {
         return;
@@ -479,18 +502,53 @@ export function createApp(options: AppOptions = {}) {
   }
   const pushNotificationDispatcher = options.pairing
     ? createPushNotificationDispatcher({
+        hostId: options.pairing.serverIdentity?.publicKey
+          ? `server:${options.pairing.serverIdentity.publicKey}`
+          : undefined,
         readRemainingUsagePercent: appServer
           ? async () =>
               lowestRateLimitRemainingPercent(
                 normalizeRateLimitBuckets(await appServer.readRateLimits()),
               )
           : undefined,
+        serverPublicKey: options.pairing.serverIdentity?.publicKey,
         sender: options.pushNotificationSender ?? createExpoPushNotificationSender(),
         sessions: options.pairing.sessions,
       })
     : undefined;
   if (appServer && pushNotificationDispatcher) {
-    observeAppServerPushNotifications(appServer, pushNotificationDispatcher);
+    const handleAppServerRequest = (request: AppServerRequest) => {
+      if (!isApprovalServerRequest(request.method)) {
+        void appServer.rejectRequest(
+          request.id,
+          -32601,
+          `${request.method} is not supported by Codex Relay mobile yet.`,
+        );
+        return;
+      }
+
+      const approval = approvalMessageFromRequest(request);
+      if (!approval) {
+        void appServer.rejectRequest(request.id, -32602, "Approval request is malformed.");
+        return;
+      }
+
+      const pending = pendingApprovalFromRequest(appServer, request, approval);
+      if (!pendingApprovals.has(approval.approvalId)) {
+        pendingApprovals.set(approval.approvalId, pending);
+      }
+      if (threads.has(approval.threadId)) {
+        updateThread(threads, messagesByThreadId, approval.threadId, {
+          attention: pendingThreadAttention(pendingApprovals, approval.threadId),
+          state: "running",
+        });
+      }
+    };
+    observeAppServerPushNotifications(
+      appServer,
+      pushNotificationDispatcher,
+      handleAppServerRequest,
+    );
   }
   const scheduleAppServerHistoryLoad = (threadId: string, cachedMessages: ChatMessage[]) => {
     if (!appServer || appServerHistoryLoadsByThreadId.has(threadId)) {
@@ -4205,17 +4263,11 @@ async function streamRunningAppServerThread(input: {
 
   cleanupRequestHandler = input.appServer.onRequest((request) => {
     if (!isApprovalServerRequest(request.method)) {
-      void input.appServer.rejectRequest(
-        request.id,
-        -32601,
-        `${request.method} is not supported by Codex Relay mobile yet.`,
-      );
       return;
     }
 
     const approval = approvalMessageFromRequest(request);
     if (!approval || approval.threadId !== input.threadId) {
-      void input.appServer.rejectRequest(request.id, -32602, "Approval request is malformed.");
       return;
     }
 
@@ -4810,17 +4862,11 @@ async function runAppServerPromptStreamed(input: {
 
   const cleanupRequestHandler = input.appServer.onRequest((request) => {
     if (!isApprovalServerRequest(request.method)) {
-      void input.appServer.rejectRequest(
-        request.id,
-        -32601,
-        `${request.method} is not supported by Codex Relay mobile yet.`,
-      );
       return;
     }
 
     const approval = approvalMessageFromRequest(request);
     if (!approval || approval.threadId !== activeThreadId) {
-      void input.appServer.rejectRequest(request.id, -32602, "Approval request is malformed.");
       return;
     }
 
@@ -6538,20 +6584,12 @@ function updateThread(
       ? update.attention
       : existing.attention?.kind === "failed" && nextState !== "failed"
         ? null
-        : (existing.attention ??
-          (nextState === "failed"
-            ? {
-                count: 1,
-                kind: "failed" as const,
-                label: preview(
-                  update.lastError?.trim() || existing.lastError?.trim() || "Thread failed",
-                ),
-              }
-            : undefined));
+        : existing.attention;
+  const attention = inheritedAttention?.kind === "failed" ? null : inheritedAttention;
   const next = ThreadSummarySchema.parse({
     ...existing,
     ...update,
-    attention: inheritedAttention,
+    attention,
     messageCount: messages.length,
     lastMessagePreview: lastMessage?.content
       ? preview(lastMessage.content)
@@ -7188,9 +7226,7 @@ function rememberAppServerThread(
     options.authoritativeMessageCount ? undefined : existingThread?.messageCount,
   );
   const preservedAttention =
-    existingThread?.attention?.kind === "failed" && mappedThread.state !== "failed"
-      ? null
-      : existingThread?.attention;
+    existingThread?.attention?.kind === "failed" ? null : existingThread?.attention;
   const threadWithLocalRuntime = ThreadSummarySchema.parse({
     ...mappedThread,
     attention: preservedAttention,
@@ -8255,7 +8291,7 @@ function isReasoningMessageForTurn(message: ChatMessage, turnId: string) {
   return message.role === "reasoning" && message.kind === "thinking" && message.turnId === turnId;
 }
 
-function mergeReasoningMessages(current: ChatMessage, incoming: ChatMessage) {
+export function mergeReasoningMessages(current: ChatMessage, incoming: ChatMessage) {
   const items = reasoningItemsFromMessage(current);
   for (const incomingItem of reasoningItemsFromMessage(incoming)) {
     const existingIndex = items.findIndex((item) => item.id === incomingItem.id);
@@ -8915,6 +8951,7 @@ function isApprovalServerRequest(method: string) {
 function observeAppServerPushNotifications(
   appServer: CodexAppServerClient,
   dispatcher: PushNotificationDispatcher,
+  onRequest?: (request: AppServerRequest) => void,
 ) {
   const dispatchedEventIds = new Set<string>();
   const rememberEventId = (eventId: string) => {
@@ -8957,14 +8994,17 @@ function observeAppServerPushNotifications(
     dispatch(event, eventId);
   });
 
-  appServer.onRequest((request) => {
-    const event = pushNotificationEventFromApprovalRequest(request);
-    if (!event) {
-      return;
-    }
-    const eventId = `${event.intent}:${event.threadId}:${event.turnId ?? ""}:${request.id}`;
-    dispatch(event, eventId);
-  });
+  if (typeof appServer.onRequest === "function") {
+    appServer.onRequest((request) => {
+      onRequest?.(request);
+      const event = pushNotificationEventFromApprovalRequest(request);
+      if (!event) {
+        return;
+      }
+      const eventId = `${event.intent}:${event.threadId}:${event.turnId ?? ""}:${request.id}`;
+      dispatch(event, eventId);
+    });
+  }
 }
 
 function pushNotificationEventFromTerminalNotification(notification: AppServerNotification) {
@@ -9134,6 +9174,23 @@ function approvalMessageFromRequest(request: AppServerRequest) {
   }
 }
 
+function pendingApprovalFromRequest(
+  appServer: CodexAppServerClient,
+  request: AppServerRequest,
+  approval: ReturnType<typeof approvalMessageFromRequest> & object,
+): PendingApproval {
+  return {
+    appServer,
+    isBlocking: "isBlocking" in approval ? approval.isBlocking : undefined,
+    kind: approval.kind,
+    method: request.method,
+    questions: "questions" in approval ? approval.questions : undefined,
+    requestId: request.id,
+    threadId: approval.threadId,
+    turnId: approval.turnId,
+  };
+}
+
 function pendingInputQuestions(value: unknown): PendingInputRequestQuestion[] {
   if (!Array.isArray(value)) {
     return [];
@@ -9259,14 +9316,7 @@ function threadWithAttention(
     return ThreadSummarySchema.parse({ ...thread, attention: pendingAttention });
   }
   if (thread.state === "failed") {
-    return ThreadSummarySchema.parse({
-      ...thread,
-      attention: {
-        count: 1,
-        kind: "failed",
-        label: preview(thread.lastError?.trim() || "Thread failed"),
-      },
-    });
+    return ThreadSummarySchema.parse({ ...thread, attention: null });
   }
   return ThreadSummarySchema.parse({ ...thread, attention: null });
 }

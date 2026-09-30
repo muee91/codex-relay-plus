@@ -39,7 +39,9 @@ export function buildDrawerRows(
   const uniqueThreads = threadsWithUniqueIds(threads);
   const attentionThreads = forceExpanded
     ? []
-    : uniqueThreads.filter((thread) => Boolean(thread.attention));
+    : uniqueThreads.filter(
+        (thread) => Boolean(thread.attention) && thread.attention?.kind !== "failed",
+      );
   const attentionThreadIds = new Set(attentionThreads.map((thread) => thread.id));
   const threadsById = new Map(uniqueThreads.map((thread) => [thread.id, thread]));
   const pinnedThreads = forceExpanded
@@ -51,6 +53,12 @@ export function buildDrawerRows(
   const groups = new Map<string, ThreadGroup>();
 
   for (const thread of uniqueThreads) {
+    if (
+      !forceExpanded &&
+      (attentionThreadIds.has(thread.id) || pinnedThreadIdsSet.has(thread.id))
+    ) {
+      continue;
+    }
     const title = workspaceName(thread.cwd) ?? "codex-relay";
     const projectKey = thread.cwd ?? title;
     const group = groups.get(projectKey);
@@ -81,11 +89,10 @@ export function buildDrawerRows(
   }
 
   for (const [projectKey, group] of groups) {
-    const unpinnedThreads = forceExpanded
-      ? group.threads
-      : group.threads.filter(
-          (thread) => !attentionThreadIds.has(thread.id) && !pinnedThreadIdsSet.has(thread.id),
-        );
+    const unpinnedThreads = group.threads;
+    if (unpinnedThreads.length === 0) {
+      continue;
+    }
     const isExpanded = forceExpanded || (expandedProjects[projectKey] ?? false);
     const activeThread = activeThreadId
       ? unpinnedThreads.find((thread) => thread.id === activeThreadId)

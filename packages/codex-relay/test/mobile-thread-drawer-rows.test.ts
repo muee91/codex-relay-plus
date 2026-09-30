@@ -4,7 +4,7 @@ import type { ThreadSummary } from "../src/api-schema.js";
 import { buildDrawerRows } from "../../../apps/mobile/src/components/chat/thread-drawer-rows.js";
 
 describe("mobile thread drawer rows", () => {
-  it("renders attention threads once above pinned and project rows", () => {
+  it("renders actionable attention threads once and leaves failed threads in projects", () => {
     const needsInput = threadSummary("thread-input", "/work/alpha", {
       count: 1,
       kind: "input",
@@ -25,11 +25,10 @@ describe("mobile thread drawer rows", () => {
     ).toEqual([
       { id: "needs-attention", kind: "needs-attention" },
       pinnedThreadRow(needsInput, "alpha"),
-      pinnedThreadRow(failed, "beta"),
       { id: "pinned", kind: "pinned" },
       pinnedThreadRow(pinned, "alpha"),
-      projectRow("/work/alpha"),
       projectRow("/work/beta"),
+      threadRow(failed),
     ]);
   });
 
@@ -72,7 +71,6 @@ describe("mobile thread drawer rows", () => {
       { id: "pinned", kind: "pinned" },
       pinnedThreadRow(threads[0], "project"),
       pinnedThreadRow(threads[1], "project"),
-      projectRow("/work/project"),
     ]);
   });
 
@@ -189,7 +187,6 @@ describe("mobile thread drawer rows", () => {
     expect(buildDrawerRows([thread], {}, undefined, ["thread-a", "thread-a"])).toEqual([
       { id: "pinned", kind: "pinned" },
       pinnedThreadRow(thread, "project"),
-      projectRow("/work/project"),
     ]);
   });
 
@@ -212,13 +209,6 @@ describe("mobile thread drawer rows", () => {
     expect(buildDrawerRows([thread], {}, undefined, ["thread-a"])).toEqual([
       { id: "pinned", kind: "pinned" },
       pinnedThreadRow(thread, "codex-relay"),
-      {
-        id: "project:codex-relay",
-        kind: "project",
-        projectKey: "codex-relay",
-        title: "codex-relay",
-        workspacePath: undefined,
-      },
     ]);
   });
 });
