@@ -199,6 +199,8 @@ const collaborationModeTemplates = Object.fromEntries(
   collaborationModeTemplateNames.map((name) => [name, readCollaborationModeTemplate(name)]),
 ) as Record<(typeof collaborationModeTemplateNames)[number], string>;
 const defaultWebPreviewPorts = [3000, 3001, 5173, 4173, 8080, 19006];
+const APP_SERVER_WRITER_RETRY_DELAY_MS = 1500;
+const APP_SERVER_WRITER_RETRY_TIMEOUT_MS = 10 * 60 * 1000;
 
 type AppOptions = {
   appServer?: CodexAppServerClient | null;
@@ -4066,6 +4068,40 @@ async function startAppServerTurn(
   }
 }
 
+async function startAppServerTurnWithWriterRetry(
+  startTurn: () => Promise<AppServerTurn>,
+  callbacks: {
+    onWaiting?: () => void;
+    onWaitingHeartbeat?: () => void;
+  },
+) {
+  const waitStartedAt = Date.now();
+  let hasWaited = false;
+
+  for (;;) {
+    try {
+      return await startTurn();
+    } catch (error) {
+      if (!isActiveWriterConflict(error)) {
+        throw error;
+      }
+
+      if (hasWaited) {
+        callbacks.onWaitingHeartbeat?.();
+      } else {
+        callbacks.onWaiting?.();
+        hasWaited = true;
+      }
+
+      if (Date.now() - waitStartedAt > APP_SERVER_WRITER_RETRY_TIMEOUT_MS) {
+        throw new Error("Timed out waiting for another Codex client to release this thread.");
+      }
+
+      await delay(APP_SERVER_WRITER_RETRY_DELAY_MS);
+    }
+  }
+}
+
 async function resumeAppServerThreadIfNeeded(
   appServer: CodexAppServerClient,
   threadId: string,
@@ -4827,6 +4863,7 @@ async function runAppServerPromptStreamed(input: {
   let activeTurnId: string | undefined;
   let assistantMessageId: string | undefined;
   let waitingForActiveTurnMessageId: string | undefined;
+  let waitingForActiveWriterMessageId: string | undefined;
   const displayPrompt = promptMarkdownWithSkills(
     promptWithAttachmentReferences(input.prompt, input.attachments),
     input.skills,
@@ -4933,6 +4970,27 @@ async function runAppServerPromptStreamed(input: {
     assistantMessageId = undefined;
     observedInputRequest = false;
     producedTurnOutput = false;
+  }
+
+  function completeActiveWriterWait() {
+    if (!waitingForActiveWriterMessageId) {
+      return;
+    }
+    const messageId = waitingForActiveWriterMessageId;
+    waitingForActiveWriterMessageId = undefined;
+    const message = updateMessage(input.messagesByThreadId, activeThreadId, messageId, {
+      content: "Thread is available. Starting your reply.",
+      state: "completed",
+    });
+    threadSummary = updateThread(input.threads, input.messagesByThreadId, activeThreadId, {
+      attention: pendingThreadAttention(input.pendingApprovals, activeThreadId),
+      state: "running",
+    });
+    sendSse(input.controller, input.encoder, input.secureSession, {
+      type: "thread.message.completed",
+      thread: threadSummary,
+      message,
+    });
   }
 
   async function finishTerminalTurn(options: {
@@ -5154,9 +5212,11 @@ async function runAppServerPromptStreamed(input: {
   function startAndProcessAppServerTurn(
     threadId: string,
     queuedInput: QueuedThreadInput,
+    options: { onStarted?: (turn: AppServerTurn) => void | Promise<void> } = {},
   ): Promise<AppServerTurn> {
     return input.runAppServerMutation(threadId, async () => {
       const turn = await startAppServerTurn(input.appServer, threadId, queuedInput);
+      await options.onStarted?.(turn);
       await processReturnedTurn(turn);
       return turn;
     });
@@ -5495,14 +5555,50 @@ async function runAppServerPromptStreamed(input: {
     debugStream("start turn begin", activeThreadId);
     let turn: AppServerTurn;
     try {
-      turn = await startAndProcessAppServerTurn(activeThreadId, {
+      const queuedInput = {
         attachments: input.attachments,
         id: userMessage.id,
         prompt,
         runOptions: input.runOptions,
         skills: input.skills,
         workspacePath: input.workspacePath,
-      });
+      } satisfies QueuedThreadInput;
+      turn = await startAppServerTurnWithWriterRetry(
+        () =>
+          startAndProcessAppServerTurn(activeThreadId, queuedInput, {
+            onStarted: completeActiveWriterWait,
+          }),
+        {
+          onWaiting() {
+            if (waitingForActiveWriterMessageId) {
+              return;
+            }
+            const message = appendMessage(input.messagesByThreadId, activeThreadId, {
+              role: "status",
+              content: "Waiting for another Codex client to release this thread.",
+              state: "streaming",
+            });
+            waitingForActiveWriterMessageId = message.id;
+            threadSummary = updateThread(input.threads, input.messagesByThreadId, activeThreadId, {
+              state: "running",
+            });
+            sendSse(input.controller, input.encoder, input.secureSession, {
+              type: "thread.message.created",
+              thread: threadSummary,
+              message,
+            });
+          },
+          onWaitingHeartbeat() {
+            threadSummary = updateThread(input.threads, input.messagesByThreadId, activeThreadId, {
+              state: "running",
+            });
+            sendSse(input.controller, input.encoder, input.secureSession, {
+              type: "thread.state.changed",
+              thread: threadSummary,
+            });
+          },
+        },
+      );
     } catch (error) {
       if (!isAppServerThreadNotFound(error)) {
         throw error;
@@ -5536,24 +5632,52 @@ async function runAppServerPromptStreamed(input: {
         thread: threadSummary,
         message: userMessage,
       });
-      turn = await startAndProcessAppServerTurn(activeThreadId, {
-        attachments: input.attachments,
-        id: userMessage.id,
-        prompt,
-        runOptions: input.runOptions,
-        skills: input.skills,
-        workspacePath: input.workspacePath,
-      });
+      turn = await startAndProcessAppServerTurn(
+        activeThreadId,
+        {
+          attachments: input.attachments,
+          id: userMessage.id,
+          prompt,
+          runOptions: input.runOptions,
+          skills: input.skills,
+          workspacePath: input.workspacePath,
+        },
+        {
+          onStarted: completeActiveWriterWait,
+        },
+      );
     }
     debugStream("start turn complete", activeThreadId, turn.id);
     await completed;
   } catch (error) {
     debugStream(`failed ${errorMessage(error)}`, activeThreadId, activeTurnId);
-    const threadSummary = updateThread(input.threads, input.messagesByThreadId, activeThreadId, {
-      state: "failed",
-      lastError: errorMessage(error),
-    });
-    const errorBody = apiError("codex_run_failed", threadSummary.lastError ?? "Codex run failed.");
+    const failedThreadSummary = updateThread(
+      input.threads,
+      input.messagesByThreadId,
+      activeThreadId,
+      {
+        state: "failed",
+        lastError: errorMessage(error),
+      },
+    );
+    if (waitingForActiveWriterMessageId) {
+      const waitingMessage = updateMessage(
+        input.messagesByThreadId,
+        activeThreadId,
+        waitingForActiveWriterMessageId,
+        { content: errorMessage(error), state: "failed" },
+      );
+      sendSse(input.controller, input.encoder, input.secureSession, {
+        type: "thread.message.completed",
+        thread: failedThreadSummary,
+        message: waitingMessage,
+      });
+      waitingForActiveWriterMessageId = undefined;
+    }
+    const errorBody = apiError(
+      "codex_run_failed",
+      failedThreadSummary.lastError ?? "Codex run failed.",
+    );
     appendMessage(input.messagesByThreadId, activeThreadId, {
       role: "error",
       content: errorBody.error.message,
@@ -5561,7 +5685,7 @@ async function runAppServerPromptStreamed(input: {
     });
     sendSse(input.controller, input.encoder, input.secureSession, {
       type: "thread.error",
-      thread: threadSummary,
+      thread: failedThreadSummary,
       error: errorBody.error,
     });
   } finally {
@@ -5661,11 +5785,11 @@ async function waitForAppServerThreadIdle(input: {
       hasWaited = true;
     }
 
-    if (Date.now() - waitStartedAt > 10 * 60 * 1000) {
+    if (Date.now() - waitStartedAt > APP_SERVER_WRITER_RETRY_TIMEOUT_MS) {
       throw new Error("Timed out waiting for the current Codex turn to finish.");
     }
 
-    await delay(1500);
+    await delay(APP_SERVER_WRITER_RETRY_DELAY_MS);
   }
 }
 
