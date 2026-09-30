@@ -26,6 +26,8 @@
   <string>__BUILD_NUMBER__</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.developer-tools</string>
+  <key>LSMultipleInstancesProhibited</key>
+  <true/>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSAppTransportSecurity</key>

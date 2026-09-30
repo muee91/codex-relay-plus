@@ -12,6 +12,14 @@ TAILCAT_STATUS_FILE="$SUPPORT_DIR/tailcat-status.$$"
 TAILCAT_INITIAL_READY_WAIT_MS=3000
 TAILCAT_ENABLED="${CODEX_RELAY_TAILCAT_ENABLED:-1}"
 
+# The embedded runtime directory is intentionally first in PATH so the relay
+# can find its bundled Node binary. Codex app-server also uses `node` from PATH
+# for MCP servers, though. Only the desktop's relay CLI invocation should own
+# the launcher lifecycle; all other Node scripts must bypass this supervisor.
+if [[ "${1:-}" != */relay/dist/cli.js ]]; then
+  exec "$NODE_BIN" "$@"
+fi
+
 node_pid=""
 tailcat_pid=""
 bonjour_pid=""

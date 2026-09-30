@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   private var copyTailcatAddressMenuItem: NSMenuItem!
   private var relay: Process?
   private var relayGroup: pid_t?
+  private var singletonLockFD: Int32 = -1
   private var logHandle: FileHandle?
   private var tailcatStatusTimer: Timer?
   private var currentTailcatAddress: String?
@@ -42,6 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    guard acquireSingletonLock() else {
+      NSApp.terminate(nil)
+      return
+    }
     NSApp.setActivationPolicy(.regular)
     setupStatusItem()
     startRelay()
@@ -59,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
   func applicationWillTerminate(_ notification: Notification) {
     stopRelay()
+    releaseSingletonLock()
   }
 
   private func setupStatusItem() {
@@ -597,6 +603,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let url = root.appendingPathComponent(C.name, isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+  }
+
+  private func acquireSingletonLock() -> Bool {
+    guard let support = try? supportURL() else { return false }
+    let lockPath = support.appendingPathComponent("app.lock").path
+    let descriptor = Darwin.open(lockPath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else { return false }
+    var lock = Darwin.flock(
+      l_start: 0,
+      l_len: 0,
+      l_pid: 0,
+      l_type: Int16(F_WRLCK),
+      l_whence: Int16(SEEK_SET)
+    )
+    guard Darwin.fcntl(descriptor, F_SETLK, &lock) == 0 else {
+      _ = Darwin.close(descriptor)
+      return false
+    }
+    singletonLockFD = descriptor
+    return true
+  }
+
+  private func releaseSingletonLock() {
+    guard singletonLockFD >= 0 else { return }
+    var lock = Darwin.flock(
+      l_start: 0,
+      l_len: 0,
+      l_pid: 0,
+      l_type: Int16(F_UNLCK),
+      l_whence: Int16(SEEK_SET)
+    )
+    _ = Darwin.fcntl(singletonLockFD, F_SETLK, &lock)
+    _ = Darwin.close(singletonLockFD)
+    singletonLockFD = -1
   }
 
   private func logURL() throws -> URL {
