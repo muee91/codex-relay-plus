@@ -70,7 +70,10 @@ import {
   streamThreadRun,
   uploadImageAttachments,
 } from "@/lib/codex-relay-api";
-import { updateActiveCodexRelayHostName } from "@/lib/codex-relay-hosts";
+import {
+  updateActiveCodexRelayHostLastThread,
+  updateActiveCodexRelayHostName,
+} from "@/lib/codex-relay-hosts";
 import { reconcileCodexRelayConnection } from "@/lib/codex-relay-connection-manager";
 import {
   hapticLightImpact,
@@ -514,6 +517,13 @@ export function ChatScreen({
   });
 
   const workspacePath = statusQuery.data?.workspacePath;
+
+  useEffect(() => {
+    if (!activeHostId || !activeThreadId) {
+      return;
+    }
+    updateActiveCodexRelayHostLastThread(activeThreadId);
+  }, [activeHostId, activeThreadId]);
 
   useEffect(() => {
     if (!hasPairedSession) {
