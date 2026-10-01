@@ -8791,7 +8791,15 @@ function fallbackModels(): AppServerModel[] {
       model: defaultCodexModel,
     }),
     fallbackModel({
-      description: "Workhorse model for coding and everyday work.",
+      defaultReasoningEffort: "low",
+      description: "Latest workhorse model for coding and everyday work.",
+      displayName: "GPT-6.1-Sol",
+      efforts: [...efforts, "ultra"],
+      fastDescription: "2x speed, increased usage",
+      model: "gpt-6.1-sol",
+    }),
+    fallbackModel({
+      description: "Previous generation workhorse model.",
       displayName: "GPT-6-Sol",
       efforts: [...efforts, "ultra"],
       fastDescription: "1.5x speed",
@@ -8808,6 +8816,7 @@ function fallbackModels(): AppServerModel[] {
 }
 
 function fallbackModel({
+  defaultReasoningEffort = "medium",
   description,
   displayName,
   efforts,
@@ -8815,6 +8824,7 @@ function fallbackModel({
   isDefault = false,
   model,
 }: {
+  defaultReasoningEffort?: string;
   description: string;
   displayName: string;
   efforts: string[];
@@ -8828,7 +8838,7 @@ function fallbackModel({
     displayName,
     description,
     isDefault,
-    defaultReasoningEffort: "medium",
+    defaultReasoningEffort,
     supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort })),
     additionalSpeedTiers: ["fast"],
     serviceTiers: [{ id: "priority", name: "Fast", description: fastDescription }],
