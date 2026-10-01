@@ -152,13 +152,17 @@ function mergeMessages(baseMessages: ChatMessage[], incomingMessages: ChatMessag
 }
 
 function preferredMessageSnapshot(current: ChatMessage, incoming: ChatMessage) {
+  if (incoming.state === "completed" && current.state !== "completed") {
+    return incoming;
+  }
+  if (current.state === "completed" && incoming.state !== "completed") {
+    return current;
+  }
+
   const currentUpdatedAt = current.updatedAt ?? current.createdAt;
   const incomingUpdatedAt = incoming.updatedAt ?? incoming.createdAt;
   if (currentUpdatedAt !== incomingUpdatedAt) {
     return currentUpdatedAt > incomingUpdatedAt ? current : incoming;
-  }
-  if (current.state === "completed" && incoming.state !== "completed") {
-    return current;
   }
   return incoming;
 }

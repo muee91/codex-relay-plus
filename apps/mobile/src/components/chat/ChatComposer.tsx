@@ -68,7 +68,6 @@ import {
 
 import { PromptMarkdownText } from "./PromptMarkdownText";
 
-const ATTACH_SHEET_DISMISS_DELAY_MS = 260;
 const ADD_SHEET_KEYBOARD_DISMISS_FALLBACK_MS = 360;
 const FILE_MENTION_INDICATOR = "@";
 const SKILL_MENTION_INDICATOR = "$";
@@ -258,6 +257,7 @@ export const ChatComposer = memo(function ChatComposer({
   onToggleGoalPause,
   rateLimitBuckets,
   statusMessage,
+  workStatus,
   skills,
   skillsLoadState,
   workspacePath,
@@ -297,6 +297,7 @@ export const ChatComposer = memo(function ChatComposer({
   onToggleGoalPause?: () => void;
   rateLimitBuckets: RateLimitBucket[];
   statusMessage?: string;
+  workStatus?: "working" | "waiting" | "plan";
   skills: AgentSkill[];
   skillsLoadState: "idle" | "loading" | "loaded" | "failed";
   workspacePath?: string;
@@ -346,7 +347,6 @@ export const ChatComposer = memo(function ChatComposer({
   const ignoredMarkdownChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  const attachLaunchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const focusRecoveryTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const isInputEditable = inputEditable ?? !disabled;
@@ -399,9 +399,6 @@ export const ChatComposer = memo(function ChatComposer({
 
   useEffect(() => {
     return () => {
-      if (attachLaunchTimeoutRef.current) {
-        clearTimeout(attachLaunchTimeoutRef.current);
-      }
       if (ignoredMarkdownChangeTimeoutRef.current) {
         clearTimeout(ignoredMarkdownChangeTimeoutRef.current);
       }
@@ -484,9 +481,15 @@ export const ChatComposer = memo(function ChatComposer({
     hapticSelection();
     setAttachLaunchPending(true);
     closeAddSheet();
-    attachLaunchTimeoutRef.current = setTimeout(() => {
-      Promise.resolve(onAttachImage()).finally(() => setAttachLaunchPending(false));
-    }, ATTACH_SHEET_DISMISS_DELAY_MS);
+  }
+
+  function handleAddSheetDismissed() {
+    if (!isAttachLaunchPending) {
+      return;
+    }
+    Promise.resolve(onAttachImage()).finally(() => {
+      setAttachLaunchPending(false);
+    });
   }
 
   function togglePlanMode() {
@@ -896,9 +899,10 @@ export const ChatComposer = memo(function ChatComposer({
     }
   }
 
-  if (pendingInputRequest) {
-    return (
-      <View style={styles.composerStack}>
+  return (
+    <View style={styles.composerStack}>
+      {workStatus ? <ComposerActivityNotice status={workStatus} /> : null}
+      {pendingInputRequest ? (
         <InputRequestPanel
           answerDraft={inputRequestAnswerDraft}
           questionIndex={inputRequestQuestionIndex}
@@ -932,13 +936,8 @@ export const ChatComposer = memo(function ChatComposer({
           }}
           onSubmit={submitInputRequestAnswer}
         />
-      </View>
-    );
-  }
-
-  if (shouldShowPlanConfirmation) {
-    return (
-      <View style={styles.composerStack}>
+      ) : null}
+      {shouldShowPlanConfirmation ? (
         <PlanDecisionPanel
           contextDraft={planContextDraft}
           selectedDecision={planDecision}
@@ -962,12 +961,7 @@ export const ChatComposer = memo(function ChatComposer({
           }
           onSubmit={submitPlanDecision}
         />
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.composerStack}>
+      ) : null}
       {shouldShowFileSuggestions ? (
         <FileSuggestionPanel
           files={visibleFiles}
@@ -1114,7 +1108,12 @@ export const ChatComposer = memo(function ChatComposer({
           ) : null}
         </View>
       </Animated.View>
-      <AppBottomSheet title="Add context" onClose={closeAddSheet} visible={isAddSheetOpen}>
+      <AppBottomSheet
+        title="Add context"
+        onClose={closeAddSheet}
+        onDismissed={handleAddSheetDismissed}
+        visible={isAddSheetOpen}
+      >
         <SheetActionRow
           accessibilityLabel="Add photos from library"
           icon="attach"
@@ -1169,6 +1168,35 @@ export const ChatComposer = memo(function ChatComposer({
     </View>
   );
 });
+
+function ComposerActivityNotice({ status }: { status: "working" | "waiting" | "plan" }) {
+  const config = {
+    plan: {
+      color: "#B7A3FF",
+      label: "Plan ready — review before continuing",
+    },
+    waiting: {
+      color: "#F8C46D",
+      label: "Waiting for your answer",
+    },
+    working: {
+      color: "#8EE6B1",
+      label: "Working…",
+    },
+  }[status];
+
+  return (
+    <View
+      accessibilityLabel={config.label}
+      accessibilityLiveRegion="polite"
+      accessibilityRole="text"
+      style={[styles.activityNotice, { borderColor: `${config.color}44` }]}
+    >
+      <View style={[styles.activityNoticeDot, { backgroundColor: config.color }]} />
+      <Text style={[styles.activityNoticeText, { color: config.color }]}>{config.label}</Text>
+    </View>
+  );
+}
 
 async function dismissKeyboardForSheet() {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -2901,6 +2929,28 @@ function sameSkillSelection(left: AgentSkill[], right: AgentSkill[]) {
 }
 
 const styles = StyleSheet.create({
+  activityNotice: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginHorizontal: 18,
+    marginTop: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  activityNoticeDot: {
+    borderRadius: 4,
+    height: 7,
+    width: 7,
+  },
+  activityNoticeText: {
+    fontFamily: Fonts.sansSemiBold,
+    fontSize: 10,
+    lineHeight: 13,
+  },
   composerStack: {
     position: "relative",
   },

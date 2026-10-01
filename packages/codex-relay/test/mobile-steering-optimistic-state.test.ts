@@ -142,6 +142,25 @@ describe("mobile optimistic queued-input steering state", () => {
     expect(upsertMessage([completed], replayedCreation)).toEqual([completed]);
   });
 
+  it("lets a terminal plan snapshot replace a newer local streaming delta", () => {
+    const thread = threadSummary("thread-plan-completion");
+    const streamingPlan = {
+      ...chatMessage("assistant-plan", thread.id, "<proposed_plan>\n## Summary\nDraft"),
+      role: "assistant" as const,
+      state: "streaming" as const,
+      updatedAt: "2026-06-06T00:00:05.000Z",
+    };
+    const completedPlan = {
+      ...streamingPlan,
+      kind: "plan" as const,
+      content: "## Summary\nDraft",
+      state: "completed" as const,
+      updatedAt: "2026-06-06T00:00:02.000Z",
+    };
+
+    expect(upsertMessage([streamingPlan], completedPlan)).toEqual([completedPlan]);
+  });
+
   it("does not restore a local message after its canonical replacement arrives", () => {
     const thread = threadSummary("thread-replacement-replay");
     const localMessage = chatMessage("local-user", thread.id, "Keep one copy");

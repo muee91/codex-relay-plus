@@ -139,6 +139,13 @@ export function ChatShell({
     () => (!isRunning ? implementablePlanId(messages) : undefined),
     [isRunning, messages],
   );
+  const composerWorkStatus = pendingInputRequest
+    ? "waiting"
+    : implementablePlanMessageId
+      ? "plan"
+      : isRunning
+        ? "working"
+        : undefined;
   const handleQueuedPromptPanelHeightChange = useCallback((height: number) => {
     setQueuedPromptPanelHeight((current) => (Math.abs(current - height) < 1 ? current : height));
   }, []);
@@ -228,6 +235,7 @@ export function ChatShell({
                 queuedPrompts={queuedPrompts}
                 rateLimitBuckets={rateLimitBuckets}
                 statusMessage={composerStatusMessage}
+                workStatus={composerWorkStatus}
                 skills={skills}
                 skillsLoadState={skillsLoadState}
                 footer={composerFooter}
