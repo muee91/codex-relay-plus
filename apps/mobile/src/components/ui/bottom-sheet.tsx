@@ -34,6 +34,7 @@ export function AppBottomSheet({
   keyboardBlurBehavior = "restore",
   onBack,
   onClose,
+  onDismissed,
   scrollable = true,
   subtitle,
   title,
@@ -50,6 +51,7 @@ export function AppBottomSheet({
   keyboardBlurBehavior?: "none" | "restore";
   onBack?: () => void;
   onClose: () => void;
+  onDismissed?: () => void;
   scrollable?: boolean;
   subtitle?: string;
   title: string;
@@ -59,7 +61,14 @@ export function AppBottomSheet({
   const theme = useTheme();
   const { height: windowHeight } = useWindowDimensions();
   const sheetRef = useRef<BottomSheetModal>(null);
+  const dismissFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | undefined>(undefined);
   const presentFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | undefined>(undefined);
+  const didRequestPresentRef = useRef(false);
+  const dismissalNotifiedRef = useRef(false);
+  const previousVisibleRef = useRef(visible);
+  const visibleRef = useRef(visible);
+  const onCloseRef = useRef(onClose);
+  const onDismissedRef = useRef(onDismissed);
   const [isMounted, setMounted] = useState(visible);
   const shouldRenderSheet = visible || isMounted;
   const maxSheetHeight = expandedSnapPercentOverride
@@ -76,9 +85,42 @@ export function AppBottomSheet({
     [collapsedSnapPercent, expandedSnapPercent],
   );
   const clampedInitialSnapIndex = Math.min(initialSnapIndex, snapPoints.length - 1);
+  visibleRef.current = visible;
+  onCloseRef.current = onClose;
+  onDismissedRef.current = onDismissed;
+
+  const completeDismiss = useCallback((deferCallback: boolean) => {
+    if (dismissalNotifiedRef.current) {
+      return;
+    }
+
+    dismissalNotifiedRef.current = true;
+    dismissKeyboard();
+    setMounted(false);
+    if (visibleRef.current) {
+      onCloseRef.current();
+    }
+
+    if (deferCallback) {
+      requestAnimationFrame(() => onDismissedRef.current?.());
+    } else {
+      onDismissedRef.current?.();
+    }
+  }, []);
 
   useEffect(() => {
+    const wasVisible = previousVisibleRef.current;
+    previousVisibleRef.current = visible;
+
     if (visible) {
+      if (!wasVisible) {
+        dismissalNotifiedRef.current = false;
+        didRequestPresentRef.current = false;
+      }
+      if (dismissFrameRef.current) {
+        cancelAnimationFrame(dismissFrameRef.current);
+        dismissFrameRef.current = undefined;
+      }
       setMounted(true);
       return;
     }
@@ -88,8 +130,25 @@ export function AppBottomSheet({
     }
 
     dismissKeyboard();
-    sheetRef.current?.dismiss();
-  }, [isMounted, visible]);
+    if (presentFrameRef.current) {
+      cancelAnimationFrame(presentFrameRef.current);
+      presentFrameRef.current = undefined;
+    }
+
+    if (!didRequestPresentRef.current) {
+      completeDismiss(true);
+      return;
+    }
+
+    // BottomSheetModal.present() schedules its own requestAnimationFrame. If
+    // visibility changes during that frame, dismissing immediately can let
+    // the pending present win and leave the modal mounted forever. Queue the
+    // dismiss after that internal frame has had a chance to mount the sheet.
+    dismissFrameRef.current = requestAnimationFrame(() => {
+      dismissFrameRef.current = undefined;
+      sheetRef.current?.dismiss();
+    });
+  }, [isMounted, visible, completeDismiss]);
 
   useEffect(() => {
     if (!shouldRenderSheet || !visible) {
@@ -105,6 +164,7 @@ export function AppBottomSheet({
       presentFrameRef.current = requestAnimationFrame(() => {
         presentFrameRef.current = undefined;
         if (!didCancel) {
+          didRequestPresentRef.current = true;
           sheetRef.current?.present();
         }
       });
@@ -123,6 +183,17 @@ export function AppBottomSheet({
     };
   }, [shouldRenderSheet, visible]);
 
+  useEffect(() => {
+    return () => {
+      if (dismissFrameRef.current) {
+        cancelAnimationFrame(dismissFrameRef.current);
+      }
+      if (presentFrameRef.current) {
+        cancelAnimationFrame(presentFrameRef.current);
+      }
+    };
+  }, []);
+
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
       <BottomSheetBackdrop
@@ -137,12 +208,8 @@ export function AppBottomSheet({
   );
 
   const handleDismiss = useCallback(() => {
-    dismissKeyboard();
-    setMounted(false);
-    if (visible) {
-      onClose();
-    }
-  }, [onClose, visible]);
+    completeDismiss(false);
+  }, [completeDismiss]);
 
   if (!shouldRenderSheet) {
     return null;

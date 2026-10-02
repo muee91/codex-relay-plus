@@ -4,6 +4,47 @@ import type { ThreadSummary } from "../src/api-schema.js";
 import { buildDrawerRows } from "../../../apps/mobile/src/components/chat/thread-drawer-rows.js";
 
 describe("mobile thread drawer rows", () => {
+  it("renders actionable attention threads once and leaves failed threads in projects", () => {
+    const needsInput = threadSummary("thread-input", "/work/alpha", {
+      count: 1,
+      kind: "input",
+      label: "Which scope should I use?",
+    });
+    const failed = threadSummary("thread-failed", "/work/beta", {
+      count: 1,
+      kind: "failed",
+      label: "Tests failed",
+    });
+    const pinned = threadSummary("thread-pinned", "/work/alpha");
+
+    expect(
+      buildDrawerRows([needsInput, failed, pinned], {}, undefined, [
+        "thread-input",
+        "thread-pinned",
+      ]),
+    ).toEqual([
+      { id: "needs-attention", kind: "needs-attention" },
+      pinnedThreadRow(needsInput, "alpha"),
+      { id: "pinned", kind: "pinned" },
+      pinnedThreadRow(pinned, "alpha"),
+      projectRow("/work/beta"),
+      threadRow(failed),
+    ]);
+  });
+
+  it("uses normal project ordering for attention threads during search", () => {
+    const thread = threadSummary("thread-input", "/work/project", {
+      count: 1,
+      kind: "input",
+      label: "Need input",
+    });
+
+    expect(buildDrawerRows([thread], {}, undefined, [], true)).toEqual([
+      projectRow("/work/project"),
+      threadRow(thread),
+    ]);
+  });
+
   it("renders pinned threads once in pinned order above their project", () => {
     const threads = [
       threadSummary("thread-a", "/work/project"),
@@ -30,7 +71,6 @@ describe("mobile thread drawer rows", () => {
       { id: "pinned", kind: "pinned" },
       pinnedThreadRow(threads[0], "project"),
       pinnedThreadRow(threads[1], "project"),
-      projectRow("/work/project"),
     ]);
   });
 
@@ -147,7 +187,6 @@ describe("mobile thread drawer rows", () => {
     expect(buildDrawerRows([thread], {}, undefined, ["thread-a", "thread-a"])).toEqual([
       { id: "pinned", kind: "pinned" },
       pinnedThreadRow(thread, "project"),
-      projectRow("/work/project"),
     ]);
   });
 
@@ -170,25 +209,23 @@ describe("mobile thread drawer rows", () => {
     expect(buildDrawerRows([thread], {}, undefined, ["thread-a"])).toEqual([
       { id: "pinned", kind: "pinned" },
       pinnedThreadRow(thread, "codex-relay"),
-      {
-        id: "project:codex-relay",
-        kind: "project",
-        projectKey: "codex-relay",
-        title: "codex-relay",
-        workspacePath: undefined,
-      },
     ]);
   });
 });
 
-function threadSummary(id: string, cwd?: string): ThreadSummary {
+function threadSummary(
+  id: string,
+  cwd?: string,
+  attention?: ThreadSummary["attention"],
+): ThreadSummary {
   const now = "2026-08-05T00:00:00.000Z";
   return {
     id,
     title: id,
+    attention,
     createdAt: now,
     updatedAt: now,
-    state: "completed",
+    state: attention?.kind === "failed" ? "failed" : "completed",
     cwd,
     messageCount: 0,
   };

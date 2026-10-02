@@ -5,6 +5,8 @@ import {
 } from "codex-relay/api-schema";
 import { createMMKV } from "react-native-mmkv";
 
+import { getActiveCodexRelayHostId } from "@/lib/codex-relay-active-host";
+
 const storage = createMMKV({ id: "codex-relay-workspace-runtime-preferences" });
 
 export function readCachedWorkspaceRuntimePreferences(
@@ -56,7 +58,8 @@ export function cacheWorkspaceRuntimePreferencesFromStatus(
 }
 
 function cacheKey(serverUrl: string, workspacePath: string) {
-  return `${normalizeServerUrl(serverUrl)}::${workspacePath}`;
+  const hostId = getActiveCodexRelayHostId() ?? "unpaired";
+  return `${hostId}::${normalizeServerUrl(serverUrl)}::${workspacePath}`;
 }
 
 function normalizeServerUrl(serverUrl: string) {

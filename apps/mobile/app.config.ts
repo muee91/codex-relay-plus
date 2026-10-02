@@ -129,7 +129,6 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
         },
       ],
       "./plugins/withTailcatTransport",
-      "react-native-enriched-markdown",
       [
         "expo-secure-store",
         {

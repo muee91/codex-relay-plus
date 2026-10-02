@@ -41,10 +41,24 @@ import { codexRelayRepositoryUrl } from "@/constants/links";
 import { Fonts } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { hasCodexRelaySession } from "@/lib/codex-relay-api";
+import {
+  reconcileCodexRelayConnection,
+  teardownCodexRelayNativeTransport,
+} from "@/lib/codex-relay-connection-manager";
+import {
+  activateCodexRelayHost,
+  ensureCurrentCodexRelayHost,
+  getActiveCodexRelayHostId,
+  listCodexRelayHosts,
+  updateActiveCodexRelayHostName,
+  type CodexRelayHostRecord,
+} from "@/lib/codex-relay-hosts";
 import { hapticLightImpact, hapticSelection, hapticSuccess } from "@/lib/haptics";
 import {
   archiveThreadServerState,
   createThreadServerState,
+  fetchModelsState,
+  fetchRateLimitsState,
   fetchThreadState,
   fetchThreadsState,
   fetchWorkspaceDirectoriesState,
@@ -53,6 +67,7 @@ import {
   restoreOptimisticArchiveThreadState,
   serverStateKeys,
   serverStateQueryFns,
+  setStatusState,
   setThreadDetailState,
   setThreadRunningState,
   setThreadsState,
@@ -61,10 +76,13 @@ import { evaluateRelayVersion, type RelayVersionCompatibility } from "@/lib/vers
 import { workspaceName } from "@/lib/workspace-name";
 import {
   chatStore$,
+  requestPairingScanner,
   requestThreadStreamReconnect,
   setActiveThread,
+  setActiveHostId as setChatActiveHostId,
   setConnection,
   setHasPairedSession,
+  setServerUrl,
   setThreadMessagesLoading,
 } from "@/state/chat-store";
 import { pinnedThreadStore$, togglePinnedThread, unpinThread } from "@/state/pinned-thread-store";
@@ -163,6 +181,9 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const queryClient = useQueryClient();
+  const [savedHosts, setSavedHosts] = useState<CodexRelayHostRecord[]>([]);
+  const [activeHostId, setActiveHostId] = useState<string | undefined>(undefined);
+  const [switchingHostId, setSwitchingHostId] = useState<string | undefined>(undefined);
   const createThreadMutation = useMutation({
     mutationFn: (body: Parameters<typeof createThreadServerState>[1]) =>
       createThreadServerState(queryClient, body),
@@ -373,6 +394,121 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
   }, [isDrawerVisible]);
 
   useEffect(() => {
+    if (!isDrawerVisible) {
+      return;
+    }
+    ensureCurrentCodexRelayHost(statusQuery.data?.machineName);
+    if (statusQuery.data?.machineName) {
+      updateActiveCodexRelayHostName(statusQuery.data.machineName);
+    }
+    setChatActiveHostId(getActiveCodexRelayHostId());
+    setSavedHosts(listCodexRelayHosts());
+    setActiveHostId(getActiveCodexRelayHostId());
+  }, [isDrawerVisible, statusQuery.data?.machineName]);
+
+  const switchHost = useCallback(
+    async (host: CodexRelayHostRecord) => {
+      if (host.id === activeHostId || switchingHostId) {
+        return;
+      }
+      hapticSelection();
+      setSwitchingHostId(host.id);
+      const previousHostId = getActiveCodexRelayHostId() ?? activeHostId;
+      const previousThreadId = chatStore$.activeThreadId.peek();
+      try {
+        ensureCurrentCodexRelayHost(statusQuery.data?.machineName);
+        await teardownCodexRelayNativeTransport();
+        const activatedHost = activateCodexRelayHost(host.id);
+        setChatActiveHostId(host.id);
+        setHasPairedSession(hasCodexRelaySession());
+        setActiveThread(undefined);
+        setConnection("checking");
+        const reconciled = await reconcileCodexRelayConnection();
+
+        setServerUrl(reconciled.serverUrl);
+        setStatusState(queryClient, reconciled.status);
+        const [threadsResponse, modelsResponse, rateLimitsResponse] = await Promise.all([
+          fetchThreadsState(queryClient),
+          fetchModelsState(queryClient),
+          fetchRateLimitsState(queryClient).catch(() => undefined),
+        ]);
+        setThreadsState(queryClient, threadsResponse.threads, threadsResponse.source);
+        queryClient.setQueryData(serverStateKeys.models(), modelsResponse);
+        if (rateLimitsResponse) {
+          queryClient.setQueryData(serverStateKeys.rateLimits(), rateLimitsResponse);
+        }
+        const nextThread =
+          threadsResponse.threads.find((thread) => thread.id === activatedHost.lastThreadId) ??
+          threadsResponse.threads[0];
+        setActiveThread(nextThread?.id);
+        if (nextThread) {
+          const detail = await fetchThreadState(queryClient, nextThread.id, { refresh: true });
+          if (detail.thread.state === "running") {
+            requestThreadStreamReconnect(detail.thread.id);
+          }
+        }
+        setConnection("connected");
+        updateActiveCodexRelayHostName(reconciled.status.machineName);
+        setSavedHosts(listCodexRelayHosts());
+        setActiveHostId(host.id);
+        props.navigation.closeDrawer();
+        hapticSuccess();
+      } catch (caught) {
+        let rollbackError: unknown;
+        let rollbackSucceeded = false;
+        if (previousHostId && getActiveCodexRelayHostId() === host.id) {
+          try {
+            await teardownCodexRelayNativeTransport();
+            activateCodexRelayHost(previousHostId);
+            setChatActiveHostId(previousHostId);
+            setHasPairedSession(hasCodexRelaySession());
+            const restored = await reconcileCodexRelayConnection();
+            setServerUrl(restored.serverUrl);
+            setStatusState(queryClient, restored.status);
+            const [threadsResponse, modelsResponse] = await Promise.all([
+              fetchThreadsState(queryClient),
+              fetchModelsState(queryClient),
+            ]);
+            setThreadsState(queryClient, threadsResponse.threads, threadsResponse.source);
+            queryClient.setQueryData(serverStateKeys.models(), modelsResponse);
+            const restoredThread =
+              threadsResponse.threads.find((thread) => thread.id === previousThreadId) ??
+              threadsResponse.threads[0];
+            setActiveThread(restoredThread?.id);
+            if (restoredThread?.state === "running") {
+              requestThreadStreamReconnect(restoredThread.id);
+            }
+            setConnection("connected");
+            rollbackSucceeded = true;
+          } catch (error) {
+            rollbackError = error;
+          }
+        }
+        setHasPairedSession(hasCodexRelaySession());
+        if (!rollbackSucceeded) {
+          setConnection(
+            "offline",
+            rollbackError instanceof Error
+              ? rollbackError.message
+              : caught instanceof Error
+                ? caught.message
+                : "Could not connect to the selected host.",
+          );
+        }
+        setSavedHosts(listCodexRelayHosts());
+        setActiveHostId(getActiveCodexRelayHostId());
+        Alert.alert(
+          "Couldn’t switch host",
+          caught instanceof Error ? caught.message : "Could not connect to the selected host.",
+        );
+      } finally {
+        setSwitchingHostId(undefined);
+      }
+    },
+    [activeHostId, props.navigation, queryClient, statusQuery.data?.machineName, switchingHostId],
+  );
+
+  useEffect(() => {
     searchProgress.value = withTiming(normalizedSearchQuery ? 1 : 0, {
       duration: 160,
       easing: Easing.out(Easing.cubic),
@@ -439,7 +575,16 @@ export function ThreadDrawerContent(props: ThreadDrawerContentProps) {
 
   const listHeader = (
     <DrawerListHeader
+      activeHostId={activeHostId}
+      hosts={savedHosts}
       isRefreshingProjects={isRefreshingProjects}
+      switchingHostId={switchingHostId}
+      onAddHost={() => {
+        hapticSelection();
+        props.navigation.closeDrawer();
+        requestPairingScanner();
+      }}
+      onSwitchHost={(host) => void switchHost(host)}
       onCloseMenu={() => {
         hapticSelection();
         props.navigation.closeDrawer();
@@ -925,6 +1070,17 @@ const DrawerRowItem = memo(function DrawerRowItem({
 }: DrawerRowItemProps) {
   const theme = useTheme();
 
+  if (item.kind === "needs-attention") {
+    return (
+      <View style={[styles.projectHeader, styles.needsAttentionHeader]}>
+        <View style={styles.rowIconSlot}>
+          <Icon name="warning" size={15} tintColor="#F8C46D" />
+        </View>
+        <Text style={[styles.projectTitle, styles.needsAttentionTitle]}>Needs You</Text>
+      </View>
+    );
+  }
+
   if (item.kind === "pinned") {
     return (
       <View style={styles.projectHeader}>
@@ -981,7 +1137,9 @@ const DrawerRowItem = memo(function DrawerRowItem({
   }
 
   const running = item.thread.state === "running";
+  const attention = item.thread.attention;
   const relativeTime = formatRelativeTime(latestThreadTimestamp(item.thread));
+  const statusMeta = threadStatusMeta(item.thread, relativeTime, item.workspaceTitle);
   return (
     <View style={[styles.thread, selected && styles.threadSelected]}>
       <Pressable
@@ -1008,8 +1166,16 @@ const DrawerRowItem = memo(function DrawerRowItem({
         {({ pressed }) => (
           <>
             <View style={[styles.rowIconSlot, pressed && styles.drawerPressedContent]}>
-              {running ? (
-                <RunningThreadIndicator color={theme.textSecondary} />
+              {attention ? (
+                <Icon
+                  name="warning"
+                  size={14}
+                  tintColor={attention.kind === "failed" ? "#FF7A7A" : "#F8C46D"}
+                />
+              ) : running ? (
+                <RunningThreadIndicator color="#8CC7FF" />
+              ) : item.thread.state === "completed" ? (
+                <Icon name="check" size={13} tintColor="#6FDC8C" />
               ) : (
                 <View style={[styles.activeDot, selected && styles.activeDotSelected]} />
               )}
@@ -1017,11 +1183,15 @@ const DrawerRowItem = memo(function DrawerRowItem({
             <View style={[styles.threadContent, pressed && styles.drawerPressedContent]}>
               <Text style={styles.threadTitle}>{item.thread.title}</Text>
               <Text
-                ellipsizeMode={item.workspaceTitle ? "middle" : "tail"}
+                ellipsizeMode="tail"
                 numberOfLines={1}
-                style={styles.threadTime}
+                style={[
+                  styles.threadTime,
+                  attention?.kind === "failed" && styles.threadMetaFailed,
+                  attention && attention.kind !== "failed" && styles.threadMetaAttention,
+                ]}
               >
-                {item.workspaceTitle ? `${item.workspaceTitle} · ${relativeTime}` : relativeTime}
+                {statusMeta}
               </Text>
             </View>
           </>
@@ -1067,6 +1237,9 @@ function areDrawerRowItemsEqual(previous: DrawerRowItemProps, next: DrawerRowIte
       (previous.item.thread === next.item.thread ||
         (previous.item.thread.title === next.item.thread.title &&
           previous.item.thread.state === next.item.thread.state &&
+          previous.item.thread.attention?.count === next.item.thread.attention?.count &&
+          previous.item.thread.attention?.kind === next.item.thread.attention?.kind &&
+          previous.item.thread.attention?.label === next.item.thread.attention?.label &&
           previous.item.thread.lastActivityAt === next.item.thread.lastActivityAt &&
           previous.item.thread.updatedAt === next.item.thread.updatedAt))
     );
@@ -1087,7 +1260,12 @@ function areDrawerRowItemsEqual(previous: DrawerRowItemProps, next: DrawerRowIte
 }
 
 function DrawerListHeader({
+  activeHostId,
+  hosts,
   isRefreshingProjects,
+  switchingHostId,
+  onAddHost,
+  onSwitchHost,
   onCloseMenu,
   onNewChat,
   onRefreshProjects,
@@ -1098,7 +1276,12 @@ function DrawerListHeader({
   showCloseButton,
   versionCompatibility,
 }: {
+  activeHostId?: string;
+  hosts: CodexRelayHostRecord[];
   isRefreshingProjects: boolean;
+  switchingHostId?: string;
+  onAddHost: () => void;
+  onSwitchHost: (host: CodexRelayHostRecord) => void;
   onCloseMenu: () => void;
   onNewChat: () => void;
   onRefreshProjects: () => void;
@@ -1180,6 +1363,78 @@ function DrawerListHeader({
           </>
         )}
       </Pressable>
+      {hosts.length > 0 ? (
+        <View style={styles.hostSection}>
+          <Text style={styles.sectionTitle}>Hosts</Text>
+          <View style={styles.hostList}>
+            {hosts.map((host) => {
+              const selected = host.id === activeHostId;
+              const switching = host.id === switchingHostId;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Connect to ${host.name}`}
+                  accessibilityState={{ selected, disabled: Boolean(switchingHostId) }}
+                  disabled={Boolean(switchingHostId)}
+                  key={host.id}
+                  onPress={() => onSwitchHost(host)}
+                  style={({ pressed }) => [
+                    styles.hostRow,
+                    selected && styles.hostRowSelected,
+                    pressed && styles.drawerPressedContent,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.hostStatusDot,
+                      selected ? styles.hostStatusDotActive : styles.hostStatusDotInactive,
+                    ]}
+                  />
+                  <Text numberOfLines={1} style={styles.hostName}>
+                    {host.name}
+                  </Text>
+                  {switching ? (
+                    <Icon name="running" size={13} tintColor={theme.textSecondary} />
+                  ) : selected ? (
+                    <Icon name="check" size={13} tintColor={theme.text} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add another Codex Relay host"
+              disabled={Boolean(switchingHostId)}
+              onPress={onAddHost}
+              style={({ pressed }) => [
+                styles.hostRow,
+                styles.addHostRow,
+                pressed && styles.drawerPressedContent,
+              ]}
+            >
+              <Icon name="newThread" size={14} tintColor={theme.textSecondary} />
+              <Text style={styles.addHostText}>Add host</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.hostSection}>
+          <Text style={styles.sectionTitle}>Hosts</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add a Codex Relay host"
+            onPress={onAddHost}
+            style={({ pressed }) => [
+              styles.hostRow,
+              styles.addHostRow,
+              pressed && styles.drawerPressedContent,
+            ]}
+          >
+            <Icon name="newThread" size={14} tintColor={theme.textSecondary} />
+            <Text style={styles.addHostText}>Add host</Text>
+          </Pressable>
+        </View>
+      )}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Projects</Text>
         <View style={styles.sectionActions}>
@@ -1550,6 +1805,28 @@ function latestThreadTimestamp(thread: ThreadSummary) {
   return lastActivityAt > updatedAt ? thread.lastActivityAt! : thread.updatedAt;
 }
 
+function threadStatusMeta(
+  thread: ThreadSummary,
+  relativeTime: string,
+  workspaceTitle: string | undefined,
+) {
+  const prefix = workspaceTitle ? `${workspaceTitle} · ` : "";
+  if (thread.attention) {
+    const countSuffix = thread.attention.count > 1 ? ` (+${thread.attention.count - 1})` : "";
+    return `${prefix}${thread.attention.label}${countSuffix}`;
+  }
+  switch (thread.state) {
+    case "running":
+      return `${prefix}Working · ${relativeTime}`;
+    case "completed":
+      return `${prefix}Done · ${relativeTime}`;
+    case "failed":
+      return `${prefix}Failed · ${relativeTime}`;
+    case "idle":
+      return `${prefix}Ready · ${relativeTime}`;
+  }
+}
+
 function formatRelativeTime(value: string) {
   const then = new Date(value).getTime();
   const diffMs = Date.now() - then;
@@ -1718,6 +1995,52 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 16,
   },
+  hostSection: {
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 8,
+  },
+  hostList: {
+    gap: 2,
+  },
+  hostRow: {
+    alignItems: "center",
+    borderRadius: 7,
+    flexDirection: "row",
+    minHeight: 34,
+    paddingHorizontal: 8,
+  },
+  hostRowSelected: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+  },
+  hostStatusDot: {
+    borderRadius: 4,
+    height: 8,
+    marginRight: 9,
+    width: 8,
+  },
+  hostStatusDotActive: {
+    backgroundColor: "#6FDC8C",
+  },
+  hostStatusDotInactive: {
+    backgroundColor: "rgba(255, 255, 255, 0.22)",
+  },
+  hostName: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
+    minWidth: 0,
+  },
+  addHostRow: {
+    gap: 9,
+  },
+  addHostText: {
+    color: "rgba(255, 255, 255, 0.62)",
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
+  },
   sectionActions: {
     flexDirection: "row",
     gap: 2,
@@ -1737,6 +2060,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     lineHeight: 16,
     opacity: 0.68,
+  },
+  needsAttentionHeader: {
+    marginTop: 4,
+  },
+  needsAttentionTitle: {
+    color: "#F8C46D",
+    fontWeight: "600",
   },
   projectHeader: {
     alignItems: "center",
@@ -1794,6 +2124,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     opacity: 0.62,
+  },
+  threadMetaAttention: {
+    color: "#F8C46D",
+    opacity: 0.9,
+  },
+  threadMetaFailed: {
+    color: "#FF9A9A",
+    opacity: 0.9,
   },
   renameSheet: {
     gap: 14,

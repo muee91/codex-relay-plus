@@ -46,6 +46,7 @@ import {
   updateThreadGoal,
   updateRuntimePreferences,
 } from "@/lib/codex-relay-api";
+import { getActiveCodexRelayHostId } from "@/lib/codex-relay-active-host";
 import {
   cacheWorkspaceRuntimePreferences,
   cacheWorkspaceRuntimePreferencesFromStatus,
@@ -61,7 +62,8 @@ const rootKey = "codex-relay-server-state";
 const persistableServerStateScopes = new Set(["models", "status", "threads"]);
 
 export const serverStateKeys = {
-  all: () => [rootKey, getCodexRelayServerUrl()] as const,
+  all: () =>
+    [rootKey, getActiveCodexRelayHostId() ?? "unpaired", getCodexRelayServerUrl()] as const,
   contextWindow: (threadId: string) =>
     [...serverStateKeys.threadScope(threadId), "context-window"] as const,
   models: () => [...serverStateKeys.all(), "models"] as const,
@@ -80,7 +82,7 @@ export const serverStateKeys = {
 };
 
 export function isPersistableServerStateQueryKey(queryKey: readonly unknown[]) {
-  return queryKey[0] === rootKey && persistableServerStateScopes.has(String(queryKey[2] ?? ""));
+  return queryKey[0] === rootKey && persistableServerStateScopes.has(String(queryKey[3] ?? ""));
 }
 
 export function fetchStatusState(queryClient: QueryClient) {

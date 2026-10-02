@@ -14,7 +14,9 @@ import { Fonts, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { getThreadMessageDetail, resolveApproval } from "@/lib/codex-relay-api";
 import { hapticSelection, hapticSuccess, hapticWarning } from "@/lib/haptics";
-import { markMessageApprovalResolvedState } from "@/lib/server-state";
+import { fetchThreadsState, markMessageApprovalResolvedState } from "@/lib/server-state";
+
+import { activityStatusForMessage, type ActivityStatus } from "./activity-status";
 
 const INLINE_PATCH_LINE_LIMIT = 48;
 
@@ -41,6 +43,8 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
   const isInputRequest =
     approvalKind === "structuredUserInput" || approvalKind === "mcpElicitation";
   const needsUserAction = canResolve;
+  const status = activityStatusForMessage(message, needsUserAction);
+  const activityAccessibilityLabel = `${model.label}, ${status.accessibilityLabel}`;
 
   async function submitDecision(decision: "approve" | "approve-for-session" | "deny" | "cancel") {
     if (!approvalId || isResolving) {
@@ -58,6 +62,9 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
       }
       setResolution(decision);
       markMessageApprovalResolvedState(queryClient, message.threadId, message.id, decision);
+      if (!isPreviewMode) {
+        void fetchThreadsState(queryClient).catch(() => undefined);
+      }
       hapticSuccess();
     } catch (caught) {
       hapticWarning();
@@ -74,8 +81,9 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
     return (
       <>
         <Pressable
-          accessibilityLabel="Open details for Plan"
+          accessibilityLabel={`Open details for ${activityAccessibilityLabel}`}
           accessibilityRole="button"
+          accessibilityState={{ busy: status.kind === "streaming" }}
           onPress={() => setIsDetailVisible(true)}
           style={({ pressed }) => [
             styles.planCard,
@@ -86,9 +94,12 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
             pressed && styles.rowPressed,
           ]}
         >
-          <ThemedText type="code" style={[styles.planLabel, { color: model.color }]}>
-            Plan
-          </ThemedText>
+          <View style={styles.activityHeaderRow}>
+            <ThemedText type="code" style={[styles.planLabel, { color: model.color }]}>
+              Plan
+            </ThemedText>
+            <ActivityStatusBadge status={status} />
+          </View>
           <PlanMarkdown markdown={planBody(message)} variant="compact" />
         </Pressable>
 
@@ -129,8 +140,9 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
           ]}
         >
           <Pressable
-            accessibilityLabel={`Open details for ${model.label}`}
+            accessibilityLabel={`Open details for ${activityAccessibilityLabel}`}
             accessibilityRole="button"
+            accessibilityState={{ busy: status.kind === "streaming" }}
             onPress={() => setIsDetailVisible(true)}
             style={({ pressed }) => [styles.fileChangeHeader, pressed && styles.rowPressed]}
           >
@@ -138,6 +150,7 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
               <ThemedText type="code" style={[styles.fileChangeTitle, { color: model.color }]}>
                 {model.label}
               </ThemedText>
+              <ActivityStatusBadge status={status} />
               <FileChangeStats stats={stats} />
             </View>
           </Pressable>
@@ -174,8 +187,9 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
         ]}
       >
         <Pressable
-          accessibilityLabel={`Open details for ${model.label}`}
+          accessibilityLabel={`Open details for ${activityAccessibilityLabel}`}
           accessibilityRole="button"
+          accessibilityState={{ busy: status.kind === "streaming" }}
           onPress={() => setIsDetailVisible(true)}
           style={({ pressed }) => [
             styles.row,
@@ -190,17 +204,19 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
             pressed && styles.rowPressed,
           ]}
         >
-          <ThemedText
-            type="code"
-            numberOfLines={1}
-            style={[
-              styles.label,
-              needsUserAction && styles.actionLabel,
-              { color: needsUserAction ? theme.text : model.color },
-            ]}
-          >
-            {model.label}
-          </ThemedText>
+          <View style={styles.activityLabelGroup}>
+            <ThemedText
+              type="code"
+              numberOfLines={1}
+              style={[
+                styles.label,
+                needsUserAction && styles.actionLabel,
+                { color: needsUserAction ? theme.text : model.color },
+              ]}
+            >
+              {model.label}
+            </ThemedText>
+          </View>
           {model.detail ? (
             <ThemedText
               type="code"
@@ -211,6 +227,7 @@ export function ProtocolActivityCard({ message }: { message: ChatMessage }) {
               {model.detail}
             </ThemedText>
           ) : null}
+          <ActivityStatusBadge status={status} />
         </Pressable>
 
         {canResolve ? (
@@ -445,6 +462,40 @@ type ActivityModel = {
   detail?: string;
   label: string;
 };
+
+function ActivityStatusBadge({ status }: { status: ActivityStatus }) {
+  const color = statusColor(status);
+  return (
+    <View style={styles.activityStatus}>
+      {status.kind === "streaming" ? (
+        <ActivityIndicator color={color} size="small" />
+      ) : (
+        <Icon
+          name={status.kind === "failed" || status.kind === "attention" ? "warning" : "check"}
+          size={11}
+          strokeWidth={2.4}
+          tintColor={color}
+        />
+      )}
+      <ThemedText type="code" style={[styles.activityStatusLabel, { color }]}>
+        {status.label}
+      </ThemedText>
+    </View>
+  );
+}
+
+function statusColor(status: ActivityStatus) {
+  switch (status.kind) {
+    case "attention":
+      return "#F8C46D";
+    case "failed":
+      return "#FF7A7A";
+    case "streaming":
+      return "#8CC7FF";
+    case "completed":
+      return "#6FDC8C";
+  }
+}
 
 type DetailSection = {
   body: string;
@@ -1486,6 +1537,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     opacity: 0.9,
+  },
+  activityHeaderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: Spacing.two,
+    justifyContent: "space-between",
+  },
+  activityLabelGroup: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 0,
+    gap: 4,
+  },
+  activityStatus: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 0,
+    gap: 3,
+    marginLeft: "auto",
+  },
+  activityStatusLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    lineHeight: 12,
   },
   planDetailBody: {
     paddingBottom: 2,

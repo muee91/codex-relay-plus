@@ -67,18 +67,38 @@ export async function getExpoPushToken() {
   return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 }
 
-export function hasCompletedInitialPushNotificationRegistration() {
-  return codexRelayStorage.getBoolean(initialPushNotificationRegistrationStorageKey) ?? false;
+export function hasCompletedInitialPushNotificationRegistration(hostId?: string) {
+  return (
+    codexRelayStorage.getBoolean(pushRegistrationStorageKey(hostId)) ??
+    // Read the old device-wide flag only for the unscoped legacy session. A
+    // saved Host must register independently after a multi-host upgrade.
+    (hostId
+      ? false
+      : codexRelayStorage.getBoolean(initialPushNotificationRegistrationStorageKey)) ??
+    false
+  );
 }
 
-export function markInitialPushNotificationRegistrationCompleted() {
-  codexRelayStorage.set(initialPushNotificationRegistrationStorageKey, true);
+export function markInitialPushNotificationRegistrationCompleted(hostId?: string) {
+  codexRelayStorage.set(pushRegistrationStorageKey(hostId), true);
 }
 
 export function notificationResponseThreadId(response: Notifications.NotificationResponse) {
   const data = response.notification.request.content.data;
   const threadId = data?.threadId;
   return typeof threadId === "string" && threadId.trim() ? threadId : undefined;
+}
+
+export function notificationResponseHostId(response: Notifications.NotificationResponse) {
+  const data = response.notification.request.content.data;
+  const hostId = data?.hostId;
+  if (typeof hostId === "string" && hostId.trim()) {
+    return hostId;
+  }
+  const serverPublicKey = data?.serverPublicKey;
+  return typeof serverPublicKey === "string" && serverPublicKey.trim()
+    ? `server:${serverPublicKey}`
+    : undefined;
 }
 
 export function pushNotificationPlatform(): "android" | "ios" {
@@ -97,4 +117,10 @@ function expoProjectId() {
   return typeof configProjectId === "string" && configProjectId.trim()
     ? configProjectId
     : undefined;
+}
+
+function pushRegistrationStorageKey(hostId: string | undefined) {
+  return hostId
+    ? `${initialPushNotificationRegistrationStorageKey}:${hostId}`
+    : initialPushNotificationRegistrationStorageKey;
 }

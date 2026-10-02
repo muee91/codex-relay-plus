@@ -71,6 +71,11 @@ import {
   uploadImageAttachments,
 } from "@/lib/codex-relay-api";
 import {
+  updateActiveCodexRelayHostLastThread,
+  updateActiveCodexRelayHostName,
+} from "@/lib/codex-relay-hosts";
+import { reconcileCodexRelayConnection } from "@/lib/codex-relay-connection-manager";
+import {
   hapticLightImpact,
   hapticMediumImpact,
   hapticSelection,
@@ -114,12 +119,14 @@ import {
   updateRuntimePreferencesServerState,
 } from "@/lib/server-state";
 import { recordSuccessfulAiConversationForReviewPrompt } from "@/lib/store-review-prompt";
+import { bindThreadQuery } from "@/lib/thread-query-fns";
 import {
   completeThreadRunSession,
   handleThreadRunStreamEvent,
   reconcileThreadRunEventAfterTerminal,
 } from "@/lib/thread-run-stream";
 import { readCachedWorkspaceRuntimePreferences } from "@/lib/workspace-runtime-preferences-cache";
+import { getNativeTailcatStatus, type TailcatPathStatus } from "@/lib/transport/native-tailcat";
 import {
   appendComposerAttachments,
   chatStore$,
@@ -159,8 +166,9 @@ import {
   type RuntimePreferencesStage,
 } from "./runtime-preferences-coordinator";
 import { ChatShell } from "./ChatShell";
-import type { ChatShellAction } from "./ChatShellHeader";
+import type { ChatConnectionBadge, ChatShellAction } from "./ChatShellHeader";
 import { ConnectionBanner } from "./ConnectionBanner";
+import { ConnectionDetailsSheet } from "./ConnectionDetailsSheet";
 import { approvalCommand } from "./pairing-commands";
 import {
   EXPANDED_DRAWER_BREAKPOINT,
@@ -189,9 +197,13 @@ const EMPTY_THREADS: ThreadSummary[] = [];
 
 type ChatScreenProps = {
   initialPairingUrl?: string | null;
+  openScannerOnMount?: boolean;
 };
 
-export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
+export function ChatScreen({
+  initialPairingUrl,
+  openScannerOnMount = false,
+}: ChatScreenProps = {}) {
   const isHandlingPairingLink = useRef(false);
   const lastHandledPairingUrl = useRef<string | undefined>(undefined);
   const { width } = useWindowDimensions();
@@ -227,6 +239,10 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const [previewPaneWidth, setPreviewPaneWidth] = useState(DEFAULT_PREVIEW_PANE_WIDTH);
   const [isRefreshing, setRefreshing] = useState(false);
   const [scannerMessage, setScannerMessage] = useState("Point the camera at the connection QR.");
+  const [tailcatPathStatus, setTailcatPathStatus] = useState<TailcatPathStatus>({
+    path: "idle",
+  });
+  const [isConnectionDetailsOpen, setConnectionDetailsOpen] = useState(false);
   const copyToastIdRef = useRef(0);
   const runtimePreferencesCoordinator = useMemo(createRuntimePreferencesCoordinator, []);
   const [copyToast, setCopyToast] = useState<{ id: number } | undefined>(undefined);
@@ -406,6 +422,8 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const isModernScannerOpenRef = useRef(false);
   const previewResizeStartWidthRef = useRef(DEFAULT_PREVIEW_PANE_WIDTH);
   const scanPairingGenerationRef = useRef(0);
+  const scannerAutoOpenHandledRef = useRef(false);
+  const pairingScannerRequestHandledRef = useRef(0);
   const closeStreamRef = useRef<(() => void) | undefined>(undefined);
   const closeThreadWatchStreamRef = useRef<(() => void) | undefined>(undefined);
   const watchedThreadIdRef = useRef<string | undefined>(undefined);
@@ -416,17 +434,28 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const threadStatusPollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastThreadStreamSequenceByThreadIdRef = useRef(new Map<string, number>());
   const activeThreadId = useSelector(() => chatStore$.activeThreadId.get());
+  const activeHostId = useSelector(() => chatStore$.activeHostId.get());
+  const pairingScannerRequestId = useSelector(() => chatStore$.pairingScannerRequestId.get());
   const connection = useSelector(() => chatStore$.connection.get());
   const error = useSelector(() => chatStore$.error.get());
   const hasPairedSession = useSelector(() => chatStore$.hasPairedSession.get());
-  const collaborationMode = useSelector(
-    () =>
+  const connectionBadge = useMemo(
+    () => ({
+      ...connectionBadgeForState(connection, hasPairedSession, tailcatPathStatus),
+      onPress: () => setConnectionDetailsOpen(true),
+    }),
+    [connection, hasPairedSession, tailcatPathStatus],
+  );
+  const collaborationMode = useSelector(() => {
+    chatStore$.activeHostId.get();
+    return (
       chatStore$.collaborationModeByThreadId[composerThreadKey(activeThreadId)].get() ??
       (activeThreadId
         ? chatStore$.threadsById[activeThreadId].collaborationMode.get()
         : undefined) ??
-      "default",
-  );
+      "default"
+    );
+  });
   const serverUrl = useSelector(() => chatStore$.serverUrl.get());
   const threadMessagesLoadingByThreadId = useSelector(() =>
     chatStore$.threadMessagesLoadingByThreadId.get(),
@@ -455,11 +484,16 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     queryFn: serverStateQueryFns.rateLimits,
     enabled: false,
   });
+  // Query keys also carry Host and server URL identity; keep the request ID
+  // from the active screen state instead of depending on key array positions.
   const activeThreadDetailQuery = useQuery({
     queryKey: activeThreadId
       ? serverStateKeys.thread(activeThreadId)
       : [...serverStateKeys.threads(), "__inactive__", "detail"],
-    queryFn: ({ queryKey }) => fetchThreadQueryState(queryClient, String(queryKey[3] ?? "")),
+    queryFn: bindThreadQuery(
+      (threadId) => fetchThreadQueryState(queryClient, threadId),
+      activeThreadId ?? "",
+    ),
     enabled: Boolean(activeThreadId),
   });
   useEffect(() => {
@@ -472,18 +506,48 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     queryKey: activeThreadId
       ? serverStateKeys.queuedInputs(activeThreadId)
       : [...serverStateKeys.threads(), "__inactive__", "queued-inputs"],
-    queryFn: ({ queryKey }) => serverStateQueryFns.queuedInputs(String(queryKey[3] ?? "")),
+    queryFn: bindThreadQuery(serverStateQueryFns.queuedInputs, activeThreadId ?? ""),
     enabled: Boolean(activeThreadId),
   });
   const contextWindowQuery = useQuery({
     queryKey: activeThreadId
       ? serverStateKeys.contextWindow(activeThreadId)
       : [...serverStateKeys.threads(), "__inactive__", "context-window"],
-    queryFn: ({ queryKey }) => serverStateQueryFns.contextWindow(String(queryKey[3] ?? "")),
+    queryFn: bindThreadQuery(serverStateQueryFns.contextWindow, activeThreadId ?? ""),
     enabled: Boolean(activeThreadId),
   });
 
   const workspacePath = statusQuery.data?.workspacePath;
+
+  useEffect(() => {
+    if (!activeHostId || !activeThreadId) {
+      return;
+    }
+    updateActiveCodexRelayHostLastThread(activeThreadId);
+  }, [activeHostId, activeThreadId]);
+
+  useEffect(() => {
+    if (!hasPairedSession) {
+      setTailcatPathStatus({ path: "idle" });
+      return;
+    }
+
+    setTailcatPathStatus({ path: "connecting" });
+    let cancelled = false;
+    const refreshTransportStatus = async () => {
+      const status = await getNativeTailcatStatus().catch(() => ({ path: "offline" as const }));
+      if (!cancelled) {
+        setTailcatPathStatus(status);
+      }
+    };
+    void refreshTransportStatus();
+    const timer = setInterval(() => void refreshTransportStatus(), CONNECTION_HEALTH_CHECK_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeHostId, hasPairedSession, serverUrl]);
+
   const threads = useMemo(
     () => threadsQuery.data?.threads ?? EMPTY_THREADS,
     [threadsQuery.data?.threads],
@@ -589,6 +653,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   const applyStatusFromServer = useCallback(
     (status: Awaited<ReturnType<typeof serverStateQueryFns.status>>) => {
       setStatusState(queryClient, status);
+      updateActiveCodexRelayHostName(status.machineName);
     },
     [queryClient],
   );
@@ -772,10 +837,11 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         setConnection("checking");
       }
       syncPairedSessionState();
-      setServerUrl(getCodexRelayServerUrl());
       try {
         await refreshSession().catch(() => false);
         syncPairedSessionState();
+        const reconciled = await reconcileCodexRelayConnection();
+        setServerUrl(reconciled.serverUrl);
         const [response, modelsResponse, rateLimitsResponse] = await runConnectionRefresh(
           fetchCurrentStatus(),
           Promise.all([
@@ -1501,7 +1567,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     };
   }, [activeThreadId, connection, isRunning, queryClient, syncThreadSnapshot]);
 
-  async function openScanner() {
+  const openScanner = useCallback(async () => {
     if (!cameraPermission?.granted) {
       const permission = await requestCameraPermission();
       if (!permission.granted) {
@@ -1532,7 +1598,23 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     }
 
     setScannerOpen(true);
-  }
+  }, [cameraPermission?.granted, requestCameraPermission]);
+
+  useEffect(() => {
+    const hasNewPairingScannerRequest =
+      pairingScannerRequestId > pairingScannerRequestHandledRef.current;
+    if (
+      (!openScannerOnMount && !hasNewPairingScannerRequest) ||
+      (!hasNewPairingScannerRequest && scannerAutoOpenHandledRef.current)
+    ) {
+      return;
+    }
+    if (hasNewPairingScannerRequest) {
+      pairingScannerRequestHandledRef.current = pairingScannerRequestId;
+    }
+    scannerAutoOpenHandledRef.current = true;
+    void openScanner();
+  }, [openScanner, openScannerOnMount, pairingScannerRequestId]);
 
   async function retryCameraPermission() {
     const permission = await requestCameraPermission();
@@ -1568,8 +1650,8 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
           },
         });
         setServerUrl(pairing.serverUrl);
-        clearServerState(queryClient);
         syncPairedSessionState();
+        setActiveThread(undefined);
         setPastePairOpen(false);
         lastHandledPairingUrl.current = pairingUrl;
         setPasteApprovalCode(undefined);
@@ -1587,7 +1669,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         setPastePairing(false);
       }
     },
-    [queryClient, refresh, syncPairedSessionState],
+    [refresh, syncPairedSessionState],
   );
 
   useEffect(() => {
@@ -1646,8 +1728,8 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         isHandlingScanRef.current = false;
         setHandlingScan(false);
         setServerUrl(pairing.serverUrl);
-        clearServerState(queryClient);
         syncPairedSessionState();
+        setActiveThread(undefined);
         setPastePairOpen(false);
         setPasteApprovalCode(undefined);
         setPasteApprovalServerUrl(undefined);
@@ -1670,13 +1752,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         );
       }
     },
-    [
-      closeScannerSurface,
-      presentScannedPairingApproval,
-      queryClient,
-      refresh,
-      syncPairedSessionState,
-    ],
+    [closeScannerSurface, presentScannedPairingApproval, refresh, syncPairedSessionState],
   );
 
   function handleBarcodeScanned(result: BarcodeScanningResult | ScanningResult) {
@@ -2018,6 +2094,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         decision: "approve",
       });
       removePendingInputRequestState(queryClient, request.threadId, request.id);
+      void fetchThreadsState(queryClient).catch(() => undefined);
       setConnection("connected");
       if (
         !closeStreamRef.current &&
@@ -2039,6 +2116,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         decision: "cancel",
       });
       removePendingInputRequestState(queryClient, request.threadId, request.id);
+      void fetchThreadsState(queryClient).catch(() => undefined);
       setConnection("connected");
       if (
         !closeStreamRef.current &&
@@ -2555,6 +2633,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     : [];
   const chatPane = (
     <ChatShell
+      connectionBadge={connectionBadge}
       banner={
         <Animated.View layout={chatBannerLayoutTransition} style={styles.bannerStack}>
           <ConnectionBanner
@@ -2570,6 +2649,11 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       }
       composerDisabled={connection !== "connected" || isRefreshing}
       composerInputEditable={connection !== "offline" || hasPairedSession}
+      composerStatusMessage={
+        connection === "offline" && hasPairedSession
+          ? "Offline draft is saved on this device. Reconnect before sending."
+          : undefined
+      }
       composerFocusRecoveryKey={connection}
       collaborationMode={collaborationMode}
       composerFocusRequestKey={composerFocusRequestKey}
@@ -2711,6 +2795,22 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       ) : (
         <View style={styles.pagerPage}>{chatPane}</View>
       )}
+      <ConnectionDetailsSheet
+        connection={connection}
+        error={error}
+        machineName={statusQuery.data?.machineName}
+        onClose={() => setConnectionDetailsOpen(false)}
+        onRefresh={() => {
+          void refresh();
+        }}
+        onSwitchHost={() => {
+          setConnectionDetailsOpen(false);
+          requestAnimationFrame(openThreadDrawer);
+        }}
+        pathStatus={tailcatPathStatus}
+        serverUrl={serverUrl}
+        visible={isConnectionDetailsOpen}
+      />
       {copyToast ? (
         <AppToast
           key={copyToast.id}
@@ -2859,6 +2959,37 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       </Modal>
     </>
   );
+}
+
+function connectionBadgeForState(
+  connection: "checking" | "connected" | "offline",
+  hasPairedSession: boolean,
+  pathStatus: TailcatPathStatus,
+): ChatConnectionBadge {
+  if (!hasPairedSession) {
+    return { label: "Not paired", tone: "muted" };
+  }
+  if (connection === "checking") {
+    return { label: "Reconnecting", tone: "warn" };
+  }
+  if (connection === "offline") {
+    return { label: "Offline", tone: "bad" };
+  }
+
+  switch (pathStatus.path) {
+    case "lan":
+      return { label: "LAN", tone: "good" };
+    case "direct":
+      return { label: "Tailcat Direct", tone: "good" };
+    case "derp":
+      return { label: "Tailcat Relay", tone: "good" };
+    case "connecting":
+      return { label: "Tailcat…", tone: "warn" };
+    case "offline":
+      return { label: "Transport offline", tone: "bad" };
+    default:
+      return { label: "Connected", tone: "good" };
+  }
 }
 
 function dismissKeyboardForWorkspacePreview() {

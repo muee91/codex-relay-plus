@@ -8,7 +8,9 @@ export type PushNotificationIntent = "turn_terminal" | "action_required";
 export type RelayPushNotification = {
   body: string;
   data: {
+    hostId: string;
     intent: PushNotificationIntent;
+    serverPublicKey: string;
     threadId: string;
     turnId?: string;
   };
@@ -17,7 +19,9 @@ export type RelayPushNotification = {
 };
 
 export type PushNotificationEvent = {
+  hostId?: string;
   intent: PushNotificationIntent;
+  serverPublicKey?: string;
   threadId: string;
   threadTitle?: string;
   turnId?: string;
@@ -80,7 +84,9 @@ export function createExpoPushNotificationSender(
 }
 
 export function createPushNotificationDispatcher(input: {
+  hostId?: string;
   readRemainingUsagePercent?: () => Promise<number | undefined>;
+  serverPublicKey?: string;
   sender: PushNotificationSender;
   sessions: PairingSessionStore;
 }): PushNotificationDispatcher {
@@ -109,8 +115,9 @@ export function createPushNotificationDispatcher(input: {
         [...selectedSubscriptions.values()].map((subscription) =>
           notificationForEvent(
             subscription.expoPushToken,
-            event,
+            { ...event, hostId: input.hostId ?? event.hostId },
             subscription.includeRemainingUsage ? remainingUsagePercent : undefined,
+            input.serverPublicKey,
           ),
         ),
       );
@@ -134,7 +141,9 @@ function notificationForEvent(
   expoPushToken: string,
   event: PushNotificationEvent,
   remainingUsagePercent?: number,
+  serverPublicKey?: string,
 ): RelayPushNotification {
+  const identity = serverPublicKey ?? event.serverPublicKey ?? event.hostId ?? "unknown";
   return {
     body:
       event.intent === "action_required"
@@ -143,7 +152,9 @@ function notificationForEvent(
           ? "Finished working."
           : `Finished working. Remaining usage: ${remainingUsagePercent}%`,
     data: {
+      hostId: event.hostId ?? identity,
       intent: event.intent,
+      serverPublicKey: identity,
       threadId: event.threadId,
       ...(event.turnId ? { turnId: event.turnId } : {}),
     },

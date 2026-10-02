@@ -33,6 +33,13 @@ export type TailcatBootstrapCandidate = {
   remotePort: number;
 };
 
+export type CodexRelayConnectionSnapshot = {
+  connectionMode: CodexRelayConnectionMode;
+  serverUrl?: string;
+  serverUrlCandidates: string[];
+  tailcatBootstrap?: TailcatBootstrapCandidate;
+};
+
 export const fallbackCodexRelayServerUrl =
   process.env.EXPO_PUBLIC_CODEX_RELAY_SERVER_URL?.replace(/\/$/, "") ?? defaultServerUrl;
 
@@ -87,6 +94,35 @@ export function clearCodexRelayServerUrlState() {
   codexRelayStorage.remove(connectionModeStorageKey);
   codexRelayStorage.remove(nativeTransportConfiguredStorageKey);
   codexRelayStorage.remove(tailcatBootstrapStorageKey);
+}
+
+export function snapshotCodexRelayConnectionState(): CodexRelayConnectionSnapshot {
+  return {
+    connectionMode: getCodexRelayConnectionMode(),
+    serverUrl: codexRelayStorage.getString(serverUrlStorageKey),
+    serverUrlCandidates: readStoredServerUrlCandidates(),
+    tailcatBootstrap: readStoredTailcatBootstrap(),
+  };
+}
+
+export function restoreCodexRelayConnectionState(snapshot: CodexRelayConnectionSnapshot) {
+  clearCodexRelayServerUrlState();
+  if (snapshot.serverUrl) {
+    codexRelayStorage.set(serverUrlStorageKey, snapshot.serverUrl);
+  }
+  if (snapshot.serverUrlCandidates.length > 0) {
+    codexRelayStorage.set(
+      serverUrlCandidatesStorageKey,
+      JSON.stringify(dedupeServerUrls(snapshot.serverUrlCandidates)),
+    );
+  }
+  if (snapshot.connectionMode !== "auto") {
+    codexRelayStorage.set(connectionModeStorageKey, snapshot.connectionMode);
+  }
+  if (snapshot.tailcatBootstrap) {
+    codexRelayStorage.set(tailcatBootstrapStorageKey, JSON.stringify(snapshot.tailcatBootstrap));
+  }
+  codexRelayStorage.remove(nativeTransportConfiguredStorageKey);
 }
 
 export function saveCodexRelayServerUrlCandidates(urls: string[]) {
