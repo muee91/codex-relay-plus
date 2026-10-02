@@ -78,6 +78,32 @@ describe("mobile stream contract", () => {
             {
               method: "item/started",
               params: {
+                item: {
+                  content: ["Planning the response"],
+                  id: "reasoning-mobile-contract",
+                  summary: ["Planning the response"],
+                  type: "reasoning",
+                },
+                threadId: "app-thread-mobile-contract",
+                turnId: "turn-mobile-contract",
+              },
+            },
+            {
+              method: "item/completed",
+              params: {
+                item: {
+                  content: ["Planning the response"],
+                  id: "reasoning-mobile-contract",
+                  summary: ["Planning the response"],
+                  type: "reasoning",
+                },
+                threadId: "app-thread-mobile-contract",
+                turnId: "turn-mobile-contract",
+              },
+            },
+            {
+              method: "item/started",
+              params: {
                 item: { id: "assistant-mobile-contract", text: "", type: "agentMessage" },
                 threadId: "app-thread-mobile-contract",
                 turnId: "turn-mobile-contract",
@@ -173,7 +199,7 @@ describe("mobile stream contract", () => {
       headers: { "content-type": "application/json" },
     });
     const body = await response.text();
-    const terminalIndex = body.indexOf('"state":"completed"');
+    const terminalIndex = body.lastIndexOf('"state":"completed"');
     const assistantIndex = body.indexOf("assistant-mobile-contract");
 
     expect(response.status).toBe(200);
@@ -196,6 +222,18 @@ describe("mobile stream contract", () => {
     expect(consumed.events[assistantCreatedIndex]).toMatchObject({
       message: { state: "streaming" },
     });
+    const reasoningEvents = consumed.events.flatMap((event) => {
+      if (event.type !== "thread.message.created" && event.type !== "thread.message.completed") {
+        return [];
+      }
+      return event.message.id === "reasoning-mobile-contract"
+        ? [[event.type, event.message.state]]
+        : [];
+    });
+    expect(reasoningEvents).toEqual([
+      ["thread.message.created", "streaming"],
+      ["thread.message.completed", "completed"],
+    ]);
     expect(
       consumed.events
         .filter((event) => event.type === "thread.message.delta")
@@ -208,8 +246,10 @@ describe("mobile stream contract", () => {
     expect(chatStore$.threadsById["app-thread-mobile-contract"].state.peek()).toBe("completed");
     expect(messages.map((message) => [message.role, message.content])).toEqual([
       ["user", "Reply with hi"],
+      ["reasoning", "Planning the response\n\nPlanning the response"],
       ["assistant", "first\nsecond"],
     ]);
+    expect(messages.find((message) => message.role === "reasoning")?.state).toBe("completed");
     expect(messages.find((message) => message.role === "assistant")?.state).toBe("completed");
   });
 

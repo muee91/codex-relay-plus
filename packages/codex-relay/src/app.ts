@@ -4483,13 +4483,7 @@ async function streamRunningAppServerThread(input: {
                 ? { lastResult: message.content }
                 : {}),
             });
-            sendThreadMessage(
-              notification.method === "item/completed" && message.role === "assistant"
-                ? "thread.message.completed"
-                : "thread.message.created",
-              threadSummary,
-              message,
-            );
+            sendThreadMessage(messageEventType(message), threadSummary, message);
             return;
           }
           case "item/agentMessage/delta": {
@@ -4603,13 +4597,7 @@ async function streamRunningAppServerThread(input: {
                       : {}),
                   },
                 );
-                sendThreadMessage(
-                  message.role === "assistant"
-                    ? "thread.message.completed"
-                    : "thread.message.created",
-                  threadSummary,
-                  message,
-                );
+                sendThreadMessage(messageEventType(message), threadSummary, message);
               }
             }
             relayDebugLog("app_server.turn.terminal", {
@@ -4635,20 +4623,34 @@ async function streamRunningAppServerThread(input: {
               }
               return;
             }
+            const terminalTurnId = firstString(params, ["turnId"]) ?? activeTurnId;
+            const finalizedMessages = finalizeStreamingMessagesForTurn(
+              input.messagesByThreadId,
+              input.threadId,
+              terminalTurnId,
+              state,
+            );
+            for (const message of finalizedMessages) {
+              sendThreadMessage(
+                messageEventType(message),
+                threadSummary ?? input.threads.get(input.threadId)!,
+                message,
+              );
+            }
             const assistantMessage = assistantMessageId
               ? input.messagesByThreadId
                   .get(input.threadId)
                   ?.find((message) => message.id === assistantMessageId)
               : undefined;
-            if (assistantMessageId && assistantMessage?.state !== "completed") {
+            if (assistantMessageId && assistantMessage?.state === "streaming") {
               const completedMessage = updateMessage(
                 input.messagesByThreadId,
                 input.threadId,
                 assistantMessageId,
-                { state: "completed" },
+                { state },
               );
               sendThreadMessage(
-                "thread.message.completed",
+                messageEventType(completedMessage),
                 threadSummary ?? input.threads.get(input.threadId)!,
                 completedMessage,
               );
@@ -4748,13 +4750,13 @@ async function streamRunningAppServerThread(input: {
         if (message.role !== "user" && !isAsyncAgentMessage) {
           producedTurnOutput = true;
         }
+        if (turnIsRunning && message.role !== "user" && !isAsyncAgentMessage) {
+          message = updateMessage(input.messagesByThreadId, input.threadId, message.id, {
+            state: "streaming",
+          });
+        }
         if (message.role === "assistant" && !isAsyncAgentMessage) {
           assistantMessageId = message.id;
-          if (turnIsRunning) {
-            message = updateMessage(input.messagesByThreadId, input.threadId, message.id, {
-              state: "streaming",
-            });
-          }
         }
         threadSummary = updateThread(input.threads, input.messagesByThreadId, input.threadId, {
           state:
@@ -4763,13 +4765,7 @@ async function streamRunningAppServerThread(input: {
             ? { lastResult: message.content }
             : {}),
         });
-        sendThreadMessage(
-          message.role === "assistant" && message.state === "completed"
-            ? "thread.message.completed"
-            : "thread.message.created",
-          threadSummary,
-          message,
-        );
+        sendThreadMessage(messageEventType(message), threadSummary, message);
       }
     }
     return threadSummary;
@@ -5038,20 +5034,33 @@ async function runAppServerPromptStreamed(input: {
       return;
     }
 
+    const finalizedMessages = finalizeStreamingMessagesForTurn(
+      input.messagesByThreadId,
+      activeThreadId,
+      terminalTurnId,
+      options.state,
+    );
+    for (const message of finalizedMessages) {
+      sendSse(input.controller, input.encoder, input.secureSession, {
+        type: messageEventType(message),
+        thread: threadSummary,
+        message,
+      });
+    }
     const assistantMessage = assistantMessageId
       ? input.messagesByThreadId
           .get(activeThreadId)
           ?.find((message) => message.id === assistantMessageId)
       : undefined;
-    if (assistantMessageId && assistantMessage?.state !== "completed") {
+    if (assistantMessageId && assistantMessage?.state === "streaming") {
       const completedMessage = updateMessage(
         input.messagesByThreadId,
         activeThreadId,
         assistantMessageId,
-        { state: "completed" },
+        { state: options.state },
       );
       sendSse(input.controller, input.encoder, input.secureSession, {
-        type: "thread.message.completed",
+        type: messageEventType(completedMessage),
         thread: threadSummary,
         message: completedMessage,
       });
@@ -5155,7 +5164,7 @@ async function runAppServerPromptStreamed(input: {
         }
         continue;
       }
-      const message = upsertAppServerItemMessage(
+      let message = upsertAppServerItemMessage(
         input.messagesByThreadId,
         activeThreadId,
         turn.id,
@@ -5167,6 +5176,11 @@ async function runAppServerPromptStreamed(input: {
       const isAsyncAgentMessage = isAsyncAppServerAgentMessage(item);
       if (isAsyncAgentMessage) {
         asyncAgentMessageIds.add(message.id);
+      }
+      if (turnIsRunning && message.role !== "user" && !isAsyncAgentMessage) {
+        message = updateMessage(input.messagesByThreadId, activeThreadId, message.id, {
+          state: "streaming",
+        });
       }
       if (message.role !== "user" && !isAsyncAgentMessage) {
         producedTurnOutput = true;
@@ -5181,7 +5195,7 @@ async function runAppServerPromptStreamed(input: {
           : {}),
       });
       sendSse(input.controller, input.encoder, input.secureSession, {
-        type: message.role === "assistant" ? "thread.message.completed" : "thread.message.created",
+        type: messageEventType(message),
         thread: threadSummary,
         message,
       });
@@ -5363,10 +5377,7 @@ async function runAppServerPromptStreamed(input: {
                 : {}),
             });
             sendSse(input.controller, input.encoder, input.secureSession, {
-              type:
-                notification.method === "item/completed" && message.role === "assistant"
-                  ? "thread.message.completed"
-                  : "thread.message.created",
+              type: messageEventType(message),
               thread: threadSummary,
               message,
             });
@@ -6067,6 +6078,35 @@ function appendMessageWithId(
   messages.push(message);
   messagesByThreadId.set(threadId, messages);
   return message;
+}
+
+function messageEventType(
+  message: ChatMessage,
+): "thread.message.created" | "thread.message.completed" {
+  return message.role !== "user" && message.state === "completed"
+    ? "thread.message.completed"
+    : "thread.message.created";
+}
+
+function finalizeStreamingMessagesForTurn(
+  messagesByThreadId: Map<string, ChatMessage[]>,
+  threadId: string,
+  turnId: string | undefined,
+  state: "completed" | "failed",
+) {
+  if (!turnId) {
+    return [];
+  }
+
+  const messages = messagesByThreadId.get(threadId) ?? [];
+  const finalized: ChatMessage[] = [];
+  for (const message of messages) {
+    if (message.role === "user" || message.turnId !== turnId || message.state !== "streaming") {
+      continue;
+    }
+    finalized.push(updateMessage(messagesByThreadId, threadId, message.id, { state }));
+  }
+  return finalized;
 }
 
 function upsertAppServerItemMessage(

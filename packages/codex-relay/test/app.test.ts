@@ -5817,13 +5817,16 @@ describe("Codex Relay server routes", () => {
       .split("\n")
       .filter((line) => line.startsWith("data: "))
       .map((line) => JSON.parse(line.slice("data: ".length)) as Record<string, unknown>);
-    const createdMessages = events
-      .filter((event) => event.type === "thread.message.created")
+    const activityMessages = events
+      .filter(
+        (event) =>
+          event.type === "thread.message.created" || event.type === "thread.message.completed",
+      )
       .map((event) => event.message);
 
     expect(response.status).toBe(200);
     expect(startTurn).toHaveBeenCalledWith(expect.objectContaining({ effort: "ultra" }));
-    expect(createdMessages).toContainEqual(
+    expect(activityMessages).toContainEqual(
       expect.objectContaining({
         id: "collab-spawn",
         kind: "subagentAction",
@@ -5834,7 +5837,7 @@ describe("Codex Relay server routes", () => {
         }),
       }),
     );
-    expect(createdMessages).toContainEqual(
+    expect(activityMessages).toContainEqual(
       expect.objectContaining({
         id: "subagent-started",
         kind: "subagentAction",

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 import Animated, {
   FadeIn,
   useAnimatedStyle,
@@ -56,7 +56,7 @@ export function PlanProgressBanner({
   return (
     <Animated.View entering={FadeIn.duration(160)} style={styles.bannerHost}>
       <Pressable
-        accessibilityLabel={`Plan progress: ${completedStepCount} of ${stepCount} steps completed${subagentAccessibilityText}`}
+        accessibilityLabel={`In progress. Plan progress: ${completedStepCount} of ${stepCount} steps completed${subagentAccessibilityText}`}
         accessibilityRole="button"
         accessibilityState={{ expanded: isExpanded }}
         accessibilityValue={{ max: stepCount, min: 0, now: completedStepCount }}
@@ -67,9 +67,21 @@ export function PlanProgressBanner({
         style={() => [styles.banner]}
       >
         <View style={styles.summaryContent}>
-          <ThemedText type="code" style={styles.label}>
-            Plan
-          </ThemedText>
+          <View style={styles.labelRow}>
+            <ThemedText type="code" style={styles.label}>
+              Plan
+            </ThemedText>
+            <View
+              accessibilityLabel="In progress"
+              accessibilityRole="text"
+              style={styles.statusBadge}
+            >
+              <ActivityIndicator color="#8CC7FF" size="small" />
+              <ThemedText type="code" style={styles.statusText}>
+                In progress
+              </ThemedText>
+            </View>
+          </View>
           <View style={styles.summaryRow}>
             {activeStep ? <PlanProgressMarker status={activeStep.status} /> : null}
             <ThemedText type="small" numberOfLines={1} style={styles.summaryText}>
@@ -263,11 +275,10 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   bannerHost: {
+    alignSelf: "stretch",
     elevation: 20,
-    left: Spacing.four,
-    position: "absolute",
-    right: Spacing.four,
-    top: 58,
+    marginBottom: Spacing.two,
+    marginHorizontal: Spacing.four,
     zIndex: 20,
   },
   bannerPressed: {
@@ -304,6 +315,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
+  labelRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
   marker: {
     alignItems: "center",
     borderRadius: 7,
@@ -337,6 +353,17 @@ const styles = StyleSheet.create({
   },
   stepTextPending: {
     color: Colors.dark.textSecondary,
+  },
+  statusBadge: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+  },
+  statusText: {
+    color: "#8CC7FF",
+    fontSize: 10,
+    fontWeight: "700",
+    lineHeight: 13,
   },
   summaryRow: {
     alignItems: "center",
